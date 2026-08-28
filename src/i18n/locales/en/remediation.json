@@ -1,0 +1,20 @@
+{
+  "stepBadge": "STEP 5: REMEDIATION GUIDE & DIAGNOSTIC LOGGING",
+  "title": "Technical Remediation Guide for Periapical Radiograph Acquisition",
+  "subtitle": "Based on the errors confirmed in Step 4, here are standard clinical corrective protocols to guide retakes.",
+  "saving": "Saving...",
+  "finishSession": "Finish Session",
+  "reviewedRadiograph": "Evaluated Radiograph",
+  "confirmedErrorsCount": "Confirmed Technical Errors ({{count}})",
+  "perfectFilmMsg": "✓ Radiograph meets all diagnostic criteria! No technical remediation required.",
+  "detailedGuideTitle": "Detailed Step-by-Step Technical Remediation Protocols",
+  "detailedGuideIntro": "When performing a retake for the patient, follow these clinical corrective procedures:",
+  "causeLabel": "Etiology / Clinical Appearance",
+  "correctionStepLabel": "Clinical Correction Protocol",
+  "perfectFilmTitle": "Excellent Radiograph - Diagnostic Standard Met",
+  "perfectFilmDesc": "The periapical radiograph clearly depicts the entire apical anatomy, balanced occlusal plane, and accurate vertical and horizontal angulations. No retake needed.",
+  "notesLabel": "Clinical Notes / Instructor Evaluation:",
+  "notesPlaceholder": "Enter additional clinical notes, e.g., Patient with deep palate, place cotton roll on bite block...",
+  "backToAnalysis": "Back to Analysis & Verification",
+  "finishAndReturnHome": "Finish Session & Return to Home"
+}

@@ -1,0 +1,104 @@
+# 📜 PeriApicaI — Version History & Changelog
+
+Documenting the evolution and release history of the **PeriApicaI** Next-Gen Multimodal AI Imaging Platform for Dental Radiology.
+
+---
+
+## 🚀 Version 2.6.0 (Current Stable Release — August 2026)
+
+### 🌟 Major Highlights & Architecture Upgrades
+- **Dual Independent Pipeline Architecture (Pipeline A & Pipeline B)**:
+  - Streamlined `analyzeRadiograph` in `src/services/aiService.ts` to strictly dispatch between **Pipeline A** (Technical Quality Assessment - ADA/EADMFR) and **Pipeline B** (Pathology 2D Segmentation & Spatial Grounding), purging redundant `both` mode dead code.
+- **Admin Portal UI Redesign & Telemetry Interface**:
+  - Overhauled Admin Portal interface (`AdminPortalModal.tsx`) with modern metallic charcoal/deep slate styling, streamlined tab navigation (Audit Logs, System Health, Data Cleanup, Telemetry), responsive metric cards, date-range filters, and interactive review modals.
+- **Admin Data Retrieval & Synchronization Engine**:
+  - Refactored server-side Admin data retrieval pipelines (`/api/admin/*`, `storageAdapter.ts`, `systemMetadataService.ts`) to fetch live metrics directly from storage adapters, execute batch deletions, support real-time Firestore listeners (`initFirestoreRealtimeListeners`), and aggregate daily snapshot metadata efficiently.
+- **Admin Login Stale Data Flash Elimination**:
+  - Fixed a UI flash bug in `AdminPortalModal.tsx` where old cached logs or stale system metadata were briefly displayed upon admin login before fresh data finished loading. Enabled synchronous skeleton verification state (`isVerifyingToken`) and proactive cache resets on login/logout.
+- **JSON Schema Optimization & Token Efficiency**:
+  - Streamlined `DENTAL_ANALYSIS_SCHEMA` and `PATHOLOGY_SEGMENT_SCHEMA` field descriptions to minimize token overhead, enhance inference response speed, and strictly enforce Gemini Vision structured output compliance.
+- **End-to-End Logic & Middleware Audit Fixes**:
+  - Refactored `isValidBase64Image` in `src/server/middleware/validation.ts` to replace fragile regex data URI parsing with robust `;base64,` splitting, supporting all image formats (JPEG, PNG, SVG, WEBP) and URL-safe base64 strings.
+  - Adjusted Express security headers in `server.ts` to allow embedding in iframe previews (`frame-ancestors 'self' *`) while maintaining security posture.
+- **Deep Codebase Optimization & Dead Code Pruning**:
+  - Audited the entire codebase to purge unused imports (`SystemMetrics`, `ExternalLink`, `AlertCircle`, `X`, `compressImage`, `TaxonomyErrorItem`, `crypto`), duplicate type declarations (`PathologySegmentResult`), and obsolete helper routines (`getUserRole`, `setUserRole`, `getRoleLabel`).
+- **DRY Refactoring & Code Duplication Purge**:
+  - Backend: Extracted redundant real-time snapshot delta synchronization logic for `reports`, `seg_reports`, and `bugs` into a single reusable generic helper `setupCollectionStreamListener` in `src/server/services/storageAdapter.ts`.
+  - Frontend: Centralized repetitive pagination calculation states and rendering structures across `ReportsTab`, `PathologyLogsPanel`, and `BugsTab` using a reusable `usePagination` hook and an elegant, ellipsis-supporting `<PaginationControls />` UI component.
+- **Script Directory Restructuring**:
+  - Cleaned up obsolete diagnostic scripts (`scripts/diagnoseDrift.ts`) and removed unneeded package commands to streamline container runtime dependencies.
+- **Tidied Project Documentation & Logs**:
+  - Separated historical changelogs into a dedicated `version_logs.md` file while refining `README.md` to focus purely on product overview, system architecture (`Mermaid`), and key capabilities.
+
+---
+
+## ⚡ Version 2.5.0 (August 2026)
+
+### 🌟 Major Highlights & Architecture Upgrades
+- **Dual-Pipeline Concurrent Execution (`both` mode)**:
+  - Unified `analyzeRadiograph` pipeline executing **Pipeline A** (Technical Quality Assessment) and **Pipeline B** (Pathology 2D Segmentation) concurrently via `Promise.all` to minimize diagnostic latency.
+- **Dual-Model Consensus & Automatic Failover Engine**:
+  - Concurrent inference using `gemini-flash-latest`, `gemini-pro-latest`, and `gemini-flash-lite-latest` with automatic retry and quota-exhaustion fallback loops.
+- **Interactive Vertex Polygon Canvas**:
+  - Custom React SVG render engine converting normalized $[0, 1000]$ spatial grounding coordinates into smooth, editable pathology contours with drag-and-drop anchor vertices for clinician verification.
+- **Web Worker OffscreenCanvas Image Optimization**:
+  - Background thread-offloaded 4K/8K X-ray image decoding and multi-stage step-down resizing (50% scale decrements) to preserve tiny dental radiologic details while keeping payloads under 1MB.
+- **4-Domain Adaptive Color Architecture**:
+  - **Obsidian Platinum (`slate-900`/`slate-100`)**: Header & Global Navigation.
+  - **Royal Blue (`blue-600`)**: Pipeline A — Technical Exposure & Alignment Assessment.
+  - **Deep Ocean Teal (`teal-600`)**: Pipeline B — Pathology Polygon Grounding & Recommendations.
+  - **Metallic Charcoal & Deep Slate**: Admin Portal & System Telemetry.
+- **Real-Time SSE Streaming**:
+  - Server-Sent Events (SSE) streaming endpoint delivering zero-latency processing status and incremental diagnostic results.
+- **Admin Audit Telemetry & Cloud Synchronization**:
+  - Real-time snapshot listener integration with Firebase Firestore (`reports` and `path_reports` collections), live review modals, CSV/JSON report exports, and bug reporting webhooks.
+
+---
+
+## 🛠️ Version 2.2.0 — Real-Time Streaming & Cloud Telemetry (July 2026)
+
+### 🚀 Enhancements
+- **SSE Stream Pipeline**: Introduced backend streaming for Gemini Vision API responses to eliminate request timeouts on complex X-ray analyses.
+- **Firestore Audit Persistence**: Integrated Firebase Firestore for long-term clinical report storage, audit logs, and pathology verification state tracking.
+- **Auto-Retry & Fallback Handler**: Robust error interceptors handling rate-limits (HTTP 429), malformed JSON responses, and API key switches seamlessly.
+- **BYOK (Bring Your Own Key) Support**: Added user-supplied custom Gemini API key configuration option with instant validation.
+
+---
+
+## 🔬 Version 2.0.0 — Pathology 2D Spatial Grounding (June 2026)
+
+### 🚀 Enhancements
+- **Pathology Segmentation Pipeline**: Added support for 8 anatomical and pathological dental lesion categories:
+  1. Periapical Radiolucency / Cyst (*Thấu quang quanh chóp / Nang*)
+  2. Bone Loss / Periodontal Defect (*Tiêu xương ổ / vách nha chu*)
+  3. Existing Restoration (*Miếng trám răng / Hiện có*)
+  4. Endodontic Canal Filling (*Chất trám bít ống tủy / Nội nha*)
+  5. Caries / Dentin Involvement (*Sâu ngà răng / Tủy*)
+  6. Impacted / Erupted Teeth (*Răng ngầm / Mọc lệch*)
+  7. Crown / Fixed Prosthetics (*Chụp / Mão răng*)
+  8. Calculus / Subgingival Deposit (*Vôi răng dưới nướu*)
+- **Spatial Coordinate Normalization**: Implemented $[0, 1000]$ bounding polygon coordinate parsing from Gemini Vision structured outputs.
+
+---
+
+## 🌐 Version 1.5.0 — CAD Metrics & Internationalization (May 2026)
+
+### 🚀 Enhancements
+- **4 Automated CAD Quantitative Metrics**:
+  - Periapical Bone Gap Measurement (mm)
+  - Occlusal Plane Tilt Angle (°)
+  - Crown-to-Root Ratio Calculation
+  - Proximal Tooth Overlap Assessment (%)
+- **Bilingual i18n Engine**:
+  - Full Vietnamese (`VI`) and English (`EN`) localization across all diagnostic labels, clinical recommendation cards, technical failure dictionaries, and admin interfaces.
+
+---
+
+## 🏁 Version 1.0.0 — Initial Release (April 2026)
+
+### 🚀 Enhancements
+- **Core Technical Quality Assessment**:
+  - Standardized evaluation of 12 dental radiograph positioning and exposure technical error categories (Cone-cut, Elongation, Foreshortening, Overlap, Motion Blur, Underexposure, Overexposure, etc.).
+- **Base Web App & Viewer**:
+  - Interactive X-ray viewer with zoom, pan, brightness, contrast, and inversion controls.
+  - Basic JSON output generation and local session state.

@@ -1,0 +1,76 @@
+{
+  "title": "Trợ lý AI đào tạo X-quang Cận chóp",
+  "descriptionIntro": "Chào mừng bạn đến với Nền tảng Huấn luyện X-quang Cận chóp ứng dụng AI. Đây là giải pháp công nghệ tích hợp trí tuệ nhân tạo nhằm hỗ trợ công tác đào tạo và hoàn thiện kỹ năng",
+  "descriptionPeriapical": "chụp và phân tích phim cận chóp",
+  "descriptionMiddle": ". Đồng thời, hệ thống cung cấp",
+  "descriptionAnalytics": "công cụ thống kê, giám sát quá trình thực hành",
+  "descriptionEnd": ", từ đó giúp đánh giá tiến độ và đảm bảo chất lượng đầu ra.",
+  "startButton": "Bắt đầu Kiểm tra Lỗi Chụp Phim",
+  "startPathologyButton": "Bắt đầu Phát hiện Bất thường",
+  "modeSelectionTitle": "Chọn Chế Độ Vận Hành",
+  "modeClassicTitle": "Kiểm tra Lỗi Chụp Phim",
+  "modeClassicBadge": "Chất lượng phim ⚡",
+  "modeClassicDesc": "Nhận diện 12 lỗi kỹ thuật chụp cận chóp, hướng dẫn góc chụp & tư thế điều chỉnh.",
+  "modePathologyTitle": "Phát hiện & Phân vùng Bất thường",
+  "modePathologyBadge": "Khoanh vùng AI 🔬",
+  "modePathologyDesc": "Khoanh vùng hình ảnh và tự động nhận diện các cấu trúc cũng như bất thường trên phim X-quang.",
+  "supportedDomainsTitle": "Các loại lỗi kỹ thuật được hỗ trợ",
+  "domain1Title": "Lỗi đặt bộ nhận ảnh",
+  "domain1Errors": [
+    "Mất vùng cuống răng",
+    "Mất vùng thân răng, phía gần/xa",
+    "Không khớp vị trí răng mục tiêu",
+    "Mặt phẳng nhai bị nghiêng"
+  ],
+  "domain2Title": "Lỗi góc độ & Hình học",
+  "domain2Errors": [
+    "Hình ảnh bị kéo dài",
+    "Hình ảnh bị ngắn nét",
+    "Chồng vệt tiếp xúc kẽ răng",
+    "Cắt gọt chùm tia"
+  ],
+  "domain3Title": "Lỗi phát tia & Xử lý phim",
+  "domain3Errors": [
+    "Thiếu tia / Thừa tia",
+    "Bị nhòe do chuyển động",
+    "Đặt ngược bộ nhận ảnh",
+    "Chồng hai lần phát tia"
+  ],
+  "pathologyStructuresTitle": "Các cấu trúc & Bất thường được hỗ trợ",
+  "pathologyDomain1Title": "Bất thường Quanh chóp & Nha chu",
+  "pathologyDomain1Items": [
+    "Thấu quang quanh chóp",
+    "Tiêu xương ổ răng"
+  ],
+  "pathologyDomain2Title": "Sâu răng & Thay đổi Cấu trúc Tủy",
+  "pathologyDomain2Items": [
+    "Thấu quang men răng",
+    "Thấu quang ngà răng"
+  ],
+  "pathologyDomain3Title": "Phục hình & Cấy ghép hiện có",
+  "pathologyDomain3Items": [
+    "Chụp / Mão răng",
+    "Miếng trám hiện có",
+    "Đã trám bít ống tủy",
+    "Trụ Implant nha khoa"
+  ],
+  "workflowTitle": "Quy trình thẩm định kỹ thuật 3 bước",
+  "workflowStep1Title": "Thiết lập Cấu hình",
+  "workflowStep1Desc": "Chọn kỹ thuật chụp (Song song / Phân giác), loại bộ nhận ảnh và vị trí răng mục tiêu.",
+  "workflowStep2Title": "Tải phim & Phân tích lỗi",
+  "workflowStep2Desc": "Tải phim X-quang. Gemini tự động đối chiếu và chẩn đoán 12 lỗi kỹ thuật được hỗ trợ.",
+  "workflowStep3Title": "Xác minh & Khắc phục kỹ thuật",
+  "workflowStep3Desc": "Đồng ý hoặc chỉnh sửa lỗi, xem hướng dẫn điều chỉnh và lưu nhật ký.",
+  "pathologyWorkflowTitle": "Quy trình phân đoạn 3 bước",
+  "pathologyWorkflowStep1Title": "Thiết lập Cấu hình",
+  "pathologyWorkflowStep1Desc": "Chọn kỹ thuật chụp (Song song / Phân giác), loại bộ nhận ảnh và vị trí răng mục tiêu.",
+  "pathologyWorkflowStep2Title": "Tải phim & Phân đoạn bất thường",
+  "pathologyWorkflowStep2Desc": "Tải phim X-quang. Gemini tự động phân vùng và nhận diện 8 cấu trúc được hỗ trợ.",
+  "pathologyWorkflowStep3Title": "Xác minh & Gợi ý xử trí",
+  "pathologyWorkflowStep3Desc": "Đồng ý hoặc chỉnh sửa các bất thường, xem gợi ý hướng dẫn xử trí và lưu nhật ký.",
+  "disclaimerTitle": "Lưu ý khi trải nghiệm ứng dụng",
+  "disclaimerBadge": "Giai đoạn thử nghiệm ban đầu (v2.5)",
+  "disclaimerDesc": "PeriApicaI đang trong giai đoạn phát triển thử nghiệm ban đầu. Các mô tả lỗi kỹ thuật phim X-quang và phân vùng bất thường do AI xuất ra chỉ mang tính chất hỗ trợ học tập & tham khảo giáo dục, có thể chưa chính xác 100% trong một số trường hợp lâm sàng.",
+  "disclaimerAdvice": "Rất mong quý thầy cô, bác sĩ và học viên đồng hành trải nghiệm, đối chiếu lâm sàng và đóng góp ý kiến để hoàn thiện hệ thống.",
+  "disclaimerConfirm": "Tôi đã hiểu & Bắt đầu"
+}

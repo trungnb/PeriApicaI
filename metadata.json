@@ -1,0 +1,8 @@
+{
+  "name": "Remix PeriApical",
+  "description": "An AI assistant for Oral Radiology.",
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}

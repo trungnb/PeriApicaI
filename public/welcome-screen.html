@@ -1,0 +1,904 @@
+<!DOCTYPE html>
+<html lang="vi" class="h-full">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>PeriApicaI - Màn hình Chào đón | Trợ lý AI X-quang Cận chóp</title>
+  
+  <!-- Tailwind CSS CDN -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      darkMode: 'class',
+      theme: {
+        extend: {
+          colors: {
+            brand: {
+              50: '#eff6ff',
+              100: '#dbeafe',
+              500: '#3b82f6',
+              600: '#2563eb',
+              700: '#1d4ed8',
+            },
+            teal: {
+              50: '#f0fdfa',
+              100: '#ccfbf1',
+              500: '#14b8a6',
+              600: '#0d9488',
+              700: '#0f766e',
+              900: '#134e4a',
+              950: '#042f2e',
+            }
+          },
+          boxShadow: {
+            '2xs': '0 1px 2px 0 rgba(0, 0, 0, 0.05)',
+            'xs': '0 1px 3px 0 rgba(0, 0, 0, 0.1), 0 1px 2px -1px rgba(0, 0, 0, 0.1)',
+          }
+        }
+      }
+    }
+  </script>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800;900&family=JetBrains+Mono:wght@500;700;800&display=swap');
+    
+    body {
+      font-family: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    }
+    .font-mono {
+      font-family: 'JetBrains Mono', monospace;
+    }
+    
+    /* Scrollbar styling */
+    ::-webkit-scrollbar {
+      width: 6px;
+      height: 6px;
+    }
+    ::-webkit-scrollbar-track {
+      background: transparent;
+    }
+    ::-webkit-scrollbar-thumb {
+      background: rgba(148, 163, 184, 0.4);
+      border-radius: 9999px;
+    }
+    ::-webkit-scrollbar-thumb:hover {
+      background: rgba(148, 163, 184, 0.7);
+    }
+  </style>
+</head>
+<body class="h-[100dvh] w-full overflow-hidden bg-slate-50 text-slate-800 dark:bg-slate-950 dark:text-slate-100 font-sans flex flex-col selection:bg-blue-100 selection:text-blue-900 transition-colors duration-200">
+
+  <!-- ========================================================================= -->
+  <!-- 1. FULL APPLICATION HEADER BAR                                            -->
+  <!-- ========================================================================= -->
+  <header class="bg-slate-50/95 dark:bg-slate-950/95 border-b border-slate-200 dark:border-slate-800 text-slate-900 dark:text-slate-100 sticky top-0 z-40 backdrop-blur-md shadow-2xs shrink-0">
+    <div class="max-w-7xl mx-auto px-2 sm:px-4 lg:px-8 py-2.5">
+      <div class="flex items-center justify-between gap-1.5 lg:gap-3 flex-nowrap">
+        
+        <!-- Brand Logo & Name -->
+        <div id="brand-logo-btn" class="flex items-center space-x-2 sm:space-x-2.5 cursor-pointer group shrink-0">
+          <div class="relative flex items-center justify-center shrink-0">
+            <!-- Aura Glow -->
+            <div id="logo-aura" class="absolute -inset-1 rounded-xl blur-xs transition-all duration-300 opacity-[0.55] group-hover:opacity-85 bg-sky-500/60"></div>
+            
+            <!-- Logo Box -->
+            <div id="logo-box" class="relative z-10 w-8 h-8 sm:w-9 sm:h-9 rounded-xl bg-slate-900 flex items-center justify-center shrink-0 overflow-hidden border border-sky-500/60 shadow-[0_0_8px_rgba(56,189,248,0.3)] transition-all duration-300">
+              <svg class="w-5 h-5 text-sky-400" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M12 2v20M2 12h20M4.93 4.93l14.14 14.14M4.93 19.07L19.07 4.93"/>
+                <circle cx="12" cy="12" r="8"/>
+              </svg>
+            </div>
+          </div>
+
+          <div class="hidden sm:block">
+            <h1 class="text-base sm:text-lg lg:text-xl font-extrabold text-slate-900 dark:text-slate-100 tracking-tight flex items-center gap-1.5 sm:gap-2">
+              <span class="flex items-center">
+                PeriApic
+                <span id="logo-ai-gradient" class="font-black ml-0 transition-all duration-300 bg-clip-text text-transparent bg-gradient-to-r from-sky-500 via-blue-400 to-indigo-400 dark:from-sky-300 dark:via-blue-300 dark:to-indigo-300 drop-shadow-[0_0_6px_rgba(56,189,248,0.5)]">
+                  aI
+                </span>
+              </span>
+              <span class="inline-flex items-center text-[9px] font-mono font-bold tracking-tight text-slate-600 dark:text-slate-300 bg-slate-200/90 dark:bg-slate-800/90 px-1.5 py-0.5 rounded-full border border-slate-300/80 dark:border-slate-700/80 leading-none shadow-2xs self-baseline sm:self-center">
+                v2.4
+              </span>
+            </h1>
+          </div>
+        </div>
+
+        <!-- Workflow Steps Navigator (Progress Stepper) -->
+        <nav aria-label="Progress Stepper" class="flex items-center space-x-0.5 md:space-x-1 bg-slate-200/90 dark:bg-slate-900/90 p-1 rounded-xl border border-slate-300/80 dark:border-slate-800 shadow-inner shrink-0">
+          
+          <!-- Step 1: Home (Active) -->
+          <button type="button" class="flex items-center justify-center py-1 rounded-lg text-xs transition-all px-1.5 lg:px-2.5 bg-slate-900 dark:bg-slate-100 text-white dark:text-slate-900 font-bold shadow-xs border border-slate-950 dark:border-white cursor-default">
+            <span class="w-4 h-4 rounded-full flex items-center justify-center text-[10px] font-bold shrink-0 bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100 font-black shadow-xs">1</span>
+            <span id="nav-step-1" class="whitespace-nowrap text-xs hidden lg:inline-block ml-1.5 font-bold">Trang chủ</span>
+          </button>
+
+          <div class="hidden lg:block w-1.5 xl:w-2.5 h-0.5 rounded-full mx-0.5 bg-slate-300 dark:bg-slate-700"></div>
+
+          <!-- Step 2: Config -->
+          <button type="button" onclick="showToast('Vui lòng bấm \'Bắt đầu\' để sang bước Cấu hình')" class="flex items-center justify-center py-1 rounded-lg text-xs transition-all px-1.5 lg:px-2.5 text-slate-400 dark:text-slate-500 font-medium cursor-pointer hover:bg-slate-300/60 dark:hover:bg-slate-800/60 opacity-80">
+            <span class="w-4 h-4 rounded-full flex items-center justify-center text-[10px] font-bold shrink-0 bg-transparent text-slate-500 dark:text-slate-400">2</span>
+            <span id="nav-step-2" class="whitespace-nowrap text-xs hidden xl:inline-block ml-1.5">Cấu hình</span>
+          </button>
+
+          <div class="hidden lg:block w-1.5 xl:w-2.5 h-0.5 rounded-full mx-0.5 bg-slate-300 dark:bg-slate-700"></div>
+
+          <!-- Step 3: Upload -->
+          <button type="button" onclick="showToast('Vui lòng hoàn thành thiết lập ở bước Cấu hình')" class="flex items-center justify-center py-1 rounded-lg text-xs transition-all px-1.5 lg:px-2.5 text-slate-400 dark:text-slate-500 font-medium cursor-pointer hover:bg-slate-300/60 dark:hover:bg-slate-800/60 opacity-80">
+            <span class="w-4 h-4 rounded-full flex items-center justify-center text-[10px] font-bold shrink-0 bg-transparent text-slate-500 dark:text-slate-400">3</span>
+            <span id="nav-step-3" class="whitespace-nowrap text-xs hidden xl:inline-block ml-1.5">Tải ảnh</span>
+          </button>
+
+          <div class="hidden lg:block w-1.5 xl:w-2.5 h-0.5 rounded-full mx-0.5 bg-slate-300 dark:bg-slate-700"></div>
+
+          <!-- Step 4: Analysis -->
+          <button type="button" onclick="showToast('Chưa có ảnh X-quang để phân tích')" class="flex items-center justify-center py-1 rounded-lg text-xs transition-all px-1.5 lg:px-2.5 text-slate-400 dark:text-slate-500 font-medium cursor-not-allowed opacity-60">
+            <span class="w-4 h-4 rounded-full flex items-center justify-center text-[10px] font-bold shrink-0 bg-transparent text-slate-500 dark:text-slate-400">4</span>
+            <span id="nav-step-4" class="whitespace-nowrap text-xs hidden xl:inline-block ml-1.5">Phân tích & Xác minh</span>
+          </button>
+
+          <div class="hidden lg:block w-1.5 xl:w-2.5 h-0.5 rounded-full mx-0.5 bg-slate-300 dark:bg-slate-700"></div>
+
+          <!-- Step 5: Remediation -->
+          <button type="button" onclick="showToast('Chưa có kết quả chẩn đoán')" class="flex items-center justify-center py-1 rounded-lg text-xs transition-all px-1.5 lg:px-2.5 text-slate-400 dark:text-slate-500 font-medium cursor-not-allowed opacity-60">
+            <span class="w-4 h-4 rounded-full flex items-center justify-center text-[10px] font-bold shrink-0 bg-transparent text-slate-500 dark:text-slate-400">5</span>
+            <span id="nav-step-5" class="whitespace-nowrap text-xs hidden xl:inline-block ml-1.5">Khuyến nghị</span>
+          </button>
+
+        </nav>
+
+        <!-- Right Action Group -->
+        <div class="flex items-center space-x-1.5 lg:space-x-2 shrink-0">
+          
+          <!-- Language Switcher (Desktop) -->
+          <button
+            id="lang-toggle-desktop"
+            type="button"
+            class="hidden lg:inline-flex relative items-center p-0.5 w-[72px] h-8 rounded-xl border shadow-inner select-none transition-all shrink-0 active:scale-95 bg-slate-200/90 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 border-slate-300/80 dark:border-slate-700 cursor-pointer"
+            title="Đổi ngôn ngữ VI / EN"
+          >
+            <div id="lang-slider" class="absolute top-0.5 bottom-0.5 left-0.5 w-[calc(50%-2px)] rounded-[10px] shadow-xs border bg-slate-900 dark:bg-slate-100 border-slate-950 dark:border-white transition-transform duration-200 ease-out pointer-events-none translate-x-0"></div>
+            <span id="lang-text-vi" class="relative z-10 w-1/2 flex items-center justify-center text-xs transition-colors duration-150 pointer-events-none text-white dark:text-slate-900 font-extrabold">VI</span>
+            <span id="lang-text-en" class="relative z-10 w-1/2 flex items-center justify-center text-xs transition-colors duration-150 pointer-events-none text-slate-600 dark:text-slate-400 font-semibold">EN</span>
+          </button>
+
+          <!-- Language Switcher (Mobile) -->
+          <button
+            id="lang-toggle-mobile"
+            type="button"
+            class="lg:hidden flex items-center justify-center w-8 h-8 rounded-xl border shadow-inner select-none transition-all shrink-0 active:scale-95 text-[11px] font-extrabold tracking-wide bg-slate-200/90 dark:bg-slate-800 hover:bg-slate-300 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 border-slate-300/80 dark:border-slate-700 cursor-pointer"
+            title="Đổi ngôn ngữ"
+          >
+            <span id="mobile-lang-label">VI</span>
+          </button>
+
+          <!-- Theme Toggle (Desktop) -->
+          <button
+            id="theme-toggle-desktop"
+            type="button"
+            class="hidden lg:inline-flex relative items-center p-0.5 w-[72px] h-8 rounded-xl border shadow-inner select-none transition-all shrink-0 cursor-pointer active:scale-95 bg-slate-200/90 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 border-slate-300/80 dark:border-slate-700"
+            title="Bật/tắt chế độ tối (Dark Mode)"
+          >
+            <div id="theme-slider" class="absolute top-0.5 bottom-0.5 left-0.5 w-[calc(50%-2px)] rounded-[10px] shadow-xs border bg-white dark:bg-slate-700 border-slate-200 dark:border-slate-600 transition-transform duration-200 ease-out pointer-events-none translate-x-0 dark:translate-x-full"></div>
+            <span class="relative z-10 w-1/2 flex items-center justify-center transition-colors duration-150 pointer-events-none text-amber-500 dark:text-slate-500">
+              <svg class="w-4 h-4" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2"/><path d="M12 20v2"/><path d="m4.93 4.93 1.41 1.41"/><path d="m17.66 17.66 1.41 1.41"/><path d="M2 12h2"/><path d="M20 12h2"/><path d="m6.34 17.66-1.41 1.41"/><path d="m19.07 4.93-1.41 1.41"/></svg>
+            </span>
+            <span class="relative z-10 w-1/2 flex items-center justify-center transition-colors duration-150 pointer-events-none text-slate-500 dark:text-sky-400 dark:font-extrabold">
+              <svg class="w-4 h-4" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z"/></svg>
+            </span>
+          </button>
+
+          <!-- Theme Toggle (Mobile) -->
+          <button
+            id="theme-toggle-mobile"
+            type="button"
+            class="lg:hidden flex items-center justify-center w-8 h-8 rounded-xl border shadow-inner select-none transition-all shrink-0 cursor-pointer active:scale-95 bg-slate-200/90 dark:bg-slate-800 hover:bg-slate-300 dark:hover:bg-slate-700 border-slate-300/80 dark:border-slate-700"
+            title="Bật/tắt chế độ tối"
+          >
+            <svg id="mobile-sun" class="w-4 h-4 text-amber-500 dark:hidden" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2"/><path d="M12 20v2"/><path d="m4.93 4.93 1.41 1.41"/><path d="m17.66 17.66 1.41 1.41"/><path d="M2 12h2"/><path d="M20 12h2"/><path d="m6.34 17.66-1.41 1.41"/><path d="m19.07 4.93-1.41 1.41"/></svg>
+            <svg id="mobile-moon" class="w-4 h-4 text-sky-400 hidden dark:block" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z"/></svg>
+          </button>
+
+          <!-- Bug Report Button -->
+          <button
+            id="bug-btn"
+            type="button"
+            class="flex items-center justify-center p-1.5 lg:px-2.5 h-8 rounded-xl bg-rose-50 hover:bg-rose-100 text-rose-700 dark:bg-rose-950/40 dark:hover:bg-rose-900/50 dark:text-rose-300 dark:border-rose-800/60 font-semibold text-xs transition-all shadow-xs border border-rose-200 shrink-0 cursor-pointer active:scale-95 w-8 lg:w-[115px]"
+            title="Gửi báo cáo sự cố kỹ thuật"
+          >
+            <svg class="w-4 h-4 lg:w-3.5 lg:h-3.5 text-rose-500 dark:text-rose-400 shrink-0" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m8 2 1.88 1.88"/><path d="M14.12 3.88 16 2"/><path d="M9 7.13v-1a3.003 3.003 0 1 1 6 0v1"/><path d="M12 20c-3.3 0-6-2.7-6-6v-3a4 4 0 0 1 4-4h4a4 4 0 0 1 4 4v3c0 3.3-2.7 6-6 6"/><path d="M12 20v-9"/><path d="M6.53 9C4.6 8.8 3 7.1 3 5"/><path d="M6 13H2"/><path d="M3 21c0-2.1 1.7-3.9 3.8-4"/><path d="M20.97 5c0 2.1-1.6 3.8-3.5 4"/><path d="M22 13h-4"/><path d="M17.2 17c2.1.1 3.8 1.9 3.8 4"/></svg>
+            <span id="btn-report-bug-text" class="hidden lg:inline ml-1.5 whitespace-nowrap">Báo lỗi</span>
+          </button>
+
+          <!-- Admin Portal Button -->
+          <button
+            id="admin-btn"
+            type="button"
+            class="flex items-center justify-center p-1.5 lg:px-2.5 h-8 rounded-xl bg-slate-900 hover:bg-slate-800 text-white dark:bg-slate-100 dark:hover:bg-white dark:text-slate-900 font-bold text-xs transition-all shadow-xs shrink-0 cursor-pointer active:scale-95 w-8 lg:w-[115px] border border-slate-950 dark:border-white"
+            title="Cổng Quản trị viên"
+          >
+            <svg class="w-4 h-4 lg:w-3.5 lg:h-3.5 shrink-0 text-white dark:text-slate-900" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z"/><path d="m9 12 2 2 4-4"/></svg>
+            <span id="btn-admin-text" class="hidden lg:inline ml-1.5 whitespace-nowrap">Admin</span>
+          </button>
+
+        </div>
+      </div>
+    </div>
+  </header>
+
+  <!-- ========================================================================= -->
+  <!-- 2. MAIN SCROLLABLE WELCOME VIEW                                          -->
+  <!-- ========================================================================= -->
+  <main class="flex-1 w-full relative flex flex-col min-h-0 overflow-y-auto p-3 sm:p-5 lg:p-6">
+    <div class="w-full max-w-5xl xl:max-w-6xl mx-auto space-y-3 sm:space-y-4 my-auto">
+      
+      <!-- Hero Card -->
+      <div class="bg-white dark:bg-slate-800/90 rounded-2xl p-4 sm:p-5 lg:p-6 border border-slate-200/80 dark:border-slate-700/80 shadow-xs space-y-3 sm:space-y-3.5 relative overflow-hidden transition-all">
+        <div class="space-y-2 sm:space-y-2.5 relative z-10">
+          
+          <h2 id="welcome-title" class="text-lg sm:text-2xl lg:text-[26px] font-bold tracking-tight text-slate-900 dark:text-slate-100 leading-tight">
+            Trợ lý AI đào tạo X-quang Cận chóp
+          </h2>
+
+          <p id="welcome-desc" class="text-slate-600 dark:text-slate-300 text-xs sm:text-sm md:text-base leading-relaxed w-full">
+            Chào mừng bạn đến với Nền tảng Huấn luyện X-quang Cận chóp ứng dụng AI. Đây là giải pháp công nghệ tích hợp trí tuệ nhân tạo nhằm hỗ trợ công tác đào tạo và hoàn thiện kỹ năng <strong id="highlight-target" class="font-semibold text-blue-700 dark:text-sky-400">chụp và phân tích phim cận chóp</strong>. Đồng thời, hệ thống cung cấp <strong class="text-slate-800 dark:text-slate-200 font-semibold">công cụ thống kê, giám sát quá trình thực hành</strong>, từ đó giúp đánh giá tiến độ và đảm bảo chất lượng đầu ra.
+          </p>
+
+          <!-- Mode Selector -->
+          <div class="pt-0.5 sm:pt-1 space-y-1.5 sm:space-y-2">
+            <div id="mode-select-title" class="text-[11px] sm:text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">
+              Chọn Chế Độ Vận Hành
+            </div>
+
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-2.5 sm:gap-3.5">
+              <!-- Mode 1: Classic -->
+              <button
+                id="mode-classic-btn"
+                type="button"
+                class="p-3 sm:p-3.5 rounded-xl border text-left transition-all relative flex flex-col justify-center cursor-pointer border-blue-600 bg-blue-50/60 dark:bg-blue-950/40 dark:border-blue-500 ring-2 ring-blue-600/20 shadow-xs"
+              >
+                <div class="flex items-center justify-between gap-2">
+                  <div class="flex items-center space-x-2.5">
+                    <span class="p-1.5 rounded-lg bg-blue-100 dark:bg-blue-900/60 text-blue-700 dark:text-blue-300 shrink-0">
+                      <svg class="w-4 h-4" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z"/><path d="m9 12 2 2 4-4"/></svg>
+                    </span>
+                    <span id="mode-classic-label" class="font-bold text-slate-900 dark:text-slate-100 text-xs sm:text-sm">
+                      Kiểm tra Lỗi Chụp Phim
+                    </span>
+                  </div>
+                  <span id="mode-classic-badge" class="px-2 py-0.5 rounded-full text-[10px] sm:text-[11px] font-bold bg-blue-100 text-blue-800 dark:bg-blue-900/60 dark:text-blue-300 shrink-0">
+                    Chất lượng phim ⚡
+                  </span>
+                </div>
+                <div id="classic-dot" class="absolute top-2 right-2 w-1.5 h-1.5 rounded-full bg-blue-600 dark:bg-blue-400"></div>
+              </button>
+
+              <!-- Mode 2: Pathology -->
+              <button
+                id="mode-pathology-btn"
+                type="button"
+                class="p-3 sm:p-3.5 rounded-xl border text-left transition-all relative flex flex-col justify-center cursor-pointer border-slate-200 dark:border-slate-700 bg-slate-50/50 dark:bg-slate-900/40 hover:border-slate-300 dark:hover:border-slate-600"
+              >
+                <div class="flex items-center justify-between gap-2">
+                  <div class="flex items-center space-x-2.5">
+                    <span class="p-1.5 rounded-lg bg-teal-100 dark:bg-teal-900/60 text-teal-700 dark:text-teal-300 shrink-0">
+                      <svg class="w-4 h-4" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m12 3-1.912 5.813a2 2 0 0 1-1.275 1.275L3 12l5.813 1.912a2 2 0 0 1 1.275 1.275L12 21l1.912-5.813a2 2 0 0 1 1.275-1.275L21 12l-5.813-1.912a2 2 0 0 1-1.275-1.275L12 3Z"/><path d="M5 3v4"/><path d="M19 17v4"/><path d="M3 5h4"/><path d="M17 19h4"/></svg>
+                    </span>
+                    <span id="mode-pathology-label" class="font-bold text-slate-900 dark:text-slate-100 text-xs sm:text-sm">
+                      Phát hiện & Phân vùng Bất thường
+                    </span>
+                  </div>
+                  <span id="mode-pathology-badge" class="px-2 py-0.5 rounded-full text-[10px] sm:text-[11px] font-bold bg-teal-100 text-teal-800 dark:bg-teal-900/60 dark:text-teal-300 shrink-0">
+                    Khoanh vùng AI 🔬
+                  </span>
+                </div>
+                <div id="pathology-dot" class="hidden absolute top-2 right-2 w-1.5 h-1.5 rounded-full bg-teal-600 dark:bg-teal-400"></div>
+              </button>
+            </div>
+          </div>
+
+          <!-- Main Start Action Button -->
+          <div class="pt-2 sm:pt-2.5 flex items-center justify-center">
+            <button
+              id="start-button"
+              type="button"
+              class="w-full max-w-sm sm:w-[340px] h-11 sm:h-12 px-6 rounded-xl text-white font-bold text-xs sm:text-sm flex items-center justify-center space-x-2 transition-all shadow-md hover:shadow-lg cursor-pointer active:scale-95 shrink-0 bg-blue-600 hover:bg-blue-700 dark:bg-blue-600 dark:hover:bg-blue-500 shadow-blue-600/20"
+            >
+              <span id="start-btn-text" class="whitespace-nowrap">Bắt đầu Kiểm tra Lỗi Chụp Phim</span>
+              <svg class="w-4 h-4 shrink-0" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"/><path d="m12 5 7 7-7 7"/></svg>
+            </button>
+          </div>
+
+        </div>
+      </div>
+
+      <!-- Section 2: Error Domains / Pathology Findings -->
+      <div id="section-domains" class="space-y-1.5 sm:space-y-2 transition-all duration-200">
+        
+        <!-- Classic Error Domains -->
+        <div id="classic-domains" class="space-y-1.5 sm:space-y-2">
+          <div class="flex items-center space-x-1.5">
+            <svg class="w-4 h-4 text-blue-600 dark:text-sky-400" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 18h8"/><path d="M3 22h18"/><path d="m14 22 .92-4.6A4 4 0 0 0 11 13H9a4 4 0 0 0-3.92 4.4L6 22"/><circle cx="10" cy="8" r="5"/><circle cx="10" cy="8" r="2"/></svg>
+            <h3 id="domains-header" class="text-xs sm:text-sm font-bold text-slate-900 dark:text-slate-100">
+              Các loại lỗi kỹ thuật được hỗ trợ
+            </h3>
+          </div>
+
+          <div class="grid grid-cols-1 md:grid-cols-3 gap-2.5 sm:gap-3.5">
+            <!-- Domain 1 -->
+            <div class="bg-white dark:bg-slate-800/90 rounded-xl p-3 sm:p-3.5 lg:p-4 border border-slate-200/80 dark:border-slate-700/80 shadow-xs space-y-1.5 h-full flex flex-col justify-between">
+              <div class="flex items-center space-x-2">
+                <span class="w-5 h-5 rounded-md bg-sky-50 dark:bg-sky-950/60 text-sky-700 dark:text-sky-300 flex items-center justify-center font-bold text-[10px] border border-sky-200 dark:border-sky-700/60 font-mono shrink-0">01</span>
+                <h4 id="domain-1-title" class="font-bold text-slate-900 dark:text-slate-100 text-xs sm:text-sm leading-tight">Lỗi đặt bộ nhận ảnh</h4>
+              </div>
+              <ul id="domain-1-list" class="text-[11px] sm:text-xs text-slate-600 dark:text-slate-300 space-y-1 pt-1.5 border-t border-slate-100 dark:border-slate-700/80 font-medium flex-1 flex flex-col justify-around">
+                <li class="flex items-center space-x-1.5"><span class="w-1 h-1 rounded-full bg-sky-500 shrink-0"></span><span>Mất vùng cuống răng</span></li>
+                <li class="flex items-center space-x-1.5"><span class="w-1 h-1 rounded-full bg-sky-500 shrink-0"></span><span>Mất vùng thân răng, phía gần/xa</span></li>
+                <li class="flex items-center space-x-1.5"><span class="w-1 h-1 rounded-full bg-sky-500 shrink-0"></span><span>Không khớp vị trí răng mục tiêu</span></li>
+                <li class="flex items-center space-x-1.5"><span class="w-1 h-1 rounded-full bg-sky-500 shrink-0"></span><span>Mặt phẳng nhai bị nghiêng</span></li>
+              </ul>
+            </div>
+
+            <!-- Domain 2 -->
+            <div class="bg-white dark:bg-slate-800/90 rounded-xl p-3 sm:p-3.5 lg:p-4 border border-slate-200/80 dark:border-slate-700/80 shadow-xs space-y-1.5 h-full flex flex-col justify-between">
+              <div class="flex items-center space-x-2">
+                <span class="w-5 h-5 rounded-md bg-amber-50 dark:bg-amber-950/60 text-amber-700 dark:text-amber-300 flex items-center justify-center font-bold text-[10px] border border-amber-200 dark:border-amber-700/60 font-mono shrink-0">02</span>
+                <h4 id="domain-2-title" class="font-bold text-slate-900 dark:text-slate-100 text-xs sm:text-sm leading-tight">Lỗi góc độ & Hình học</h4>
+              </div>
+              <ul id="domain-2-list" class="text-[11px] sm:text-xs text-slate-600 dark:text-slate-300 space-y-1 pt-1.5 border-t border-slate-100 dark:border-slate-700/80 font-medium flex-1 flex flex-col justify-around">
+                <li class="flex items-center space-x-1.5"><span class="w-1 h-1 rounded-full bg-amber-500 shrink-0"></span><span>Hình ảnh bị kéo dài</span></li>
+                <li class="flex items-center space-x-1.5"><span class="w-1 h-1 rounded-full bg-amber-500 shrink-0"></span><span>Hình ảnh bị ngắn nét</span></li>
+                <li class="flex items-center space-x-1.5"><span class="w-1 h-1 rounded-full bg-amber-500 shrink-0"></span><span>Chồng vệt tiếp xúc kẽ răng</span></li>
+                <li class="flex items-center space-x-1.5"><span class="w-1 h-1 rounded-full bg-amber-500 shrink-0"></span><span>Cắt gọt chùm tia</span></li>
+              </ul>
+            </div>
+
+            <!-- Domain 3 -->
+            <div class="bg-white dark:bg-slate-800/90 rounded-xl p-3 sm:p-3.5 lg:p-4 border border-slate-200/80 dark:border-slate-700/80 shadow-xs space-y-1.5 h-full flex flex-col justify-between">
+              <div class="flex items-center space-x-2">
+                <span class="w-5 h-5 rounded-md bg-purple-50 dark:bg-purple-950/60 text-purple-700 dark:text-purple-300 flex items-center justify-center font-bold text-[10px] border border-purple-200 dark:border-purple-700/60 font-mono shrink-0">03</span>
+                <h4 id="domain-3-title" class="font-bold text-slate-900 dark:text-slate-100 text-xs sm:text-sm leading-tight">Lỗi phát tia & Xử lý phim</h4>
+              </div>
+              <ul id="domain-3-list" class="text-[11px] sm:text-xs text-slate-600 dark:text-slate-300 space-y-1 pt-1.5 border-t border-slate-100 dark:border-slate-700/80 font-medium flex-1 flex flex-col justify-around">
+                <li class="flex items-center space-x-1.5"><span class="w-1 h-1 rounded-full bg-purple-500 shrink-0"></span><span>Thiếu tia / Thừa tia</span></li>
+                <li class="flex items-center space-x-1.5"><span class="w-1 h-1 rounded-full bg-purple-500 shrink-0"></span><span>Bị nhòe do chuyển động</span></li>
+                <li class="flex items-center space-x-1.5"><span class="w-1 h-1 rounded-full bg-purple-500 shrink-0"></span><span>Đặt ngược bộ nhận ảnh</span></li>
+                <li class="flex items-center space-x-1.5"><span class="w-1 h-1 rounded-full bg-purple-500 shrink-0"></span><span>Chồng hai lần phát tia</span></li>
+              </ul>
+            </div>
+          </div>
+        </div>
+
+        <!-- Pathology Domains -->
+        <div id="pathology-domains" class="hidden space-y-1.5 sm:space-y-2">
+          <div class="flex items-center space-x-1.5">
+            <svg class="w-4 h-4 text-teal-600 dark:text-teal-400" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m12 3-1.912 5.813a2 2 0 0 1-1.275 1.275L3 12l5.813 1.912a2 2 0 0 1 1.275 1.275L12 21l1.912-5.813a2 2 0 0 1 1.275-1.275L21 12l-5.813-1.912a2 2 0 0 1-1.275-1.275L12 3Z"/><path d="M5 3v4"/><path d="M19 17v4"/><path d="M3 5h4"/><path d="M17 19h4"/></svg>
+            <h3 id="pathology-domains-header" class="text-xs sm:text-sm font-bold text-slate-900 dark:text-slate-100">
+              Các cấu trúc & Bất thường được hỗ trợ
+            </h3>
+          </div>
+
+          <div class="grid grid-cols-1 md:grid-cols-3 gap-2.5 sm:gap-3.5">
+            <!-- Group 1 -->
+            <div class="bg-white dark:bg-slate-800/90 rounded-xl p-3 sm:p-3.5 lg:p-4 border border-teal-200/60 dark:border-teal-900/40 shadow-xs space-y-1.5 h-full flex flex-col justify-between">
+              <div class="flex items-center space-x-2">
+                <span class="w-5 h-5 rounded-md bg-red-50 dark:bg-red-950/60 text-red-700 dark:text-red-300 flex items-center justify-center font-bold text-[10px] border border-red-200 dark:border-red-700/60 font-mono shrink-0">01</span>
+                <h4 id="path-1-title" class="font-bold text-slate-900 dark:text-slate-100 text-xs sm:text-sm leading-tight">Bất thường Quanh chóp & Nha chu</h4>
+              </div>
+              <ul id="path-1-list" class="text-[11px] sm:text-xs text-slate-600 dark:text-slate-300 space-y-1 pt-1.5 border-t border-slate-100 dark:border-slate-700/80 font-medium flex-1 flex flex-col justify-around">
+                <li class="flex items-center space-x-1.5"><span class="w-1 h-1 rounded-full bg-red-500 shrink-0"></span><span>Thấu quang quanh chóp</span></li>
+                <li class="flex items-center space-x-1.5"><span class="w-1 h-1 rounded-full bg-red-500 shrink-0"></span><span>Tiêu xương ổ răng</span></li>
+              </ul>
+            </div>
+
+            <!-- Group 2 -->
+            <div class="bg-white dark:bg-slate-800/90 rounded-xl p-3 sm:p-3.5 lg:p-4 border border-teal-200/60 dark:border-teal-900/40 shadow-xs space-y-1.5 h-full flex flex-col justify-between">
+              <div class="flex items-center space-x-2">
+                <span class="w-5 h-5 rounded-md bg-amber-50 dark:bg-amber-950/60 text-amber-700 dark:text-amber-300 flex items-center justify-center font-bold text-[10px] border border-amber-200 dark:border-amber-700/60 font-mono shrink-0">02</span>
+                <h4 id="path-2-title" class="font-bold text-slate-900 dark:text-slate-100 text-xs sm:text-sm leading-tight">Sâu răng & Thay đổi Cấu trúc Tủy</h4>
+              </div>
+              <ul id="path-2-list" class="text-[11px] sm:text-xs text-slate-600 dark:text-slate-300 space-y-1 pt-1.5 border-t border-slate-100 dark:border-slate-700/80 font-medium flex-1 flex flex-col justify-around">
+                <li class="flex items-center space-x-1.5"><span class="w-1 h-1 rounded-full bg-amber-500 shrink-0"></span><span>Thấu quang men răng</span></li>
+                <li class="flex items-center space-x-1.5"><span class="w-1 h-1 rounded-full bg-amber-500 shrink-0"></span><span>Thấu quang ngà răng</span></li>
+              </ul>
+            </div>
+
+            <!-- Group 3 -->
+            <div class="bg-white dark:bg-slate-800/90 rounded-xl p-3 sm:p-3.5 lg:p-4 border border-teal-200/60 dark:border-teal-900/40 shadow-xs space-y-1.5 h-full flex flex-col justify-between">
+              <div class="flex items-center space-x-2">
+                <span class="w-5 h-5 rounded-md bg-teal-50 dark:bg-teal-950/60 text-teal-700 dark:text-teal-300 flex items-center justify-center font-bold text-[10px] border border-teal-200 dark:border-teal-700/60 font-mono shrink-0">03</span>
+                <h4 id="path-3-title" class="font-bold text-slate-900 dark:text-slate-100 text-xs sm:text-sm leading-tight">Phục hình & Cấy ghép hiện có</h4>
+              </div>
+              <ul id="path-3-list" class="text-[11px] sm:text-xs text-slate-600 dark:text-slate-300 space-y-1 pt-1.5 border-t border-slate-100 dark:border-slate-700/80 font-medium flex-1 flex flex-col justify-around">
+                <li class="flex items-center space-x-1.5"><span class="w-1 h-1 rounded-full bg-teal-500 shrink-0"></span><span>Chụp / Mão răng</span></li>
+                <li class="flex items-center space-x-1.5"><span class="w-1 h-1 rounded-full bg-teal-500 shrink-0"></span><span>Miếng trám hiện có</span></li>
+                <li class="flex items-center space-x-1.5"><span class="w-1 h-1 rounded-full bg-teal-500 shrink-0"></span><span>Đã trám bít ống tủy</span></li>
+                <li class="flex items-center space-x-1.5"><span class="w-1 h-1 rounded-full bg-teal-500 shrink-0"></span><span>Trụ Implant nha khoa</span></li>
+              </ul>
+            </div>
+          </div>
+        </div>
+
+      </div>
+
+      <!-- Section 3: 3-Step Assessment Workflow -->
+      <div id="section-workflow" class="space-y-1.5 sm:space-y-2 transition-all duration-200">
+        
+        <!-- Classic Workflow -->
+        <div id="classic-workflow" class="space-y-1.5 sm:space-y-2">
+          <div class="flex items-center space-x-1.5">
+            <svg class="w-4 h-4 text-blue-600 dark:text-sky-400" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="12 2 2 7 12 12 22 7 12 2"/><polyline points="2 17 12 22 22 17"/><polyline points="2 12 12 17 22 12"/></svg>
+            <h3 id="workflow-header" class="text-xs sm:text-sm font-bold text-slate-900 dark:text-slate-100">
+              Quy trình thẩm định kỹ thuật 3 bước
+            </h3>
+          </div>
+
+          <div class="grid grid-cols-1 md:grid-cols-3 gap-2.5 sm:gap-3.5">
+            <!-- Step 1 -->
+            <div class="bg-white dark:bg-slate-800/90 rounded-xl p-3 sm:p-3.5 lg:p-4 border border-slate-200/80 dark:border-slate-700/80 shadow-xs space-y-1.5 h-full flex flex-col justify-between">
+              <div class="flex items-center space-x-2">
+                <span class="w-5 h-5 rounded-md bg-sky-50 dark:bg-sky-950/60 text-sky-700 dark:text-sky-300 flex items-center justify-center font-bold text-[10px] border border-sky-200 dark:border-sky-700/60 font-mono shrink-0">01</span>
+                <h4 id="wf-1-title" class="font-bold text-slate-900 dark:text-slate-100 text-xs sm:text-sm leading-tight">Thiết lập Cấu hình</h4>
+              </div>
+              <p id="wf-1-desc" class="text-[11px] sm:text-xs text-slate-600 dark:text-slate-300 pt-1.5 border-t border-slate-100 dark:border-slate-700/80 leading-relaxed font-medium flex-1">
+                Chọn kỹ thuật chụp (Song song / Phân giác), loại bộ nhận ảnh và vị trí răng mục tiêu.
+              </p>
+            </div>
+
+            <!-- Step 2 -->
+            <div class="bg-white dark:bg-slate-800/90 rounded-xl p-3 sm:p-3.5 lg:p-4 border border-slate-200/80 dark:border-slate-700/80 shadow-xs space-y-1.5 h-full flex flex-col justify-between">
+              <div class="flex items-center space-x-2">
+                <span class="w-5 h-5 rounded-md bg-amber-50 dark:bg-amber-950/60 text-amber-700 dark:text-amber-300 flex items-center justify-center font-bold text-[10px] border border-amber-200 dark:border-amber-700/60 font-mono shrink-0">02</span>
+                <h4 id="wf-2-title" class="font-bold text-slate-900 dark:text-slate-100 text-xs sm:text-sm leading-tight">Tải phim & Phân tích lỗi</h4>
+              </div>
+              <p id="wf-2-desc" class="text-[11px] sm:text-xs text-slate-600 dark:text-slate-300 pt-1.5 border-t border-slate-100 dark:border-slate-700/80 leading-relaxed font-medium flex-1">
+                Tải phim X-quang. Gemini tự động đối chiếu và chẩn đoán 12 lỗi kỹ thuật được hỗ trợ.
+              </p>
+            </div>
+
+            <!-- Step 3 -->
+            <div class="bg-white dark:bg-slate-800/90 rounded-xl p-3 sm:p-3.5 lg:p-4 border border-slate-200/80 dark:border-slate-700/80 shadow-xs space-y-1.5 h-full flex flex-col justify-between">
+              <div class="flex items-center space-x-2">
+                <span class="w-5 h-5 rounded-md bg-purple-50 dark:bg-purple-950/60 text-purple-700 dark:text-purple-300 flex items-center justify-center font-bold text-[10px] border border-purple-200 dark:border-purple-700/60 font-mono shrink-0">03</span>
+                <h4 id="wf-3-title" class="font-bold text-slate-900 dark:text-slate-100 text-xs sm:text-sm leading-tight">Xác minh & Khắc phục kỹ thuật</h4>
+              </div>
+              <p id="wf-3-desc" class="text-[11px] sm:text-xs text-slate-600 dark:text-slate-300 pt-1.5 border-t border-slate-100 dark:border-slate-700/80 leading-relaxed font-medium flex-1">
+                Đồng ý hoặc chỉnh sửa lỗi, xem hướng dẫn điều chỉnh và lưu nhật ký.
+              </p>
+            </div>
+          </div>
+        </div>
+
+        <!-- Pathology Workflow -->
+        <div id="pathology-workflow" class="hidden space-y-1.5 sm:space-y-2">
+          <div class="flex items-center space-x-1.5">
+            <svg class="w-4 h-4 text-teal-600 dark:text-teal-400" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="12 2 2 7 12 12 22 7 12 2"/><polyline points="2 17 12 22 22 17"/><polyline points="2 12 12 17 22 12"/></svg>
+            <h3 id="path-wf-header" class="text-xs sm:text-sm font-bold text-slate-900 dark:text-slate-100">
+              Quy trình phân đoạn 3 bước
+            </h3>
+          </div>
+
+          <div class="grid grid-cols-1 md:grid-cols-3 gap-2.5 sm:gap-3.5">
+            <div class="bg-white dark:bg-slate-800/90 rounded-xl p-3 sm:p-3.5 lg:p-4 border border-teal-200/60 dark:border-teal-900/40 shadow-xs space-y-1.5 h-full flex flex-col justify-between">
+              <div class="flex items-center space-x-2">
+                <span class="w-5 h-5 rounded-md bg-teal-50 dark:bg-teal-950/60 text-teal-700 dark:text-teal-300 border border-teal-200 dark:border-teal-700/60 font-mono shrink-0 font-bold text-[10px]">01</span>
+                <h4 id="path-wf-1-title" class="font-bold text-slate-900 dark:text-slate-100 text-xs sm:text-sm leading-tight">Thiết lập Cấu hình</h4>
+              </div>
+              <p id="path-wf-1-desc" class="text-[11px] sm:text-xs text-slate-600 dark:text-slate-300 pt-1.5 border-t border-slate-100 dark:border-slate-700/80 leading-relaxed font-medium flex-1">
+                Chọn kỹ thuật chụp (Song song / Phân giác), loại bộ nhận ảnh và vị trí răng mục tiêu.
+              </p>
+            </div>
+
+            <div class="bg-white dark:bg-slate-800/90 rounded-xl p-3 sm:p-3.5 lg:p-4 border border-teal-200/60 dark:border-teal-900/40 shadow-xs space-y-1.5 h-full flex flex-col justify-between">
+              <div class="flex items-center space-x-2">
+                <span class="w-5 h-5 rounded-md bg-teal-50 dark:bg-teal-950/60 text-teal-700 dark:text-teal-300 border border-teal-200 dark:border-teal-700/60 font-mono shrink-0 font-bold text-[10px]">02</span>
+                <h4 id="path-wf-2-title" class="font-bold text-slate-900 dark:text-slate-100 text-xs sm:text-sm leading-tight">Tải phim & Phân đoạn bất thường</h4>
+              </div>
+              <p id="path-wf-2-desc" class="text-[11px] sm:text-xs text-slate-600 dark:text-slate-300 pt-1.5 border-t border-slate-100 dark:border-slate-700/80 leading-relaxed font-medium flex-1">
+                Tải phim X-quang. Gemini tự động phân vùng và nhận diện 8 cấu trúc được hỗ trợ.
+              </p>
+            </div>
+
+            <div class="bg-white dark:bg-slate-800/90 rounded-xl p-3 sm:p-3.5 lg:p-4 border border-teal-200/60 dark:border-teal-900/40 shadow-xs space-y-1.5 h-full flex flex-col justify-between">
+              <div class="flex items-center space-x-2">
+                <span class="w-5 h-5 rounded-md bg-teal-50 dark:bg-teal-950/60 text-teal-700 dark:text-teal-300 border border-teal-200 dark:border-teal-700/60 font-mono shrink-0 font-bold text-[10px]">03</span>
+                <h4 id="path-wf-3-title" class="font-bold text-slate-900 dark:text-slate-100 text-xs sm:text-sm leading-tight">Xác minh & Gợi ý xử trí</h4>
+              </div>
+              <p id="path-wf-3-desc" class="text-[11px] sm:text-xs text-slate-600 dark:text-slate-300 pt-1.5 border-t border-slate-100 dark:border-slate-700/80 leading-relaxed font-medium flex-1">
+                Đồng ý hoặc chỉnh sửa các bất thường, xem gợi ý hướng dẫn xử trí và lưu nhật ký.
+              </p>
+            </div>
+          </div>
+        </div>
+
+      </div>
+
+    </div>
+  </main>
+
+  <!-- ========================================================================= -->
+  <!-- 3. FULL APPLICATION FOOTER                                                -->
+  <!-- ========================================================================= -->
+  <footer class="bg-white dark:bg-slate-900 border-t border-slate-200 dark:border-slate-800 text-slate-500 dark:text-slate-400 py-3 px-4 text-xs shrink-0">
+    <div class="max-w-7xl mx-auto flex flex-col sm:flex-row items-center justify-between space-y-1.5 sm:space-y-0">
+      <p id="footer-disclaimer" class="text-[11px] text-slate-500 dark:text-slate-400 leading-tight text-center sm:text-left">
+        Giải pháp AI hỗ trợ giảng dạy và thực hành X-quang nha khoa.
+      </p>
+      <div class="flex items-center space-x-1 text-slate-400/80 dark:text-slate-500 hover:text-slate-500 dark:hover:text-slate-300 transition-colors text-[10px] uppercase tracking-widest">
+        <span>By</span>
+        <span class="font-semibold text-slate-400 dark:text-slate-400">NBTrung</span>
+      </div>
+    </div>
+  </footer>
+
+  <!-- ========================================================================= -->
+  <!-- 4. DISCLAIMER MODAL (Thông báo trải nghiệm ứng dụng)                      -->
+  <!-- ========================================================================= -->
+  <div id="disclaimer-modal" class="fixed inset-0 z-50 flex items-center justify-center p-4 sm:p-6 overflow-y-auto">
+    <!-- Backdrop -->
+    <div class="fixed inset-0 bg-slate-950/70 backdrop-blur-md transition-opacity" onclick="closeDisclaimer()"></div>
+
+    <!-- Modal Card -->
+    <div class="relative w-full max-w-lg bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-2xl overflow-hidden z-10 my-auto animate-in fade-in zoom-in-95 duration-200">
+      <!-- Gradient header bar -->
+      <div class="h-2 bg-gradient-to-r from-amber-500 via-sky-500 to-teal-400"></div>
+
+      <!-- Close Button (X) -->
+      <button
+        onclick="closeDisclaimer()"
+        class="absolute top-4 right-4 p-1.5 rounded-full text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors cursor-pointer"
+        aria-label="Close"
+      >
+        <svg class="w-5 h-5" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>
+      </button>
+
+      <div class="p-6 sm:p-7">
+        <!-- Badge & Icon Header -->
+        <div class="flex items-center gap-3 mb-4">
+          <div class="w-10 h-10 rounded-xl bg-amber-500/10 dark:bg-amber-400/15 border border-amber-500/20 dark:border-amber-400/30 flex items-center justify-center text-amber-600 dark:text-amber-400 shrink-0 shadow-xs">
+            <svg class="w-5 h-5" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+          </div>
+          <div>
+            <span id="disc-badge" class="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-bold tracking-wide uppercase bg-amber-100 dark:bg-amber-950/70 text-amber-800 dark:text-amber-300 border border-amber-300/80 dark:border-amber-800/80">
+              ⚡ Phiên bản thử nghiệm (v2.4)
+            </span>
+            <h3 id="disc-title" class="text-lg sm:text-xl font-extrabold text-slate-900 dark:text-slate-100 tracking-tight mt-1">
+              Thông báo trải nghiệm ứng dụng
+            </h3>
+          </div>
+        </div>
+
+        <!-- Description Body -->
+        <div class="space-y-3.5 text-sm text-slate-600 dark:text-slate-300 leading-relaxed bg-slate-50 dark:bg-slate-800/50 p-4 rounded-xl border border-slate-200/80 dark:border-slate-700/60">
+          <p id="disc-desc" class="font-medium text-slate-800 dark:text-slate-200">
+            PeriApicaI hiện đang trong giai đoạn hoàn thiện. Các thẩm định chất lượng phim và phân vùng bệnh lý do AI sinh ra chỉ mang tính chất tham khảo phục vụ đào tạo, có thể không hoàn toàn chính xác trong mọi tình huống lâm sàng.
+          </p>
+          <div class="pt-2 border-t border-slate-200/60 dark:border-slate-700/60 text-xs text-slate-500 dark:text-slate-400 flex items-start gap-2">
+            <svg class="w-4 h-4 text-amber-500 shrink-0 mt-0.5" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+            <span id="disc-advice">Rất mong các bác sĩ, giảng viên và học viên cùng tham gia kiểm nghiệm, đối chiếu lâm sàng và phản hồi hoàn thiện.</span>
+          </div>
+        </div>
+
+        <!-- Action Button -->
+        <div class="mt-6 pt-2 flex justify-end">
+          <button
+            onclick="closeDisclaimer()"
+            class="w-full sm:w-auto inline-flex items-center justify-center gap-2 px-6 py-2.5 rounded-xl bg-slate-900 hover:bg-slate-800 text-white dark:bg-slate-100 dark:hover:bg-white dark:text-slate-900 font-extrabold text-sm shadow-md transition-all active:scale-95 cursor-pointer border border-slate-950 dark:border-white"
+          >
+            <svg class="w-4 h-4 text-emerald-400 dark:text-emerald-600" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
+            <span id="disc-btn-text">Tôi đã hiểu & Tiếp tục</span>
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ========================================================================= -->
+  <!-- 5. BUG REPORT MODAL                                                       -->
+  <!-- ========================================================================= -->
+  <div id="bug-modal" class="hidden fixed inset-0 z-[80] flex items-center justify-center p-4 sm:p-6 overflow-y-auto">
+    <div class="fixed inset-0 bg-slate-950/70 backdrop-blur-md" onclick="closeBugModal()"></div>
+    <div class="relative w-full max-w-md bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-2xl p-6 z-10 space-y-4">
+      <div class="flex items-center justify-between border-b border-slate-200 dark:border-slate-800 pb-3">
+        <div class="flex items-center space-x-2">
+          <div class="p-2 rounded-lg bg-rose-100 dark:bg-rose-950/80 text-rose-600 dark:text-rose-400">
+            <svg class="w-4 h-4" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m8 2 1.88 1.88"/><path d="M14.12 3.88 16 2"/><path d="M9 7.13v-1a3.003 3.003 0 1 1 6 0v1"/><path d="M12 20c-3.3 0-6-2.7-6-6v-3a4 4 0 0 1 4-4h4a4 4 0 0 1 4 4v3c0 3.3-2.7 6-6 6"/><path d="M12 20v-9"/><path d="M6.53 9C4.6 8.8 3 7.1 3 5"/><path d="M6 13H2"/><path d="M3 21c0-2.1 1.7-3.9 3.8-4"/><path d="M20.97 5c0 2.1-1.6 3.8-3.5 4"/><path d="M22 13h-4"/><path d="M17.2 17c2.1.1 3.8 1.9 3.8 4"/></svg>
+          </div>
+          <h3 class="font-bold text-slate-900 dark:text-slate-100 text-sm">Báo cáo lỗi hệ thống</h3>
+        </div>
+        <button onclick="closeBugModal()" class="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200">
+          <svg class="w-5 h-5" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>
+        </button>
+      </div>
+
+      <div class="space-y-3">
+        <label class="block text-xs font-semibold text-slate-700 dark:text-slate-300">Mô tả sự cố hoặc góp ý của bạn</label>
+        <textarea id="bug-textarea" rows="4" class="w-full text-xs p-3 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/60 text-slate-900 dark:text-slate-100 focus:ring-2 focus:ring-rose-500 focus:outline-none" placeholder="Vui lòng mô tả chi tiết lỗi bạn gặp phải..."></textarea>
+      </div>
+
+      <div class="flex justify-end space-x-2 pt-2">
+        <button onclick="closeBugModal()" class="px-4 py-2 rounded-xl text-xs font-semibold text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800">Hủy</button>
+        <button onclick="submitBug()" class="px-4 py-2 rounded-xl text-xs font-bold bg-rose-600 hover:bg-rose-700 text-white shadow-xs">Gửi báo cáo</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ========================================================================= -->
+  <!-- 6. ADMIN PORTAL PREVIEW MODAL                                             -->
+  <!-- ========================================================================= -->
+  <div id="admin-modal" class="hidden fixed inset-0 z-[80] flex items-center justify-center p-4 sm:p-6 overflow-y-auto">
+    <div class="fixed inset-0 bg-slate-950/70 backdrop-blur-md" onclick="closeAdminModal()"></div>
+    <div class="relative w-full max-w-sm bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-2xl p-6 z-10 space-y-4">
+      <div class="flex items-center justify-between border-b border-slate-200 dark:border-slate-800 pb-3">
+        <div class="flex items-center space-x-2">
+          <div class="p-2 rounded-lg bg-blue-100 dark:bg-blue-950/80 text-blue-600 dark:text-blue-400">
+            <svg class="w-4 h-4" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z"/><path d="m9 12 2 2 4-4"/></svg>
+          </div>
+          <h3 class="font-bold text-slate-900 dark:text-slate-100 text-sm">Cổng Quản trị viên (Admin)</h3>
+        </div>
+        <button onclick="closeAdminModal()" class="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200">
+          <svg class="w-5 h-5" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>
+        </button>
+      </div>
+
+      <p class="text-xs text-slate-600 dark:text-slate-300">
+        Bạn đang xem bản Snapshot độc lập. Trên ứng dụng thực tế, cổng Admin cung cấp thống kê ca chụp, nhật ký đối chiếu AI, quản lý người dùng và tình trạng máy chủ.
+      </p>
+
+      <div class="flex justify-end pt-2">
+        <button onclick="closeAdminModal()" class="px-5 py-2 rounded-xl text-xs font-bold bg-slate-900 hover:bg-slate-800 text-white dark:bg-slate-100 dark:text-slate-900">Đóng</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Toast Container -->
+  <div id="toast" class="hidden fixed bottom-14 right-6 z-[120] bg-slate-900 text-white px-4 py-3 rounded-xl shadow-2xl border border-slate-700 text-xs font-bold flex items-center space-x-2 animate-bounce">
+    <span id="toast-text">Thông báo</span>
+  </div>
+
+  <!-- ========================================================================= -->
+  <!-- 7. JAVASCRIPT STATE ENGINE & LOCALIZATION                                -->
+  <!-- ========================================================================= -->
+  <script>
+    // State
+    let currentMode = 'classic'; // 'classic' | 'pathology'
+    let currentLang = 'VI';      // 'VI' | 'EN'
+
+    const i18n = {
+      VI: {
+        welcomeTitle: 'Trợ lý AI đào tạo X-quang Cận chóp',
+        welcomeDesc: 'Chào mừng bạn đến với Nền tảng Huấn luyện X-quang Cận chóp ứng dụng AI. Đây là giải pháp công nghệ tích hợp trí tuệ nhân tạo nhằm hỗ trợ công tác đào tạo và hoàn thiện kỹ năng <strong id="highlight-target" class="font-semibold text-blue-700 dark:text-sky-400">chụp và phân tích phim cận chóp</strong>. Đồng thời, hệ thống cung cấp <strong class="text-slate-800 dark:text-slate-200 font-semibold">công cụ thống kê, giám sát quá trình thực hành</strong>, từ đó giúp đánh giá tiến độ và đảm bảo chất lượng đầu ra.',
+        modeSelectTitle: 'Chọn Chế Độ Vận Hành',
+        modeClassicLabel: 'Kiểm tra Lỗi Chụp Phim',
+        modeClassicBadge: 'Chất lượng phim ⚡',
+        modePathologyLabel: 'Phát hiện & Phân vùng Bất thường',
+        modePathologyBadge: 'Khoanh vùng AI 🔬',
+        startClassicBtn: 'Bắt đầu Kiểm tra Lỗi Chụp Phim',
+        startPathologyBtn: 'Bắt đầu Phát hiện Bất thường',
+        navSteps: ['Trang chủ', 'Cấu hình', 'Tải ảnh', 'Phân tích & Xác minh', 'Khuyến nghị'],
+        domainsHeader: 'Các loại lỗi kỹ thuật được hỗ trợ',
+        pathologyDomainsHeader: 'Các cấu trúc & Bất thường được hỗ trợ',
+        workflowHeader: 'Quy trình thẩm định kỹ thuật 3 bước',
+        pathWorkflowHeader: 'Quy trình phân đoạn 3 bước',
+        reportBug: 'Báo lỗi',
+        admin: 'Admin',
+        footerDisclaimer: 'Giải pháp AI hỗ trợ giảng dạy và thực hành X-quang nha khoa.',
+        discBadge: '⚡ Phiên bản thử nghiệm (v2.4)',
+        discTitle: 'Thông báo trải nghiệm ứng dụng',
+        discDesc: 'PeriApicaI hiện đang trong giai đoạn hoàn thiện. Các thẩm định chất lượng phim và phân vùng bệnh lý do AI sinh ra chỉ mang tính chất tham khảo phục vụ đào tạo, có thể không hoàn toàn chính xác trong mọi tình huống lâm sàng.',
+        discAdvice: 'Rất mong các bác sĩ, giảng viên và học viên cùng tham gia kiểm nghiệm, đối chiếu lâm sàng và phản hồi hoàn thiện.',
+        discConfirm: 'Tôi đã hiểu & Tiếp tục'
+      },
+      EN: {
+        welcomeTitle: 'Periapical Radiography AI Training Assistant',
+        welcomeDesc: 'Welcome to the AI-Powered Periapical Radiography Training Platform. An intelligent system designed to support dental education and refine technical skills in <strong id="highlight-target" class="font-semibold text-blue-700 dark:text-sky-400">periapical radiograph acquisition and interpretation</strong>. In addition, it offers <strong class="text-slate-800 dark:text-slate-200 font-semibold">practice monitoring and statistical analytics tools</strong>, helping evaluate skill progress and ensure diagnostic image quality.',
+        modeSelectTitle: 'Select Experience Mode',
+        modeClassicLabel: 'Film Technical Error Check',
+        modeClassicBadge: 'Film Quality ⚡',
+        modePathologyLabel: 'Abnormality Detection & Segmentation',
+        modePathologyBadge: 'AI Contour 🔬',
+        startClassicBtn: 'Start Film Error Check',
+        startPathologyBtn: 'Start Abnormality Detection',
+        navSteps: ['Home', 'Setup', 'Upload', 'Analyze & Verify', 'Recommendations'],
+        domainsHeader: 'Supported Technical Error Domains',
+        pathologyDomainsHeader: 'Supported Structures & Abnormalities',
+        workflowHeader: '3-Step Technical Assessment Workflow',
+        pathWorkflowHeader: '3-Step Segmentation Workflow',
+        reportBug: 'Report Bug',
+        admin: 'Admin',
+        footerDisclaimer: 'AI-assisted platform for oral and maxillofacial radiology education & clinical practice.',
+        discBadge: '⚡ Early Stage Development (v2.4)',
+        discTitle: 'Application Experience Notice',
+        discDesc: 'PeriApicaI is currently in early-stage development. Radiographic quality assessments and pathology segmentations generated by AI are intended for educational and reference support only and may not be 100% accurate in all clinical scenarios.',
+        discAdvice: 'We greatly appreciate clinicians, faculty, and residents testing the platform, verifying clinically, and providing feedback.',
+        discConfirm: 'I Understand & Proceed'
+      }
+    };
+
+    function updateLanguage(lang) {
+      currentLang = lang;
+      const dict = i18n[lang];
+      const isVI = lang === 'VI';
+
+      // Desktop Switcher slider
+      const langSlider = document.getElementById('lang-slider');
+      const langViText = document.getElementById('lang-text-vi');
+      const langEnText = document.getElementById('lang-text-en');
+      const mobileLang = document.getElementById('mobile-lang-label');
+
+      if (isVI) {
+        langSlider.className = 'absolute top-0.5 bottom-0.5 left-0.5 w-[calc(50%-2px)] rounded-[10px] shadow-xs border bg-slate-900 dark:bg-slate-100 border-slate-950 dark:border-white transition-transform duration-200 ease-out pointer-events-none translate-x-0';
+        langViText.className = 'relative z-10 w-1/2 flex items-center justify-center text-xs transition-colors duration-150 pointer-events-none text-white dark:text-slate-900 font-extrabold';
+        langEnText.className = 'relative z-10 w-1/2 flex items-center justify-center text-xs transition-colors duration-150 pointer-events-none text-slate-600 dark:text-slate-400 font-semibold';
+        mobileLang.textContent = 'VI';
+      } else {
+        langSlider.className = 'absolute top-0.5 bottom-0.5 left-0.5 w-[calc(50%-2px)] rounded-[10px] shadow-xs border bg-slate-900 dark:bg-slate-100 border-slate-950 dark:border-white transition-transform duration-200 ease-out pointer-events-none translate-x-full';
+        langViText.className = 'relative z-10 w-1/2 flex items-center justify-center text-xs transition-colors duration-150 pointer-events-none text-slate-600 dark:text-slate-400 font-semibold';
+        langEnText.className = 'relative z-10 w-1/2 flex items-center justify-center text-xs transition-colors duration-150 pointer-events-none text-white dark:text-slate-900 font-extrabold';
+        mobileLang.textContent = 'EN';
+      }
+
+      // Update Texts
+      document.getElementById('welcome-title').textContent = dict.welcomeTitle;
+      document.getElementById('welcome-desc').innerHTML = dict.welcomeDesc;
+      document.getElementById('mode-select-title').textContent = dict.modeSelectTitle;
+      document.getElementById('mode-classic-label').textContent = dict.modeClassicLabel;
+      document.getElementById('mode-classic-badge').textContent = dict.modeClassicBadge;
+      document.getElementById('mode-pathology-label').textContent = dict.modePathologyLabel;
+      document.getElementById('mode-pathology-badge').textContent = dict.modePathologyBadge;
+      
+      document.getElementById('start-btn-text').textContent = currentMode === 'pathology' ? dict.startPathologyBtn : dict.startClassicBtn;
+      
+      document.getElementById('nav-step-1').textContent = dict.navSteps[0];
+      document.getElementById('nav-step-2').textContent = dict.navSteps[1];
+      document.getElementById('nav-step-3').textContent = dict.navSteps[2];
+      document.getElementById('nav-step-4').textContent = dict.navSteps[3];
+      document.getElementById('nav-step-5').textContent = dict.navSteps[4];
+
+      document.getElementById('domains-header').textContent = dict.domainsHeader;
+      document.getElementById('pathology-domains-header').textContent = dict.pathologyDomainsHeader;
+      document.getElementById('workflow-header').textContent = dict.workflowHeader;
+      document.getElementById('path-wf-header').textContent = dict.pathWorkflowHeader;
+
+      document.getElementById('btn-report-bug-text').textContent = dict.reportBug;
+      document.getElementById('btn-admin-text').textContent = dict.admin;
+      document.getElementById('footer-disclaimer').textContent = dict.footerDisclaimer;
+
+      document.getElementById('disc-badge').textContent = dict.discBadge;
+      document.getElementById('disc-title').textContent = dict.discTitle;
+      document.getElementById('disc-desc').textContent = dict.discDesc;
+      document.getElementById('disc-advice').textContent = dict.discAdvice;
+      document.getElementById('disc-btn-text').textContent = dict.discConfirm;
+
+      // Re-apply mode target highlight color
+      updateMode(currentMode);
+    }
+
+    function toggleLanguage() {
+      updateLanguage(currentLang === 'VI' ? 'EN' : 'VI');
+    }
+
+    document.getElementById('lang-toggle-desktop').addEventListener('click', toggleLanguage);
+    document.getElementById('lang-toggle-mobile').addEventListener('click', toggleLanguage);
+
+    // Mode Switcher Logic
+    const classicBtn = document.getElementById('mode-classic-btn');
+    const pathologyBtn = document.getElementById('mode-pathology-btn');
+    const classicDot = document.getElementById('classic-dot');
+    const pathologyDot = document.getElementById('pathology-dot');
+    const startBtn = document.getElementById('start-button');
+    const startBtnText = document.getElementById('start-btn-text');
+
+    const classicDomains = document.getElementById('classic-domains');
+    const pathologyDomains = document.getElementById('pathology-domains');
+    const classicWorkflow = document.getElementById('classic-workflow');
+    const pathologyWorkflow = document.getElementById('pathology-workflow');
+    const logoAura = document.getElementById('logo-aura');
+    const logoBox = document.getElementById('logo-box');
+    const logoAiGradient = document.getElementById('logo-ai-gradient');
+
+    function updateMode(mode) {
+      currentMode = mode;
+      const isPathology = mode === 'pathology';
+      const dict = i18n[currentLang];
+      const highlight = document.getElementById('highlight-target');
+
+      if (isPathology) {
+        pathologyBtn.className = 'p-3 sm:p-3.5 rounded-xl border text-left transition-all relative flex flex-col justify-center cursor-pointer border-teal-600 bg-teal-50/60 dark:bg-teal-950/40 dark:border-teal-500 ring-2 ring-teal-600/20 shadow-xs';
+        pathologyDot.classList.remove('hidden');
+
+        classicBtn.className = 'p-3 sm:p-3.5 rounded-xl border text-left transition-all relative flex flex-col justify-center cursor-pointer border-slate-200 dark:border-slate-700 bg-slate-50/50 dark:bg-slate-900/40 hover:border-slate-300 dark:hover:border-slate-600';
+        classicDot.classList.add('hidden');
+
+        startBtn.className = 'w-full max-w-sm sm:w-[340px] h-11 sm:h-12 px-6 rounded-xl text-white font-bold text-xs sm:text-sm flex items-center justify-center space-x-2 transition-all shadow-md hover:shadow-lg cursor-pointer active:scale-95 shrink-0 bg-teal-600 hover:bg-teal-700 dark:bg-teal-600 dark:hover:bg-teal-500 shadow-teal-600/20';
+        startBtnText.textContent = dict.startPathologyBtn;
+        if (highlight) highlight.className = 'font-semibold text-teal-700 dark:text-teal-400';
+
+        logoAura.className = 'absolute -inset-1 rounded-xl blur-xs transition-all duration-300 opacity-[0.55] group-hover:opacity-85 bg-teal-500/60';
+        logoBox.className = 'relative z-10 w-8 h-8 sm:w-9 sm:h-9 rounded-xl bg-slate-900 flex items-center justify-center shrink-0 overflow-hidden border border-teal-500/60 shadow-[0_0_8px_rgba(20,184,166,0.3)] transition-all duration-300';
+        logoAiGradient.className = 'font-black ml-0 transition-all duration-300 bg-clip-text text-transparent bg-gradient-to-r from-teal-500 via-emerald-400 to-teal-300 dark:from-teal-300 dark:via-emerald-300 dark:to-cyan-200 drop-shadow-[0_0_6px_rgba(20,184,166,0.5)]';
+
+        classicDomains.classList.add('hidden');
+        pathologyDomains.classList.remove('hidden');
+        classicWorkflow.classList.add('hidden');
+        pathologyWorkflow.classList.remove('hidden');
+      } else {
+        classicBtn.className = 'p-3 sm:p-3.5 rounded-xl border text-left transition-all relative flex flex-col justify-center cursor-pointer border-blue-600 bg-blue-50/60 dark:bg-blue-950/40 dark:border-blue-500 ring-2 ring-blue-600/20 shadow-xs';
+        classicDot.classList.remove('hidden');
+
+        pathologyBtn.className = 'p-3 sm:p-3.5 rounded-xl border text-left transition-all relative flex flex-col justify-center cursor-pointer border-slate-200 dark:border-slate-700 bg-slate-50/50 dark:bg-slate-900/40 hover:border-slate-300 dark:hover:border-slate-600';
+        pathologyDot.classList.add('hidden');
+
+        startBtn.className = 'w-full max-w-sm sm:w-[340px] h-11 sm:h-12 px-6 rounded-xl text-white font-bold text-xs sm:text-sm flex items-center justify-center space-x-2 transition-all shadow-md hover:shadow-lg cursor-pointer active:scale-95 shrink-0 bg-blue-600 hover:bg-blue-700 dark:bg-blue-600 dark:hover:bg-blue-500 shadow-blue-600/20';
+        startBtnText.textContent = dict.startClassicBtn;
+        if (highlight) highlight.className = 'font-semibold text-blue-700 dark:text-sky-400';
+
+        logoAura.className = 'absolute -inset-1 rounded-xl blur-xs transition-all duration-300 opacity-[0.55] group-hover:opacity-85 bg-sky-500/60';
+        logoBox.className = 'relative z-10 w-8 h-8 sm:w-9 sm:h-9 rounded-xl bg-slate-900 flex items-center justify-center shrink-0 overflow-hidden border border-sky-500/60 shadow-[0_0_8px_rgba(56,189,248,0.3)] transition-all duration-300';
+        logoAiGradient.className = 'font-black ml-0 transition-all duration-300 bg-clip-text text-transparent bg-gradient-to-r from-sky-500 via-blue-400 to-indigo-400 dark:from-sky-300 dark:via-blue-300 dark:to-indigo-300 drop-shadow-[0_0_6px_rgba(56,189,248,0.5)]';
+
+        pathologyDomains.classList.add('hidden');
+        classicDomains.classList.remove('hidden');
+        pathologyWorkflow.classList.add('hidden');
+        classicWorkflow.classList.remove('hidden');
+      }
+    }
+
+    classicBtn.addEventListener('click', () => updateMode('classic'));
+    pathologyBtn.addEventListener('click', () => updateMode('pathology'));
+
+    // Start Button Action
+    startBtn.addEventListener('click', () => {
+      showToast(currentMode === 'pathology' ? 'Chuyển sang Bước 2: Thiết lập Cấu hình Bất thường' : 'Chuyển sang Bước 2: Thiết lập Cấu hình Lỗi Kỹ thuật');
+    });
+
+    // Theme Toggle Logic
+    const htmlEl = document.documentElement;
+    function toggleTheme() {
+      htmlEl.classList.toggle('dark');
+    }
+    document.getElementById('theme-toggle-desktop').addEventListener('click', toggleTheme);
+    document.getElementById('theme-toggle-mobile').addEventListener('click', toggleTheme);
+
+    // Disclaimer Modal
+    function closeDisclaimer() {
+      document.getElementById('disclaimer-modal').classList.add('hidden');
+    }
+
+    // Bug Modal
+    function openBugModal() {
+      document.getElementById('bug-modal').classList.remove('hidden');
+    }
+    function closeBugModal() {
+      document.getElementById('bug-modal').classList.add('hidden');
+    }
+    function submitBug() {
+      showToast('Đã gửi báo cáo lỗi thành công! Cảm ơn bạn.');
+      closeBugModal();
+    }
+    document.getElementById('bug-btn').addEventListener('click', openBugModal);
+
+    // Admin Modal
+    function openAdminModal() {
+      document.getElementById('admin-modal').classList.remove('hidden');
+    }
+    function closeAdminModal() {
+      document.getElementById('admin-modal').classList.add('hidden');
+    }
+    document.getElementById('admin-btn').addEventListener('click', openAdminModal);
+
+    // Toast Helper
+    let toastTimeout;
+    function showToast(msg) {
+      const toast = document.getElementById('toast');
+      const toastText = document.getElementById('toast-text');
+      toastText.textContent = msg;
+      toast.classList.remove('hidden');
+      clearTimeout(toastTimeout);
+      toastTimeout = setTimeout(() => {
+        toast.classList.add('hidden');
+      }, 3000);
+    }
+  </script>
+</body>
+</html>

@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="vi">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>PeriApicaI — Trợ lý AI Đào tạo X-quang Cận chóp</title>
+    <meta name="description" content="Nền tảng huấn luyện X-quang cận chóp nha khoa ứng dụng trí tuệ nhân tạo Gemini. Phân tích lỗi kỹ thuật phim, hướng dẫn khắc phục và lưu nhật ký chẩn đoán lâm sàng." />
+    <meta name="robots" content="noindex, nofollow" />
+    <meta property="og:title" content="PeriApicaI — Trợ lý AI Đào tạo X-quang Cận chóp" />
+    <meta property="og:description" content="Phân tích lỗi kỹ thuật phim X-quang cận chóp bằng AI — hỗ trợ đào tạo và hoàn thiện kỹ năng chụp phim." />
+    <meta property="og:type" content="website" />
+    <link rel="icon" type="image/png" href="/logo.png" />
+    <script>
+      (function() {
+        try {
+          var savedTheme = localStorage.getItem('periapical_theme');
+          var legacyDark = localStorage.getItem('periapical_dark_mode');
+          var isDark = savedTheme === 'dark' || (savedTheme == null && legacyDark === 'true') || (savedTheme == null && legacyDark == null && window.matchMedia('(prefers-color-scheme: dark)').matches) || (savedTheme == null && legacyDark == null); // default dark
+          
+          if (isDark) {
+            document.documentElement.classList.add('dark');
+            document.documentElement.setAttribute('data-theme', 'dark');
+          } else {
+            document.documentElement.classList.remove('dark');
+            document.documentElement.setAttribute('data-theme', 'light');
+          }
+        } catch (e) {}
+      })();
+    </script>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>
+

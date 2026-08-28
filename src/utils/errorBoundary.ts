@@ -1,0 +1,383 @@
+import {
+  TECH_FAILURE_DICT,
+  normalizeTechFailureKey,
+  getTechFailureLabel,
+  getTechFailureDescription,
+  getRemediationText,
+} from '../constants/dictionaries';
+import { reportAutoSystemError } from '../services/apiService';
+import { useAppStore } from '../store/appStore';
+
+export type ErrorCategory =
+  | 'TECHNICAL_FAILURE'
+  | 'QUOTA_EXHAUSTED'
+  | 'CUSTOM_KEY_FAILED'
+  | 'NON_DENTAL'
+  | 'TIMEOUT'
+  | 'NETWORK_ERROR'
+  | 'SERVER_ERROR'
+  | 'VALIDATION_ERROR'
+  | 'UNKNOWN';
+
+export type ErrorActionType =
+  | 'SHOW_TOAST'
+  | 'SHOW_ALERT'
+  | 'SHOW_BYOK_MODAL'
+  | 'SHOW_SYSTEM_NOTICE'
+  | 'SET_QUOTA_LOCKED';
+
+export interface StandardizedAIError {
+  category: ErrorCategory;
+  title: string;
+  message: string;
+  technicalKey?: string;
+  remediation?: string;
+  details?: string;
+  actionType: ErrorActionType;
+  resetNotice?: string;
+  rawMessage: string;
+  stack?: string;
+  timestamp: string;
+  context?: Record<string, any>;
+}
+
+export interface ErrorClassificationInput {
+  error?: unknown;
+  errorNotice?: string;
+  userMessage?: string;
+  errorCode?: string;
+  status?: number;
+  isCustomKeyFailed?: boolean;
+  isQuotaExhausted?: boolean;
+  isAllExhausted?: boolean;
+  resetNotice?: string;
+  type?: 'classic' | 'pathology';
+  language?: 'VI' | 'EN';
+  context?: Record<string, any>;
+}
+
+/**
+ * Normalizes any error object, string, or API response into a standard format.
+ */
+function extractErrorDetails(input: unknown): { message: string; stack?: string; name?: string } {
+  if (!input) {
+    return { message: 'Unknown error occurred' };
+  }
+  if (typeof input === 'string') {
+    return { message: input };
+  }
+  if (input instanceof Error) {
+    return {
+      message: input.message || 'Error occurred',
+      stack: input.stack,
+      name: input.name,
+    };
+  }
+  if (typeof input === 'object' && input !== null) {
+    const obj = input as any;
+    const msg = obj.userMessage || obj.errorNotice || obj.message || obj.error || JSON.stringify(input);
+    return {
+      message: typeof msg === 'string' ? msg : 'Error occurred',
+      stack: typeof obj.stack === 'string' ? obj.stack : undefined,
+      name: typeof obj.name === 'string' ? obj.name : undefined,
+    };
+  }
+  return { message: String(input) };
+}
+
+/**
+ * Core Classifier: Analyzes errors and maps technical failures to TECH_FAILURE_DICT
+ * while categorizing API quota, authorization, network, or server failures.
+ */
+export function classifyAndFormatAIError(
+  input: ErrorClassificationInput | unknown,
+  fallbackLang: 'VI' | 'EN' = 'VI'
+): StandardizedAIError {
+  const options: ErrorClassificationInput =
+    typeof input === 'object' && input !== null && ('error' in input || 'isCustomKeyFailed' in input || 'isQuotaExhausted' in input)
+      ? (input as ErrorClassificationInput)
+      : { error: input };
+
+  const language = options.language || fallbackLang;
+  const isEn = language === 'EN';
+  const { message: rawMessage, stack, name } = extractErrorDetails(options.error);
+  const context = options.context || {};
+  const timestamp = new Date().toISOString();
+
+  // 1. Explicit Custom Key (BYOK) Failure
+  if (
+    options.isCustomKeyFailed ||
+    rawMessage.includes('API_KEY_INVALID') ||
+    rawMessage.includes('API key not valid') ||
+    rawMessage.includes('PERMISSION_DENIED') ||
+    rawMessage.includes('byokError') ||
+    options.errorCode === 'CUSTOM_KEY_FAILED'
+  ) {
+    return {
+      category: 'CUSTOM_KEY_FAILED',
+      title: isEn ? 'Custom API Key Issue' : 'Lỗi Khóa API Cá Nhân (BYOK)',
+      message:
+        options.userMessage ||
+        (isEn
+          ? 'Your custom Gemini API Key is invalid, unauthorized, or has exhausted its quota.'
+          : 'Khóa Gemini API cá nhân của bạn không hợp lệ hoặc đã vượt quá hạn mức sử dụng.'),
+      details: isEn
+        ? 'Please verify your API key in Google AI Studio or switch back to the system trial key.'
+        : 'Vui lòng kiểm tra lại khóa API trên Google AI Studio hoặc chuyển về khóa dùng thử của hệ thống.',
+      actionType: 'SHOW_BYOK_MODAL',
+      rawMessage,
+      stack,
+      timestamp,
+      context,
+    };
+  }
+
+  // 2. Explicit System Trial Quota Exhausted
+  if (
+    options.isAllExhausted ||
+    options.isQuotaExhausted ||
+    options.status === 429 ||
+    rawMessage.includes('429') ||
+    rawMessage.includes('RESOURCE_EXHAUSTED') ||
+    rawMessage.includes('quota') ||
+    rawMessage.includes('Hạn mức')
+  ) {
+    const resetNotice = options.resetNotice || (isEn ? '1 minute' : '1 phút');
+    return {
+      category: 'QUOTA_EXHAUSTED',
+      title: isEn ? 'AI System Quota Limit' : 'Hạn Mức AI Hệ Thống',
+      message:
+        options.userMessage ||
+        (isEn
+          ? `The system AI trial key limit is temporarily reached. Quota resets in approximately ${resetNotice}.`
+          : `Hạn mức dùng thử của hệ thống hiện tại đã hết hoặc đang quá tải. Hạn mức sẽ tự động khôi phục sau khoảng ${resetNotice}.`),
+      details: isEn
+        ? 'You can wait for the cooldown or provide your own Gemini API Key (BYOK) for uninterrupted access.'
+        : 'Bạn có thể chờ hệ thống làm mới hoặc sử dụng khóa API cá nhân (BYOK) để tiếp tục phân tích ngay.',
+      actionType: options.isAllExhausted ? 'SHOW_SYSTEM_NOTICE' : 'SET_QUOTA_LOCKED',
+      resetNotice,
+      rawMessage,
+      stack,
+      timestamp,
+      context,
+    };
+  }
+
+  // 3. Non-Dental / Non-Periapical Image
+  if (
+    rawMessage.includes('not_periapical') ||
+    rawMessage.includes('non_dental') ||
+    options.errorCode === 'NOT_PERIAPICAL' ||
+    rawMessage.includes('Không phải phim cận chóp') ||
+    rawMessage.includes('Not a periapical')
+  ) {
+    return {
+      category: 'NON_DENTAL',
+      title: isEn ? 'Invalid Radiograph' : 'Ảnh Không Hợp Lệ',
+      message: isEn
+        ? 'The uploaded image was not recognized as a periapical dental radiograph.'
+        : 'Hình ảnh tải lên không được nhận diện là phim X-quang răng cận chóp (Periapical Radiograph).',
+      details: isEn
+        ? 'Please ensure you upload a clear dental periapical X-ray image (JPEG, PNG, WebP or DICOM).'
+        : 'Vui lòng kiểm tra và tải lên đúng ảnh chụp X-quang răng cận chóp tiêu chuẩn (định dạng JPEG, PNG, WebP hoặc DICOM).',
+      actionType: 'SHOW_ALERT',
+      technicalKey: 'not_periapical',
+      rawMessage,
+      stack,
+      timestamp,
+      context,
+    };
+  }
+
+  // 4. Check for Technical Radiographic Failures via TECH_FAILURE_DICT
+  const matchedKey = options.errorCode || options.errorNotice || rawMessage;
+  const normalizedKey = normalizeTechFailureKey(matchedKey);
+
+  if (normalizedKey && TECH_FAILURE_DICT[normalizedKey]) {
+    const label = getTechFailureLabel(normalizedKey, language);
+    const description = getTechFailureDescription(normalizedKey, language);
+    const remediation = getRemediationText(normalizedKey, language);
+
+    return {
+      category: 'TECHNICAL_FAILURE',
+      title: label,
+      message: description || label,
+      technicalKey: normalizedKey,
+      remediation: remediation || undefined,
+      details: remediation ? (isEn ? `Remediation: ${remediation}` : `Khắc phục: ${remediation}`) : undefined,
+      actionType: 'SHOW_ALERT',
+      rawMessage,
+      stack,
+      timestamp,
+      context,
+    };
+  }
+
+  // 5. Network Timeout / Abort
+  if (name === 'AbortError' || rawMessage.includes('timeout') || rawMessage.includes('timed out') || rawMessage.includes('hết thời gian')) {
+    return {
+      category: 'TIMEOUT',
+      title: isEn ? 'Request Timed Out' : 'Hết Thời Gian Chờ',
+      message: isEn
+        ? 'The AI diagnostic server took too long to respond. Please verify your connection and try again.'
+        : 'Thời gian phản hồi từ máy chủ AI vượt quá giới hạn cho phép. Vui lòng kiểm tra đường truyền và thử lại.',
+      actionType: 'SHOW_ALERT',
+      rawMessage,
+      stack,
+      timestamp,
+      context,
+    };
+  }
+
+  // 6. Network or Server Connectivity Failures
+  if (
+    rawMessage.includes('Failed to fetch') ||
+    rawMessage.includes('NetworkError') ||
+    rawMessage.includes('ECONNREFUSED') ||
+    options.status === 500 ||
+    options.status === 502 ||
+    options.status === 503 ||
+    options.status === 504
+  ) {
+    return {
+      category: 'SERVER_ERROR',
+      title: isEn ? 'Server Connection Error' : 'Lỗi Kết Nối Máy Chủ',
+      message: isEn
+        ? 'Unable to connect to the diagnostic AI service. Please check your internet connection or try again shortly.'
+        : 'Không thể kết nối đến máy chủ xử lý hình ảnh. Vui lòng kiểm tra mạng Internet hoặc thử lại sau ít phút.',
+      actionType: 'SHOW_ALERT',
+      rawMessage,
+      stack,
+      timestamp,
+      context,
+    };
+  }
+
+  // 7. Generic / Fallback
+  return {
+    category: 'UNKNOWN',
+    title: isEn ? 'Analysis Error' : 'Lỗi Phân Tích',
+    message: options.userMessage || options.errorNotice || rawMessage || (isEn ? 'An unexpected error occurred during processing.' : 'Đã có lỗi không mong muốn xảy ra trong quá trình xử lý.'),
+    actionType: 'SHOW_ALERT',
+    rawMessage,
+    stack,
+    timestamp,
+    context,
+  };
+}
+
+/**
+ * Standardized Logger: Logs full stack traces and contextual metadata internally for developers,
+ * while automatically reporting system errors to telemetry.
+ */
+export function logDiagnosticError(
+  error: unknown,
+  context?: Record<string, any>,
+  options?: { silentServer?: boolean; component?: string }
+): StandardizedAIError {
+  const stdError = classifyAndFormatAIError({ error, context });
+  const componentTag = options?.component ? `[${options.component}]` : '[DiagnosticError]';
+
+  console.groupCollapsed?.(`🔴 ${componentTag} ${stdError.category}: ${stdError.title}`);
+  console.error('User Message:', stdError.message);
+  if (stdError.technicalKey) console.info('Technical Key (TECH_FAILURE_DICT):', stdError.technicalKey);
+  if (stdError.remediation) console.info('Remediation:', stdError.remediation);
+  if (context && Object.keys(context).length > 0) console.info('Context Metadata:', context);
+  if (stdError.stack) {
+    console.error('Stack Trace:\n', stdError.stack);
+  } else {
+    console.error('Raw Error Details:', error);
+  }
+  console.groupEnd?.();
+
+  // Automatically report severe unexpected server/pipeline errors to telemetry
+  if (!options?.silentServer && (stdError.category === 'SERVER_ERROR' || stdError.category === 'UNKNOWN')) {
+    reportAutoSystemError(
+      `${componentTag} ${stdError.category}: ${stdError.rawMessage}`,
+      {
+        category: stdError.category,
+        title: stdError.title,
+        context,
+        stack: stdError.stack,
+        timestamp: stdError.timestamp,
+      }
+    );
+  }
+
+  return stdError;
+}
+
+/**
+ * Centralized Error Dispatcher for AI Analysis Flows (Classic & Pathology):
+ * Handles store updates, modal dispatches, and quota lockouts uniformly.
+ */
+export function handleAnalysisFlowError(
+  input: ErrorClassificationInput | unknown,
+  flowType: 'classic' | 'pathology' = 'classic',
+  options?: { language?: 'VI' | 'EN'; context?: Record<string, any> }
+): StandardizedAIError {
+  const lang = options?.language || useAppStore.getState().language || 'VI';
+  const stdError = classifyAndFormatAIError(
+    typeof input === 'object' && input !== null
+      ? { ...(input as ErrorClassificationInput), language: lang, context: options?.context }
+      : { error: input, language: lang, context: options?.context },
+    lang
+  );
+
+  // Log full stack trace internally
+  logDiagnosticError(input, options?.context, { component: `AnalysisFlow:${flowType}` });
+
+  const store = useAppStore.getState();
+
+  // Reset loading indicators uniformly
+  useAppStore.setState({
+    isAnalyzing: false,
+    analyzingStatusMessage: null,
+  });
+
+  if (flowType === 'pathology') {
+    store.setPathologyAnalysisStatus('error');
+    store.setPathologyStatusMessage(stdError.message);
+  }
+
+  // Action Dispatching
+  switch (stdError.actionType) {
+    case 'SHOW_BYOK_MODAL':
+      store.setCustomKeyErrorModal({
+        isOpen: true,
+        message: stdError.message,
+      });
+      break;
+
+    case 'SHOW_SYSTEM_NOTICE':
+      store.setSystemNoticeModal({
+        isOpen: true,
+        title: stdError.title,
+        message: stdError.message,
+        type: 'warning',
+      });
+      break;
+
+    case 'SET_QUOTA_LOCKED':
+      store.setQuotaExhausted(true, stdError.resetNotice || (lang === 'EN' ? '1 minute' : '1 phút'));
+      store.setGlobalError(stdError.message);
+      break;
+
+    case 'SHOW_ALERT':
+    default:
+      if (stdError.category === 'NON_DENTAL') {
+        useAppStore.setState({
+          imageDataUrl: null,
+          lastAnalyzedRequestHash: null,
+        });
+      }
+      store.setGlobalError(
+        stdError.remediation
+          ? `${stdError.message}\n\n💡 ${lang === 'EN' ? 'Clinical advice:' : 'Khắc phục:'} ${stdError.remediation}`
+          : stdError.message
+      );
+      break;
+  }
+
+  return stdError;
+}

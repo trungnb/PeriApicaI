@@ -1,0 +1,20 @@
+{
+  "stepBadge": "BƯỚC 5: HƯỚNG DẪN KHẮC PHỤC & LƯU NHẬT KÝ CHẨN ĐOÁN",
+  "title": "Chỉ dẫn Kỹ thuật Khắc phục Sửa lỗi Chụp phim Cận chóp",
+  "subtitle": "Dựa trên danh sách lỗi đã được chốt ở Bước 4, hệ thống tổng hợp các thao tác kỹ thuật chuẩn đoán giúp sinh viên / kỹ thuật viên sửa lỗi khi chụp lại.",
+  "saving": "Đang lưu...",
+  "finishSession": "Kết thúc phiên",
+  "reviewedRadiograph": "Phim X-quang Đã Đánh giá",
+  "confirmedErrorsCount": "Các lỗi kỹ thuật đã xác nhận ({{count}})",
+  "perfectFilmMsg": "✓ Phim đạt đầy đủ tiêu chuẩn chẩn đoán! Không cần thao tác khắc phục kỹ thuật.",
+  "detailedGuideTitle": "Hướng dẫn Thao tác Khắc phục Kỹ thuật Chi tiết",
+  "detailedGuideIntro": "Khi thực hiện chụp lại cho bệnh nhân, hãy tuân thủ các quy chuẩn thao tác sau:",
+  "causeLabel": "Nguyên nhân / Biểu hiện",
+  "correctionStepLabel": "Quy trình điều chỉnh lâm sàng",
+  "perfectFilmTitle": "Phim X-quang Hoàn hảo - Đạt Tiêu chuẩn Chẩn đoán",
+  "perfectFilmDesc": "Hình ảnh cận chóp ghi nhận đầy đủ cấu trúc cuống răng, mặt phẳng nhai cân đối, góc đứng và góc ngang chính xác. Không cần thực hiện chụp lại.",
+  "notesLabel": "Ghi chú Lâm sàng / Nhận xét của Giảng viên:",
+  "notesPlaceholder": "Nhập nhận định thêm, ví dụ: Bệnh nhân vòm miệng sâu, cần lót gạc vào khối cắn...",
+  "backToAnalysis": "Quay lại Phân tích & Xác minh",
+  "finishAndReturnHome": "Kết thúc phiên & Trở về Trang chủ"
+}

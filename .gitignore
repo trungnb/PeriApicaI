@@ -1,0 +1,11 @@
+node_modules
+dist
+.env
+.DS_Store
+*.log
+
+# Runtime cache — contains Firestore assessment data in plaintext
+temp_cache.json
+
+# Temporary uploaded medical images (deleted on server restart anyway)
+public/uploads/
