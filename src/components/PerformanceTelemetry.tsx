@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { useAppStore } from '../store/appStore';
 import { Activity, Cpu, Wifi, Zap, Database, ChevronDown, ChevronUp } from 'lucide-react';
 
-export const PerformanceTelemetry: React.FC = () => {
+export const PerformanceTelemetry: React.FC = React.memo(() => {
   const lastAnalysisMetrics = useAppStore(state => state.lastAnalysisMetrics);
   const language = useAppStore(state => state.language);
   const [isOpen, setIsOpen] = useState(true); // default open to show the stats instantly
@@ -113,4 +113,4 @@ export const PerformanceTelemetry: React.FC = () => {
       )}
     </div>
   );
-};
+});

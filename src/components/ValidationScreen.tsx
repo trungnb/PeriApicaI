@@ -24,8 +24,6 @@ export const ValidationScreen: React.FC = React.memo(() => {
   const { t } = useTranslation(['common', 'remediation', 'analysis']);
   const { t: tRemediation } = useTranslation('remediation');
   const { t: tAnalysis } = useTranslation('analysis');
-  const { t: tCommon } = useTranslation('common');
-  const { t: tUpload } = useTranslation('upload');
   const language = useAppStore(state => state.language);
 
   const analysis = useAppStore(state => state.analysisResult);

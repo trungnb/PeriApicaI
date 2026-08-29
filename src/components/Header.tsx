@@ -17,24 +17,24 @@ export const Header: React.FC = React.memo(() => {
   const appEngineMode = useAppStore(state => state.appEngineMode);
   const isPathology = appEngineMode === 'pathology_segmentation';
 
-  const onResetToStart = () => {
-    if (isAnalyzing) return;
+  const onResetToStart = React.useCallback(() => {
+    if (useAppStore.getState().isAnalyzing) return;
     useAppStore.getState().startNewSession();
-  };
+  }, []);
 
-  const onOpenBugModal = () => useAppStore.getState().setIsBugModalOpen(true);
-  const onOpenAdminModal = () => useAppStore.getState().setIsAdminModalOpen(true);
-  const prefetchAdminModal = () => {
+  const onOpenBugModal = React.useCallback(() => useAppStore.getState().setIsBugModalOpen(true), []);
+  const onOpenAdminModal = React.useCallback(() => useAppStore.getState().setIsAdminModalOpen(true), []);
+  const prefetchAdminModal = React.useCallback(() => {
     import('./AdminPortalModal').catch(() => {});
-  };
+  }, []);
 
-  const steps = [
+  const steps = React.useMemo(() => [
     { num: 1, label: t('stepHome') },
     { num: 2, label: t('stepConfig') },
     { num: 3, label: t('stepUpload') },
     { num: 4, label: t('stepAnalysis') },
     { num: 5, label: t('stepRemediation') },
-  ];
+  ], [t]);
 
   return (
     <header className="shrink-0 bg-slate-50/95 dark:bg-slate-950/95 border-b border-slate-200 dark:border-slate-800 text-slate-900 dark:text-slate-100 sticky top-0 z-40 backdrop-blur-md shadow-2xs">

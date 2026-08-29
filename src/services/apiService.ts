@@ -210,7 +210,13 @@ export const saveAssessmentLog = async (payload: AssessmentLogPayload, imageData
 };
 
 export const savePathologyAssessmentLog = async (payload: any, imageDataUrl?: string) => {
-  const dataToSave = { ...payload, imageDataUrl };
+  const isConsent = payload.shareConsent === true;
+  const safeImageDataUrl = isConsent ? imageDataUrl : undefined;
+  const dataToSave = {
+    ...payload,
+    imageUrl: isConsent ? payload.imageUrl : undefined,
+    imageDataUrl: safeImageDataUrl,
+  };
 
   for (let attempt = 1; attempt <= 3; attempt++) {
     try {

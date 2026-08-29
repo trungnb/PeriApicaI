@@ -115,7 +115,10 @@ export async function runAutoSyncJob() {
 }
 
 export function startAutoSyncJob() {
-  setInterval(runAutoSyncJob, 15000);
+  const SYNC_INTERVAL_MS = 30 * 60 * 1000;
+  setInterval(() => {
+    runAutoSyncJob().catch(() => {});
+  }, SYNC_INTERVAL_MS);
 }
 
 export function getIsAutoSyncRunning(): boolean {

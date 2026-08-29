@@ -89,34 +89,10 @@ export function restorePathologyDocFromFirestore(doc: any): any {
 
 // ─── In-Memory RAM Cache (integrated with ServerCache & disk temp_cache.json) ─────
 let ramCache: any[] = [];
-let lastSyncTime = 0;
 let unsubscribeSnapshot: (() => void) | null = null;
 
 export function startPathologySnapshot(): void {
-  const db = getFirestoreInstance();
-  if (!db || unsubscribeSnapshot) return;
-
-  try {
-    const col = db.collection(COLLECTION).orderBy('timestamp', 'desc').limit(500);
-    unsubscribeSnapshot = col.onSnapshot(
-      (snapshot: any) => {
-        const cache = getOrInitServerCache();
-        const docs = snapshot.docs.map((doc: any) =>
-          restorePathologyDocFromFirestore({ _id: doc.id, ...doc.data() })
-        );
-        cache.seg_reports = docs;
-        ramCache = docs;
-        lastSyncTime = Date.now();
-      },
-      (err: any) => {
-        serverLog('ERROR', 'PathologySnapshot', `Error: ${err?.message}`);
-      },
-    );
-    serverLog('INFO', 'PathologySnapshot', 'Real-time listener started on seg_reports');
-  } catch (unknownError: unknown) {
-    const e = unknownError instanceof Error ? unknownError : new Error(String(unknownError));
-    serverLog('ERROR', 'PathologySnapshot', `Failed to start: ${e?.message}`);
-  }
+  serverLog('INFO', 'PathologySnapshot', 'Realtime snapshot listener disabled to save Firestore read quota. Using on-demand storage cache.');
 }
 
 export function getPathologyRamCache(): any[] {
@@ -227,7 +203,6 @@ export async function getPathologyLogs(limitCount: number = 100): Promise<any[]>
     );
     cache.seg_reports = docs;
     ramCache = docs;
-    lastSyncTime = Date.now();
     return docs;
   } catch (unknownError: unknown) {
     const e = unknownError instanceof Error ? unknownError : new Error(String(unknownError));

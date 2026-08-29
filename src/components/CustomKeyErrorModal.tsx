@@ -1,5 +1,5 @@
 import React from 'react';
-import { AlertTriangle, Key, RefreshCw, Edit3 } from 'lucide-react';
+import { AlertTriangle, RefreshCw, Edit3 } from 'lucide-react';
 import { useAppStore } from '../store/appStore';
 import { useTranslation } from 'react-i18next';
 import { useRadiographAnalysis } from '../hooks/useRadiographAnalysis';

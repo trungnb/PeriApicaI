@@ -38,16 +38,15 @@ router.post('/api/segment-pathology', validatePathologySegment, analyzeLimiter, 
       if (match) { cleanMime = match[1]; cleanBase64 = match[2]; }
     }
 
-    // Cache key from image slice + tooth
-    const imgSlice = cleanBase64.length > 400 ? `${cleanBase64.slice(0, 200)}_${cleanBase64.slice(-200)}_${cleanBase64.length}` : cleanBase64;
     const cacheKey = crypto
       .createHash('sha256')
-      .update(imgSlice)
+      .update(cleanBase64)
       .update(String(toothFdi || ''))
       .update(String(outputLanguage || ''))
-      .update(String(selectedModel || 'default'))
+      .update(String(selectedModel || 'gemini-flash-latest'))
       .update(String(analysisMode || 'single'))
-      .update(String(selectedModelB || 'default'))
+      .update(String(selectedModelB || 'gemini-flash-lite-latest'))
+      .update(customApiKey ? `custom_${customApiKey.trim()}` : 'system')
       .digest('hex');
 
     if (pathologyVerifyCache.has(cacheKey)) {
@@ -63,6 +62,9 @@ router.post('/api/segment-pathology', validatePathologySegment, analyzeLimiter, 
     const updateStatus = (message: string) => {
       if (!res.writableEnded) {
         res.write(`data: ${JSON.stringify({ statusMessage: message })}\n\n`);
+        if (typeof (res as any).flush === 'function') {
+          (res as any).flush();
+        }
       }
     };
 

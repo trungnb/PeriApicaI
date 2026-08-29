@@ -195,7 +195,7 @@ export const PathologyAnalysisScreen: React.FC = React.memo(() => {
         )}
 
         {/* ── Loading State ───────────────────────────────────── */}
-        {isRunning && confirmedPathologies.length === 0 && (
+        {isRunning && (
           <div className="bg-white dark:bg-slate-800/90 rounded-2xl p-12 border border-slate-200/80 dark:border-slate-700/80 shadow-xs text-center space-y-3">
             <Loader2 className="w-8 h-8 animate-spin text-teal-600 mx-auto" />
             <p className="text-xs font-bold text-slate-700 dark:text-slate-300">
@@ -208,7 +208,7 @@ export const PathologyAnalysisScreen: React.FC = React.memo(() => {
         )}
 
         {/* ── Error State ─────────────────────────────────────── */}
-        {pathologyAnalysisStatus === 'error' && confirmedPathologies.length === 0 && (
+        {pathologyAnalysisStatus === 'error' && (
           <div className="bg-white dark:bg-slate-800/90 rounded-2xl p-10 border border-rose-200 dark:border-rose-800/60 shadow-xs text-center space-y-4">
             <div className="w-14 h-14 rounded-2xl bg-rose-100 dark:bg-rose-900/40 text-rose-600 dark:text-rose-400 flex items-center justify-center mx-auto">
               <AlertTriangle className="w-7 h-7" />
@@ -234,7 +234,7 @@ export const PathologyAnalysisScreen: React.FC = React.memo(() => {
         )}
 
         {/* ── Main 12-Column Grid (Identical to Luồng A) ──────── */}
-        {(isComplete || confirmedPathologies.length > 0) && (
+        {isComplete && (
           <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
             
             {/* ── LEFT: Viewer Canvas & Controls (4 cols) ───────── */}

@@ -5,7 +5,6 @@ import { MedicalDarkViewer } from './MedicalDarkViewer';
 import { useTranslation } from 'react-i18next';
 import { getToothDisplayName, getArchDisplayName, getTechniqueDisplayName, getReceptorDisplayName } from '../data/taxonomyData';
 import { useAssessmentSession } from '../hooks/useAssessmentSession';
-import { useRadiographAnalysis } from '../hooks/useRadiographAnalysis';
 import { ByokConfigSection } from './ByokConfigSection';
 import { ModelSelectionSection } from './ModelSelectionSection';
 import { CustomKeyErrorModal } from './CustomKeyErrorModal';
@@ -26,13 +25,9 @@ export const UploadScreen: React.FC = React.memo(() => {
   const quotaResetNotice = useAppStore(state => state.quotaResetNotice);
   const shareConsent = useAppStore(state => state.shareConsent);
   const setShareConsent = useAppStore(state => state.setShareConsent);
-  const analysisMode = useAppStore(state => state.analysisMode);
-  const setAnalysisMode = useAppStore(state => state.setAnalysisMode);
   const lastCompressionMetrics = useAppStore(state => state.lastCompressionMetrics);
   
   const { handleImageSelectedAndAutoLog: onImageSelected } = useAssessmentSession();
-  const { handleAnalyzeRadiograph: onAnalyze } = useRadiographAnalysis();
-  const onBack = () => useAppStore.getState().setCurrentStep(2);
 
   const [isDragging, setIsDragging] = useState(false);
   const [isCompressing, setIsCompressing] = useState(false);

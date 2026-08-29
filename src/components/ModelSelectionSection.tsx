@@ -3,7 +3,7 @@ import { Cpu, RefreshCw, Check, Sparkles } from 'lucide-react';
 import { useAppStore } from '../store/appStore';
 import { apiRequest } from '../services/apiService';
 
-export const ModelSelectionSection: React.FC = () => {
+export const ModelSelectionSection: React.FC = React.memo(() => {
   const language = useAppStore((s) => s.language);
   const appEngineMode = useAppStore((s) => s.appEngineMode);
   const isPathology = appEngineMode === 'pathology_segmentation';
@@ -26,7 +26,7 @@ export const ModelSelectionSection: React.FC = () => {
 
   const isEn = language === 'EN';
 
-  const loadModels = async () => {
+  const loadModels = React.useCallback(async () => {
     setIsLoadingModels(true);
     try {
       const data = await apiRequest<{
@@ -58,7 +58,7 @@ export const ModelSelectionSection: React.FC = () => {
     } finally {
       setIsLoadingModels(false);
     }
-  };
+  }, [apiKeyOption, customApiKey, selectedModelA, selectedModelB, setAvailableModels, setIsLoadingModels, setSelectedModelA, setSelectedModelB]);
 
   useEffect(() => {
     loadModels();
@@ -233,4 +233,4 @@ export const ModelSelectionSection: React.FC = () => {
       </div>
     </div>
   );
-};
+});

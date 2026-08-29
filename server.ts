@@ -20,8 +20,17 @@ async function startServer() {
   const app = express();
   app.set('trust proxy', 1);
 
-  // Enable gzip/brotli compression for fast payload delivery
-  app.use(compression());
+  // Enable gzip/brotli compression for fast payload delivery (bypassing SSE streams)
+  app.use(
+    compression({
+      filter: (req, res) => {
+        if (req.headers.accept === 'text/event-stream' || req.path.includes('/api/analyze-radiograph') || req.path.includes('/api/segment-pathology')) {
+          return false;
+        }
+        return compression.filter(req, res);
+      },
+    })
+  );
   app.use(express.json({ limit: '10mb' })); // Reduced from 50mb to prevent payload DoS
   app.use(express.urlencoded({ limit: '10mb', extended: true }));
 

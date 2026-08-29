@@ -44,11 +44,14 @@ router.post('/api/analyze-radiograph', validateRadiographAnalysis, analyzeLimite
     const outputLanguage = language || 'Tiếng Việt';
     const analysisMode = req.body.analysisMode === 'consensus' ? 'consensus' : 'single';
 
-    const apiKeyOption = req.body.apiKeyOption;
     let customApiKey = req.body.customApiKey ? String(req.body.customApiKey).trim() : '';
     if ((customApiKey.startsWith("'") && customApiKey.endsWith("'")) || (customApiKey.startsWith('"') && customApiKey.endsWith('"'))) {
       customApiKey = customApiKey.slice(1, -1).trim();
     }
+    const apiKeyOption = req.body.apiKeyOption || (customApiKey ? 'custom' : 'system');
+
+    const selectedModelA = req.body.selectedModelA || req.body.selectedModel || 'gemini-flash-latest';
+    const selectedModelB = req.body.selectedModelB || 'gemini-flash-lite-latest';
 
     if (!tooth || !technique || !receptorType) {
       return res.status(400).json({ error: 'Missing required parameters: tooth, technique, receptorType' });
@@ -84,7 +87,9 @@ router.post('/api/analyze-radiograph', validateRadiographAnalysis, analyzeLimite
       .update(String(receptorType || ''))
       .update(String(outputLanguage || ''))
       .update(String(analysisMode || ''))
-      .update(apiKeyOption === 'custom' ? customApiKey : 'system')
+      .update(String(selectedModelA || ''))
+      .update(String(selectedModelB || ''))
+      .update(apiKeyOption === 'custom' ? `custom_${customApiKey}` : 'system')
       .digest('hex');
 
     if (analysisCache.has(cacheKey)) {
@@ -146,11 +151,11 @@ router.post('/api/analyze-radiograph', validateRadiographAnalysis, analyzeLimite
     const updateStatus = (message: string) => {
       if (!res.writableEnded) {
         res.write(`data: ${JSON.stringify({ statusMessage: message })}\n\n`);
+        if (typeof (res as any).flush === 'function') {
+          (res as any).flush();
+        }
       }
     };
-
-    const selectedModelA = req.body.selectedModelA || 'gemini-flash-latest';
-    const selectedModelB = req.body.selectedModelB || 'gemini-flash-lite-latest';
 
     if (analysisMode === 'consensus') {
       updateStatus(isEn ? '👥 Initializing Dual-Model Consensus...' : '👥 Đang khởi tạo Hội chẩn Song song...');

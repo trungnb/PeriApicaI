@@ -4,8 +4,7 @@ import { useAppStore } from '../store/appStore';
 import { AlertTriangle } from 'lucide-react';
 
 export const SystemNoticeModal: React.FC = () => {
-  const language = useAppStore((state) => state.language);
-  const { t, i18n } = useTranslation('common');
+  const { t } = useTranslation('common');
   const systemNoticeModal = useAppStore((state) => state.systemNoticeModal);
   const setSystemNoticeModal = useAppStore((state) => state.setSystemNoticeModal);
 

@@ -10,6 +10,7 @@ import {
   Image as ImageIcon,
   EyeOff,
   Trash2,
+  Loader2,
 } from 'lucide-react';
 import { PathologyAssessmentLog, SystemMetrics } from '../../types/dental';
 import {
@@ -575,7 +576,14 @@ export const PathologyLogsPanel: React.FC<PathologyLogsPanelProps> = ({
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100 dark:divide-blue-900/50">
-              {paginatedLogs.length === 0 ? (
+              {isLoading && paginatedLogs.length === 0 ? (
+                <tr>
+                  <td colSpan={7} className="px-4 py-12 text-center text-slate-400 dark:text-blue-300/60">
+                    <Loader2 className="w-6 h-6 animate-spin text-teal-500 mx-auto mb-2" />
+                    <span>{t('loading', 'Đang tải dữ liệu...')}</span>
+                  </td>
+                </tr>
+              ) : paginatedLogs.length === 0 ? (
                 <tr>
                   <td colSpan={7} className="px-4 py-8 text-center text-slate-400 dark:text-blue-300/60">
                     {t('noMatchingRecordsFound')}

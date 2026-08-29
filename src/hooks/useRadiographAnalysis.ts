@@ -14,14 +14,19 @@ function computeRequestHash(
   technique: string,
   receptor: string,
   lang: string,
-  mode: string
+  mode: string,
+  modelA: string,
+  modelB: string,
+  apiKeyOpt: string,
+  customKey: string
 ): string {
   let hash = 5381;
   for (let i = 0; i < image.length; i++) {
     hash = (hash * 33) ^ image.charCodeAt(i);
   }
   const imgHash = (hash >>> 0).toString(16);
-  return `${imgHash}_${toothNumber}_${technique}_${receptor}_${lang}_${mode}`;
+  const keyIdentifier = apiKeyOpt === 'custom' ? `byok_${customKey.trim()}` : 'system';
+  return `${imgHash}_${toothNumber}_${technique}_${receptor}_${lang}_${mode}_${modelA}_${modelB}_${keyIdentifier}`;
 }
 
 export function useRadiographAnalysis() {
@@ -45,16 +50,7 @@ export function useRadiographAnalysis() {
       apiKeyOption,
       customApiKey,
       analysisMode,
-      setIsAnalyzing,
-      setAnalyzingStatusMessage,
-      setAnalysisResult,
       setGlobalError,
-      setSystemNoticeModal,
-      setCustomKeyErrorModal,
-      setIsFallbackAnalysis,
-      setCurrentStep,
-      setImageDataUrl,
-      setQuotaExhausted,
     } = store;
 
     if (!imageDataUrl || !imageFile) return;
@@ -113,13 +109,20 @@ export function useRadiographAnalysis() {
       }
     }
 
+    const modelA = useAppStore.getState().selectedModelA || 'gemini-flash-latest';
+    const modelB = useAppStore.getState().selectedModelB || 'gemini-flash-lite-latest';
+
     const currentHash = computeRequestHash(
       aiBase64,
       selectedTooth.fdiNumber,
       selectedTechnique,
       selectedReceptor,
       language,
-      analysisMode
+      analysisMode,
+      modelA,
+      modelB,
+      apiKeyOption,
+      customApiKey
     );
 
     // Session Deduplication Cache
@@ -150,7 +153,7 @@ export function useRadiographAnalysis() {
         receptorType: selectedReceptor,
         language,
         onStatusUpdate: (status) => {
-          setAnalyzingStatusMessage(status);
+          useAppStore.setState({ analyzingStatusMessage: status });
         },
         apiKeyOption,
         customApiKey,

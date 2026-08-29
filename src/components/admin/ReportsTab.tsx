@@ -118,7 +118,6 @@ export const ReportsTab: React.FC<ReportsTabProps> = ({
     return 'INCOMPLETE';
   };
 
-  const isFiltering = filterType !== 'all' || statusFilter !== 'ALL';
   const {
     timeFilteredLogs,
     totalUploadsCount,
@@ -126,7 +125,6 @@ export const ReportsTab: React.FC<ReportsTabProps> = ({
     incompleteAnalysesCount,
     invalidImageUploadsCount,
     completionRate,
-    exactMatchCount,
     exactMatchRate,
     accuracyScoreCounts,
     sortedErrorCounts,

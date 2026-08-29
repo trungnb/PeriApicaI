@@ -1,8 +1,6 @@
 import {
   PathologyTaxonomyItem,
   BilingualTaxonomyErrorItem,
-  ErrorDomainId,
-  PathologyDomainId,
 } from '../types/dental';
 import { PATHOLOGY_TAXONOMY } from '../data/pathologyTaxonomyData';
 import { TAXONOMY_ERRORS } from '../data/taxonomyData';

@@ -304,15 +304,48 @@ export const useAppStore = create<AppState>((set, get) => ({
   setCurrentAssessmentId: (id) => set({ currentAssessmentId: id }),
   setSelectedTechnique: (technique) => set((state) => {
     if (state.selectedTechnique === technique) return {};
-    return { selectedTechnique: technique, analysisResult: null, lastAnalyzedRequestHash: null, confirmedErrorKeys: [] };
+    return {
+      selectedTechnique: technique,
+      analysisResult: null,
+      lastAnalyzedRequestHash: null,
+      confirmedErrorKeys: [],
+      aiDetections: [],
+      confirmedPathologies: [],
+      pathologyGeminiResult: null,
+      hiddenDetectionIds: new Set<string>(),
+      pathologyAnalysisStatus: 'idle',
+      pathologyStatusMessage: null,
+    };
   }),
   setSelectedReceptor: (receptor) => set((state) => {
     if (state.selectedReceptor === receptor) return {};
-    return { selectedReceptor: receptor, analysisResult: null, lastAnalyzedRequestHash: null, confirmedErrorKeys: [] };
+    return {
+      selectedReceptor: receptor,
+      analysisResult: null,
+      lastAnalyzedRequestHash: null,
+      confirmedErrorKeys: [],
+      aiDetections: [],
+      confirmedPathologies: [],
+      pathologyGeminiResult: null,
+      hiddenDetectionIds: new Set<string>(),
+      pathologyAnalysisStatus: 'idle',
+      pathologyStatusMessage: null,
+    };
   }),
   setSelectedTooth: (tooth) => set((state) => {
     if (state.selectedTooth.fdiNumber === tooth.fdiNumber) return {};
-    return { selectedTooth: tooth, analysisResult: null, lastAnalyzedRequestHash: null, confirmedErrorKeys: [] };
+    return {
+      selectedTooth: tooth,
+      analysisResult: null,
+      lastAnalyzedRequestHash: null,
+      confirmedErrorKeys: [],
+      aiDetections: [],
+      confirmedPathologies: [],
+      pathologyGeminiResult: null,
+      hiddenDetectionIds: new Set<string>(),
+      pathologyAnalysisStatus: 'idle',
+      pathologyStatusMessage: null,
+    };
   }),
   setImageDataUrl: (url, file?: File | null) => set((state) => {
     if (state.imageDataUrl === url && state.imageFile === (file || null)) return {};
@@ -322,7 +355,25 @@ export const useAppStore = create<AppState>((set, get) => ({
     if (url && state.currentAssessmentId) {
       imageBlobCache.set(state.currentAssessmentId, { blob: file || undefined, dataUrl: url });
     }
-    return { imageDataUrl: url, imageFile: file || null, compressedImageBase64: null, lastCompressionMetrics: null, lastAnalysisMetrics: null, analysisResult: null, lastAnalyzedRequestHash: null, confirmedErrorKeys: [] };
+    return {
+      imageDataUrl: url,
+      imageFile: file || null,
+      compressedImageBase64: null,
+      lastCompressionMetrics: null,
+      lastAnalysisMetrics: null,
+      analysisResult: null,
+      lastAnalyzedRequestHash: null,
+      confirmedErrorKeys: [],
+      userConcurred: null,
+      selectedOverrideKeys: [],
+      // Stale Pathology State Reset when changing/uploading image
+      aiDetections: [],
+      confirmedPathologies: [],
+      pathologyGeminiResult: null,
+      hiddenDetectionIds: new Set<string>(),
+      pathologyAnalysisStatus: 'idle',
+      pathologyStatusMessage: null,
+    };
   }),
   setIsAnalyzing: (isAnalyzing) => set({ isAnalyzing }),
   setLastCompressionMetrics: (metrics) => set({ lastCompressionMetrics: metrics }),

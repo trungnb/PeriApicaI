@@ -837,33 +837,9 @@ function setupCollectionStreamListener<T extends { timestamp?: string; updatedAt
 }
 
 export function initFirestoreRealtimeListeners() {
-  if (isRealtimeListenerActive) return;
-
-  const db = getFirestoreInstance();
-  if (!db) {
-    serverLog('INFO', 'RealtimeSync', 'Firebase chưa được cấu hình, bỏ qua Realtime Listener');
-    return;
-  }
-
-  try {
-    const cache = getOrInitServerCache();
-    serverLog('INFO', 'RealtimeSync', 'Đang thiết lập kết nối Realtime Snapshot Stream với Firestore...');
-
-    unsubscribeReportsListener = setupCollectionStreamListener('reports', 'assessmentId', cache.reports);
-    if (!cache.seg_reports) cache.seg_reports = [];
-    unsubscribeSegReportsListener = setupCollectionStreamListener(
-      'seg_reports',
-      'assessmentId',
-      cache.seg_reports,
-      restorePathologyDocFromFirestore
-    );
-    unsubscribeBugsListener = setupCollectionStreamListener('bugs', 'bugId', cache.bugs);
-
-    isRealtimeListenerActive = true;
-    serverLog('INFO', 'RealtimeSync', '✅ Đã kích hoạt Realtime Snapshot Stream thành công (0 Reads on Open)!');
-  } catch (err: any) {
-    serverLog('ERROR', 'RealtimeSync', 'Không thể khởi tạo Firestore Realtime Listener', err?.message || err);
-  }
+  // Realtime listeners disabled to prevent continuous read quota exhaustion on server startup/restarts.
+  // System uses atomic local caching + on-demand queries when Admin explicitly loads data.
+  serverLog('INFO', 'RealtimeSync', 'Firestore realtime background listeners disabled to protect read quota. On-demand cache active.');
 }
 
 export function stopFirestoreRealtimeListeners() {
@@ -880,6 +856,7 @@ export function stopFirestoreRealtimeListeners() {
     unsubscribeBugsListener = null;
   }
   isRealtimeListenerActive = false;
+  serverLog('INFO', 'RealtimeSync', 'Đã dừng tất cả Firestore Realtime Listeners.');
 }
 
 export function getIsRealtimeListenerActive(): boolean {

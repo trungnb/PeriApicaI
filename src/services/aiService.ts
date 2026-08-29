@@ -584,8 +584,11 @@ export async function analyzeRadiograph(
           technique,
           receptorType,
           outputLanguage: isEn ? 'EN' : 'VI',
+          language: isEn ? 'EN' : 'VI',
+          apiKeyOption,
           customApiKey: apiKeyOption === 'custom' ? customApiKey : undefined,
           selectedModel: selectedModelA,
+          selectedModelA,
           analysisMode,
           selectedModelB,
         }
@@ -594,8 +597,10 @@ export async function analyzeRadiograph(
           mimeType,
           toothFdi,
           language: isEn ? 'EN' : 'VI',
+          apiKeyOption,
           customApiKey: apiKeyOption === 'custom' ? customApiKey : undefined,
           selectedModel: selectedModelA,
+          selectedModelA,
           analysisMode,
           selectedModelB,
         };

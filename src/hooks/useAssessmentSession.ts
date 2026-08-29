@@ -36,13 +36,15 @@ export function useAssessmentSession() {
     const { shareConsent } = useAppStore.getState();
     try {
       const currentUserId = payload.userId || getOrCreateUserId();
+      const finalImageDataUrl = shareConsent ? imageDataUrlParam : undefined;
       const fullPayload = {
         shareConsent,
         ...payload,
         userId: currentUserId,
-        imageDataUrl: shareConsent ? imageDataUrlParam : undefined,
+        imageUrl: shareConsent ? payload.imageUrl : undefined,
+        imageDataUrl: finalImageDataUrl,
       };
-      await savePathologyAssessmentLog(fullPayload, imageDataUrlParam);
+      await savePathologyAssessmentLog(fullPayload, finalImageDataUrl);
     } catch (err) {
       console.error('[Save Pathology Assessment Error]:', err);
     }

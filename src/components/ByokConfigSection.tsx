@@ -4,7 +4,7 @@ import { useAppStore } from '../store/appStore';
 import { useTranslation } from 'react-i18next';
 import { validateCustomApiKey } from '../services/apiService';
 
-export const ByokConfigSection: React.FC = () => {
+export const ByokConfigSection: React.FC = React.memo(() => {
   const { t, i18n } = useTranslation('upload');
   const appEngineMode = useAppStore(state => state.appEngineMode);
   const isPathology = appEngineMode === 'pathology_segmentation';
@@ -19,7 +19,7 @@ export const ByokConfigSection: React.FC = () => {
   const [isValidating, setIsValidating] = useState(false);
   const [validationResult, setValidationResult] = useState<{ valid: boolean; message: string } | null>(null);
 
-  const handleTestKey = async () => {
+  const handleTestKey = React.useCallback(async () => {
     if (!customApiKey.trim()) {
       setValidationResult({
         valid: false,
@@ -39,7 +39,7 @@ export const ByokConfigSection: React.FC = () => {
         ? t('byokValidKey')
         : `${t('byokInvalidKey')} (${res.message})`,
     });
-  };
+  }, [customApiKey, i18n.language, t]);
 
   return (
     <div className="bg-white dark:bg-slate-800/90 rounded-2xl p-4 border border-slate-200/80 dark:border-slate-700/80 shadow-xs space-y-3">
@@ -241,4 +241,4 @@ export const ByokConfigSection: React.FC = () => {
       )}
     </div>
   );
-};
+});

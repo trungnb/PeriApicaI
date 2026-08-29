@@ -4,7 +4,22 @@ Documenting the evolution and release history of the **PeriApicaI** Next-Gen Mul
 
 ---
 
-## 🚀 Version 2.6.0 (Current Stable Release — August 2026)
+## 🚀 Version 2.7.0 (Current Stable Release — August 2026)
+
+### 🌟 Major Highlights, Read Quota Fixes & Performance Optimization
+- **Elimination of Firestore Background Read Flooding (Read Quota Protection)**:
+  - **Deactivated Background Realtime Listeners**: Removed 24/7 background `onSnapshot` listeners on server startup (`reports`, `seg_reports`, `bugs`) that previously caused high read spikes (800+ reads per container restart/network reconnect).
+  - **Removed Duplicate Pathology Watchers**: Eliminated redundant parallel listeners on `seg_reports` across `storageAdapter.ts` and `firestorePathologyService.ts`.
+  - **Auto-Sync Polling Interval Optimization**: Replaced aggressive 15-second background synchronization polling (`syncJob.ts`) with a conservative 30-minute interval and on-demand synchronization.
+  - **Single-Read Pre-Aggregated Dashboard Architecture**: Switched Admin Analytics and Report stats to read directly from the unified atomic `system_metadata/dashboard` document (1 Read operation instead of scanning hundreds of records).
+  - **Query Pagination Limits & Bounds**: Enforced strict `limit(200)` and on-demand pagination across administrative queries to eliminate unbounded collection reads.
+- **Frontend & State Store Streamlining**:
+  - Audited global state in Zustand store, pruned redundant state setters, and eliminated unused variables across assessment screens and admin panels.
+  - Memoized high-frequency components (`Header`, `StickyBottomNav`, `PerformanceTelemetry`) to minimize unnecessary rendering cycles.
+
+---
+
+## ⚡ Version 2.6.0 (August 2026)
 
 ### 🌟 Major Highlights & Architecture Upgrades
 - **Dual Independent Pipeline Architecture (Pipeline A & Pipeline B)**:

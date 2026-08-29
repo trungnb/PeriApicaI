@@ -39,7 +39,6 @@ export const TreatmentRecommendationScreen: React.FC = React.memo(() => {
 
   const treatmentItems = React.useMemo(() => {
     return confirmedPathologies.map((p) => {
-      const tax = PATHOLOGY_DICT[p.pathologyKey];
       const label = getPathologyLabel(p.pathologyKey, language);
       const desc = getPathologyDescription(p.pathologyKey, language);
       const treatment = getTreatmentText(p.pathologyKey, language);

@@ -91,9 +91,6 @@ export function usePathologyAnalysis() {
       const imgH = img.naturalHeight || img.height || 480;
 
       const imageBase64 = compressedImageBase64 || imageDataUrl;
-      const mimeType = imageBase64?.startsWith('data:')
-        ? imageBase64.split(';')[0].split(':')[1]
-        : 'image/jpeg';
 
       const apiStart = performance.now();
 

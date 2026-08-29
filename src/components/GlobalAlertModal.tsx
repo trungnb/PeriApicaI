@@ -4,8 +4,7 @@ import { useAppStore } from '../store/appStore';
 import { AlertTriangle, X } from 'lucide-react';
 
 export const GlobalAlertModal: React.FC = () => {
-  const language = useAppStore(state => state.language);
-  const { t, i18n } = useTranslation('common');
+  const { t } = useTranslation('common');
   const globalError = useAppStore(state => state.globalError);
   const setGlobalError = useAppStore(state => state.setGlobalError);
 

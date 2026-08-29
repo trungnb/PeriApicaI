@@ -9,11 +9,9 @@ import { X, ShieldCheck, BarChart2, Bug, LogOut, Flame, RefreshCw, Trash2, Loade
 import { useAppStore } from '../store/appStore';
 import { useMetadataStore } from '../store/useMetadataStore';
 import { AdminLogin } from './admin/AdminLogin';
-import { DeleteDataModal, BatchDeleteSuccessInfo } from './admin/DeleteDataModal';
-import { DeleteConfirmModal, DeleteTargetItem } from './admin/modals/DeleteConfirmModal';
-import { AssessmentLogPayload, BugReport, PathologyAssessmentLog } from '../types/dental';
+import { DeleteDataModal } from './admin/DeleteDataModal';
+import { DeleteConfirmModal } from './admin/modals/DeleteConfirmModal';
 import { AdminModalSkeleton } from './SkeletonLoaders';
-import { parseLogDateParts } from '../utils/dateUtils';
 
 const lazyWithRetry = <T extends React.ComponentType<any>>(
   factory: () => Promise<{ default: T }>
@@ -43,15 +41,15 @@ export const AdminPortalModal: React.FC = () => {
   const { isAuthenticated, setIsAuthenticated, isVerifyingToken, setIsVerifyingToken, login, logout, loginError } = useAdminAuth();
 
   const {
-    isSyncing, setIsSyncing,
+    isSyncing,
     bugsList, setBugsList,
     displayLogs, setDisplayLogs,
     pathologyLogs, setPathologyLogs,
-    syncErrorMessage, setSyncErrorMessage,
+    syncErrorMessage,
     dateRangeFilter, setDateRangeFilter,
     fetchAdminData, fetchMetadata,
     getAuthHeader,
-    quotaLocked, setQuotaLocked,
+    quotaLocked,
     resetInfoStr, isFirebaseStorage,
     systemMetrics, cooldownSeconds
   } = useAdminData(logout);
@@ -66,7 +64,6 @@ export const AdminPortalModal: React.FC = () => {
   const {
     deleteTargetItem, setDeleteTargetItem,
     toastNotification,
-    showToast,
     handleDeleteDocumentSuccess,
     handleBatchDeleteSuccess
   } = useAdminDelete({
@@ -138,26 +135,6 @@ export const AdminPortalModal: React.FC = () => {
       window.removeEventListener('offline', handleOffline);
     };
   }, []);
-
-  const getResetTimeInfo = () => {
-    const now = new Date();
-    const resetDate = new Date();
-    resetDate.setHours(14, 0, 0, 0); // 14:00 ICT (UTC+7)
-    if (now >= resetDate) {
-      resetDate.setDate(resetDate.getDate() + 1);
-    }
-    const timeDiffMs = resetDate.getTime() - now.getTime();
-    const hoursLeft = Math.floor(timeDiffMs / (1000 * 60 * 60));
-    const minsLeft = Math.floor((timeDiffMs % (1000 * 60 * 60)) / (1000 * 60));
-    if (i18n.language === 'en') {
-      const timeStr = resetDate.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Ho_Chi_Minh' });
-      const dateStr = resetDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric', timeZone: 'Asia/Ho_Chi_Minh' });
-      return `${timeStr} on ${dateStr} (approx. ${hoursLeft}h ${minsLeft}m remaining)`;
-    }
-    const timeStr = resetDate.toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Ho_Chi_Minh' });
-    const dateStr = resetDate.toLocaleDateString('vi-VN', { day: '2-digit', month: '2-digit', year: 'numeric', timeZone: 'Asia/Ho_Chi_Minh' });
-    return `${timeStr} ngày ${dateStr} (khoảng ${hoursLeft} giờ ${minsLeft} phút nữa)`;
-  };
 
     /**
    * Authenticates admin by POSTing credentials to the server.
