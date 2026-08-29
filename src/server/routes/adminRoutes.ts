@@ -403,17 +403,32 @@ router.get('/api/admin/diagnose-drift', adminAuth, async (req: Request, res: Res
       return res.status(400).json({ success: false, error: 'Firestore is not initialized' });
     }
 
-    const [reportsSnap, segSnap, bugsSnap] = await Promise.all([
-      db.collection('reports').get(),
-      db.collection('seg_reports').get(),
-      db.collection('bugs').get(),
+    // Use aggregation count() for efficient 0-document-payload counter if available, or lightweight size
+    const [reportsCountSnap, segCountSnap, bugsCountSnap] = await Promise.all([
+      db.collection('reports').count().get().catch(() => null),
+      db.collection('seg_reports').count().get().catch(() => null),
+      db.collection('bugs').count().get().catch(() => null),
     ]);
 
-    const rawCounts = {
-      reports: reportsSnap.size,
-      seg_reports: segSnap.size,
-      bugs: bugsSnap.size,
+    let rawCounts = {
+      reports: reportsCountSnap ? reportsCountSnap.data().count : 0,
+      seg_reports: segCountSnap ? segCountSnap.data().count : 0,
+      bugs: bugsCountSnap ? bugsCountSnap.data().count : 0,
     };
+
+    // Fallback if count() API is not supported on the instance: use capped limit(500)
+    if (!reportsCountSnap || !segCountSnap || !bugsCountSnap) {
+      const [reportsSnap, segSnap, bugsSnap] = await Promise.all([
+        db.collection('reports').orderBy('timestamp', 'desc').limit(500).get(),
+        db.collection('seg_reports').orderBy('timestamp', 'desc').limit(500).get(),
+        db.collection('bugs').orderBy('timestamp', 'desc').limit(500).get(),
+      ]);
+      rawCounts = {
+        reports: reportsSnap.size,
+        seg_reports: segSnap.size,
+        bugs: bugsSnap.size,
+      };
+    }
 
     const metadataDoc = await getSystemMetadata(db);
     const metadataCounts = {

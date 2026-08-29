@@ -21,9 +21,13 @@ function computeRequestHash(
   customKey: string
 ): string {
   let hash = 5381;
-  for (let i = 0; i < image.length; i++) {
+  const len = image.length;
+  // Sample up to 1024 chars evenly across the string + length for near-instant hash
+  const step = Math.max(1, Math.floor(len / 1024));
+  for (let i = 0; i < len; i += step) {
     hash = (hash * 33) ^ image.charCodeAt(i);
   }
+  hash = (hash * 33) ^ len;
   const imgHash = (hash >>> 0).toString(16);
   const keyIdentifier = apiKeyOpt === 'custom' ? `byok_${customKey.trim()}` : 'system';
   return `${imgHash}_${toothNumber}_${technique}_${receptor}_${lang}_${mode}_${modelA}_${modelB}_${keyIdentifier}`;

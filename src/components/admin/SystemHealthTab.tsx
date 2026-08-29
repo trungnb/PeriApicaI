@@ -75,7 +75,11 @@ export const SystemHealthTab: React.FC<SystemHealthTabProps> = ({ getAuthHeader 
 
   useEffect(() => {
     fetchHealth();
-    const interval = setInterval(fetchHealth, 10000); // Auto refresh every 10s
+    const interval = setInterval(() => {
+      // Pause polling when browser tab is inactive or hidden
+      if (typeof document !== 'undefined' && document.hidden) return;
+      fetchHealth();
+    }, 10000); // Auto refresh every 10s when tab is active
     return () => clearInterval(interval);
   }, []);
 
