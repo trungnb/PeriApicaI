@@ -167,9 +167,9 @@ const getInitialRememberCustomApiKey = (): boolean => {
     const saved = localStorage.getItem('periapical_remember_custom_api_key');
     // If explicitly set to false, respect it; otherwise default to true for user convenience
     if (saved === 'false') return false;
-    return true;
+    return false;
   }
-  return true;
+  return false;
 };
 
 

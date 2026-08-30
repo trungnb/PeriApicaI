@@ -52,6 +52,24 @@ export const AVAILABLE_MODELS = [
 ];
 
 // Hàm này được giữ lại dưới dạng bất đồng bộ (async) để không phá vỡ logic các API Router/UI đang kết nối
+
+export class ExecutionBudget {
+  public attempts = 0;
+  constructor(public maxAttempts: number, public signal?: AbortSignal) {}
+  consume() {
+    if (this.signal?.aborted) throw new Error('Request cancelled by client');
+    if (this.attempts >= this.maxAttempts) {
+      const err: any = new Error('Global request budget exhausted');
+      err.isAllExhausted = true;
+      throw err;
+    }
+    this.attempts++;
+  }
+  checkSignal() {
+    if (this.signal?.aborted) throw new Error('Request cancelled by client');
+  }
+}
+
 export async function getAvailableVisionModels(customApiKey?: string): Promise<Array<{ id: string; displayName: string }>> {
   return AVAILABLE_MODELS;
 }
@@ -117,21 +135,34 @@ async function executeRunnerWithRetry<T>(
   runner: (aiClient: GoogleGenAI, modelName: string) => Promise<T>,
   aiClient: GoogleGenAI,
   model: string,
-  maxAttempts = 2,
+  budget: ExecutionBudget,
   onStatusUpdate?: (status: string) => void
 ): Promise<T> {
   let attempt = 0;
   while (true) {
     try {
+      budget.consume();
       return await runner(aiClient, model);
     } catch (err: any) {
-      attempt++;
+      budget.checkSignal();
+      const str = err?.message?.toLowerCase() || '';
       const isInvalidKey = isInvalidApiKeyError(err);
       const isQuota = isRateLimitOrQuotaError(err);
-      // Immediately throw on 401 unauthenticated or 429 quota errors to failover to next key/model
-      if (isInvalidKey || isQuota || attempt >= maxAttempts) {
+      const isValidationError = str.includes('400') || str.includes('invalid argument');
+      const isParseError = str.includes('json') || str.includes('schema');
+      
+      // Do not retry these at the model loop level
+      if (isInvalidKey || isQuota || isValidationError || isParseError) {
         throw err;
       }
+      
+      const jitterMs = 200 + Math.floor(Math.random() * 200);
+      const msg = `⚠️ Model [${model}] tạm bận, thử lại...`;
+      serverLog('WARN', 'GeminiService', `Transient error on model [${model}]. Retrying in ${jitterMs}ms...`);
+      onStatusUpdate?.(msg);
+      await new Promise((resolve) => setTimeout(resolve, jitterMs));
+      budget.checkSignal();
+    }
       const jitterMs = 200 + Math.floor(Math.random() * 200);
       const msg = `⚠️ Model [${model}] tạm bận, thử lại lần ${attempt}...`;
       serverLog('WARN', 'GeminiService', `Transient error on model [${model}] (Attempt ${attempt}/${maxAttempts}). Retrying in ${jitterMs}ms...`);
@@ -143,9 +174,10 @@ async function executeRunnerWithRetry<T>(
 
 export async function executeWithFailover<T>(
   runner: (aiClient: GoogleGenAI, modelName: string) => Promise<T>,
-  preferredModel?: string,
-  customApiKey?: string,
-  onStatusUpdate?: (status: string) => void
+  preferredModel: string | undefined,
+  customApiKey: string | undefined,
+  onStatusUpdate: ((status: string) => void) | undefined,
+  budget: ExecutionBudget
 ): Promise<{ result: T; usedModel: string; usedKeyType: string }> {
   if (customApiKey && customApiKey.trim()) {
     const cleanCustomKey = customApiKey.trim();
@@ -162,7 +194,8 @@ export async function executeWithFailover<T>(
       const model = modelsToTry[i];
       try {
         onStatusUpdate?.(`🔬 Đang phân tích bằng API Key cá nhân [${model}]...`);
-        const result = await executeRunnerWithRetry(runner, aiClient, model, 2, onStatusUpdate);
+        budget.checkSignal();
+        const result = await executeRunnerWithRetry(runner, aiClient, model, budget, onStatusUpdate);
         return { result, usedModel: model, usedKeyType: 'custom_byok' };
       } catch (err: any) {
         lastError = err;
@@ -224,7 +257,8 @@ export async function executeWithFailover<T>(
       try {
         serverLog('INFO', 'GeminiService', `Executing AI request with key [${keyLabel}] on model [${model}]`);
         onStatusUpdate?.(`🔬 Đang kết nối tới AI Model [${model}]...`);
-        const result = await executeRunnerWithRetry(runner, aiClient, model, 2, onStatusUpdate);
+        budget.checkSignal();
+        const result = await executeRunnerWithRetry(runner, aiClient, model, budget, onStatusUpdate);
         anyModelSucceeded = true;
         return { result, usedModel: model, usedKeyType: keyLabel };
       } catch (err: any) {

@@ -170,8 +170,7 @@ router.post('/api/analyze-radiograph', validateRadiographAnalysis, analyzeLimite
       updateStatus(isEn ? '👥 Initializing Dual-Model Consensus...' : '👥 Đang khởi tạo Hội chẩn Song song...');
 
       const [resA, resB] = await Promise.allSettled([
-        executeWithFailover(
-          async (aiClient, modelName) => {
+        executeWithFailover(async (aiClient, modelName) => {
             updateStatus(isEn ? `🔬 Querying AI Model 1 (${modelName})...` : `🔬 Đang phân tích Mô hình AI 1 (${modelName})...`);
             const response = await aiClient.models.generateContent({
               model: modelName,
@@ -185,13 +184,8 @@ router.post('/api/analyze-radiograph', validateRadiographAnalysis, analyzeLimite
             });
             if (!response.text) throw new Error('Empty response from AI Model 1');
             return validateClassicOutput(JSON.parse(response.text));
-          },
-          selectedModelA,
-          isUsingCustomKey ? customApiKey : undefined,
-          updateStatus
-        ),
-        executeWithFailover(
-          async (aiClient, modelName) => {
+          }, selectedModelA, isUsingCustomKey ? customApiKey : undefined, updateStatus, budget),
+        executeWithFailover(async (aiClient, modelName) => {
             updateStatus(isEn ? `🔬 Querying AI Model 2 (${modelName})...` : `🔬 Đang phân tích Mô hình AI 2 (${modelName})...`);
             const response = await aiClient.models.generateContent({
               model: modelName,
@@ -205,11 +199,7 @@ router.post('/api/analyze-radiograph', validateRadiographAnalysis, analyzeLimite
             });
             if (!response.text) throw new Error('Empty response from AI Model 2');
             return validateClassicOutput(JSON.parse(response.text));
-          },
-          selectedModelB,
-          isUsingCustomKey ? customApiKey : undefined,
-          updateStatus
-        )
+          }, selectedModelB, isUsingCustomKey ? customApiKey : undefined, updateStatus, budget)
       ]);
 
       const rawResultA = resA.status === 'fulfilled' ? resA.value.result : null;
@@ -265,7 +255,8 @@ router.post('/api/analyze-radiograph', validateRadiographAnalysis, analyzeLimite
         },
         selectedModelA,
         isUsingCustomKey ? customApiKey : undefined,
-        updateStatus
+        updateStatus,
+        budget
       );
 
       const mappedResult = mapOptimizedResultToLegacy(singleRes.result, outputLanguage);

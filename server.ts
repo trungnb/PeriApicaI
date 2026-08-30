@@ -4,7 +4,7 @@ import compression from 'compression';
 import { createServer as createViteServer } from 'vite';
 
 import { PORT, serverLog } from './src/server/config/env';
-import { flushCacheOnShutdown, initFirestoreRealtimeListeners, stopFirestoreRealtimeListeners } from './src/server/services/storageAdapter';
+import { flushCacheOnShutdown } from './src/server/services/storageAdapter';
 import { startCleanupJob } from './src/server/jobs/cleanupJob';
 import { startAutoSyncJob } from './src/server/jobs/syncJob';
 
@@ -40,7 +40,7 @@ async function startServer() {
     res.setHeader('Strict-Transport-Security', 'max-age=31536000; includeSubDomains');
     res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
     res.setHeader('X-XSS-Protection', '1; mode=block');
-    res.setHeader('Content-Security-Policy', "default-src 'self'; img-src 'self' data: blob: https:; script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; connect-src 'self' https:; frame-ancestors 'self' *;");
+    res.setHeader('Content-Security-Policy', "default-src 'self'; img-src 'self' data: blob: https:; script-src 'self' 'unsafe-inline' 'unsafe-eval' blob:; worker-src 'self' blob:; style-src 'self' 'unsafe-inline'; connect-src 'self' https:; frame-ancestors 'self' *;");
     next();
   });
 
@@ -94,7 +94,6 @@ async function startServer() {
   // Start background jobs & Realtime Snapshot Stream
   startCleanupJob();
   startAutoSyncJob();
-  initFirestoreRealtimeListeners();
   startPathologySnapshot();
 
   // Vite development middleware or production static asset serving
@@ -123,8 +122,7 @@ async function startServer() {
   // Graceful shutdown handling (Flush RAM Cache to Disk & Stop Stream on SIGINT/SIGTERM)
   const shutdownHandler = (signal: string) => {
     serverLog('INFO', 'ServerSignal', `Nhận tín hiệu ${signal}. Tiến hành Graceful Shutdown...`);
-    stopFirestoreRealtimeListeners();
-    flushCacheOnShutdown();
+      flushCacheOnShutdown();
     process.exit(0);
   };
 

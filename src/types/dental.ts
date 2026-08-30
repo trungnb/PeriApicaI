@@ -92,6 +92,7 @@ export interface AssessmentLogPayload {
   finalConfirmedErrorsSummary?: string;
   shareConsent?: boolean;
   imageUrl?: string;
+  imageStorageKey?: string;
   isAdminVerified?: boolean;
   verifiedErrors?: string[];
   verifiedNotes?: string;
@@ -234,6 +235,7 @@ export interface PathologyAssessmentLog {
   stepStatus?: { step3?: boolean; step4?: boolean; step5?: boolean };
   shareConsent?: boolean;
   imageUrl?: string;
+  imageStorageKey?: string;
   firestoreSynced?: boolean;
   finalConfirmedPathologies?: ConfirmedPathology[];
   verifiedBy?: string;

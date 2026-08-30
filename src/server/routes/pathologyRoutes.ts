@@ -17,6 +17,7 @@ import { adminAuth } from './authRoutes';
 import { serverLog } from '../config/env';
 import { validatePathologySegment } from '../middleware/validation';
 
+import { generalActionLimiter } from '../config/limiter';
 const router = Router();
 
 // ─── POST /api/segment-pathology ──────────────────────────────
@@ -152,11 +153,16 @@ router.post('/api/segment-pathology', validatePathologySegment, analyzeLimiter, 
 
 // ─── POST /api/save-pathology ──────────────────────────────
 // Save completed pathology assessment to Firestore seg_reports
-router.post('/api/save-pathology', async (req: Request, res: Response) => {
+router.post('/api/save-pathology', generalActionLimiter, async (req: Request, res: Response) => {
   try {
     const payload = req.body;
-    if (!payload || !payload.tooth) {
+    if (!payload || !payload.tooth || typeof payload.assessmentId !== 'string' || payload.assessmentId.length > 100) {
       return res.status(400).json({ error: 'Invalid payload' });
+    }
+    
+    // Do not allow arbitrary large payloads in objects other than image Base64
+    if (JSON.stringify(payload).length > 3 * 1024 * 1024) {
+      return res.status(413).json({ error: 'Payload too large' });
     }
 
     const result = await savePathologyLog(payload, payload.imageDataUrl);

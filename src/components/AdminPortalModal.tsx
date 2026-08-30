@@ -149,7 +149,7 @@ export const AdminPortalModal: React.FC = () => {
       setPathologyLogs([]);
       setSystemMetrics(null);
       // Automatically fetch fresh report data and metadata on login
-      fetchAdminData(true, undefined, false);
+      fetchAdminData(true, undefined, false, 100, 0, false);
       fetchMetadata(getAuthHeader, dateRangeFilter).catch(console.warn);
       return true;
     }
@@ -181,7 +181,6 @@ export const AdminPortalModal: React.FC = () => {
   useEffect(() => {
     if (!isOpen) return;
 
-    // Lock body scroll while Admin Portal is active
     const originalOverflow = document.body.style.overflow;
     document.body.style.overflow = 'hidden';
 
@@ -197,9 +196,7 @@ export const AdminPortalModal: React.FC = () => {
     if (token) {
       setIsAuthenticated(true);
       setIsVerifyingToken(false);
-      fetchAdminData(false, undefined, false);
-      // Automatically fetch fresh metadata stats from Firestore on mount
-      fetchMetadata(getAuthHeader, dateRangeFilter).catch(console.warn);
+      // Removed duplicate fetchAdminData to prevent double fetching. The initial fetch is handled by handleLogin or first open.
     } else {
       setIsAuthenticated(false);
       setIsVerifyingToken(false);
@@ -209,7 +206,17 @@ export const AdminPortalModal: React.FC = () => {
       document.body.style.overflow = originalOverflow;
       window.removeEventListener('keydown', handleKeyDown);
     };
-  }, [isOpen, isDeleteModalOpen, dateRangeFilter, getAuthHeader, fetchMetadata]);
+  }, [isOpen, isDeleteModalOpen]); // Removed dateRangeFilter from deps
+
+  // Initial fetch when opened
+  useEffect(() => {
+    if (isOpen && getAdminToken()) {
+      fetchAdminData(false, dateRangeFilter, false, 100, 0, false);
+      fetchMetadata(getAuthHeader, dateRangeFilter).catch(console.warn);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isOpen]);
+
 
   return (
     <AnimatePresence>

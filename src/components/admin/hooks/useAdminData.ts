@@ -80,15 +80,8 @@ export const useAdminData = (logout: () => void) => {
       return false;
     }
 
-    if (queryLimit === undefined && queryOffset === undefined) {
-      const firstPageSuccess = await fetchAdminData(forceRefresh, overrideFilter, isManualClick, 10, 0, false);
-      if (firstPageSuccess) {
-        setTimeout(() => {
-          fetchAdminData(forceRefresh, overrideFilter, isManualClick, 100, 0, true).catch(console.warn);
-        }, 100);
-      }
-      return firstPageSuccess;
-    }
+    if (queryLimit === undefined) queryLimit = 100;
+    if (queryOffset === undefined) queryOffset = 0;
 
     setSyncErrorMessage(null);
 

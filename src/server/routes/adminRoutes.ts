@@ -5,7 +5,7 @@ import crypto from 'crypto';
 import { adminAuth } from './authRoutes';
 import { adminDeleteLimiter, adminSyncLimiter } from '../config/limiter';
 import { serverLog } from '../config/env';
-import { getStorageAdapter, getOrInitServerCache, FirebaseStorageAdapter, getIsRealtimeListenerActive, initFirestoreRealtimeListeners, computeSystemMetrics } from '../services/storageAdapter';
+import { getStorageAdapter, getOrInitServerCache, FirebaseStorageAdapter, computeSystemMetrics } from '../services/storageAdapter';
 import { getSystemMetadata, recalculateAndPersistSystemMetadata, aggregateMetadataForDateRange, filterRecordsByDateRange } from '../services/systemMetadataService';
 import { runAutoSyncJob, getIsAutoSyncRunning } from '../jobs/syncJob';
 import { getFirestoreInstance } from '../services/firebaseService';
@@ -242,9 +242,6 @@ async function handleFirestoreData(req: Request, res: Response, force: boolean) 
 
     // 2. Ensure Realtime Snapshot Stream is active
     if (storageAdapter instanceof FirebaseStorageAdapter && storageAdapter.getDb()) {
-      if (!getIsRealtimeListenerActive()) {
-        initFirestoreRealtimeListeners();
-      }
       // Only do a manual full query if force refresh requested or cache is completely empty
       if ((force || cache.reports.length === 0)) {
         try {

@@ -84,7 +84,7 @@ const handleAdminLogin = (req: Request, res: Response) => {
 
   serverLog('INFO', 'SECURITY', `Successful admin login from IP: ${clientIp}`);
   const token = generateAdminToken();
-  adminSessions.set(token, Date.now() + 24 * 60 * 60 * 1000); // 24 hours valid
+  adminSessions.set(token, Date.now() + 2 * 60 * 60 * 1000); // 2 hours valid
   return res.json({ success: true, token });
 };
 

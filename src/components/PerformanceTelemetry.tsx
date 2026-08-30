@@ -45,7 +45,7 @@ export const PerformanceTelemetry: React.FC = React.memo(() => {
       </button>
 
       {isOpen && (
-        <div className="grid grid-cols-1 sm:grid-cols-4 gap-3 pt-3 border-t border-slate-200/50 dark:border-slate-800/60 transition-all">
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 pt-3 border-t border-slate-200/50 dark:border-slate-800/60 transition-all">
           {/* Item 1: Client Compression */}
           <div className="bg-white dark:bg-slate-800/40 p-2.5 rounded-xl border border-slate-100 dark:border-slate-800/40 flex items-start space-x-2.5 shadow-2xs">
             <Zap className="w-4 h-4 text-amber-500 shrink-0 mt-0.5" />
@@ -62,28 +62,14 @@ export const PerformanceTelemetry: React.FC = React.memo(() => {
             </div>
           </div>
 
-          {/* Item 2: Network Latency */}
-          <div className="bg-white dark:bg-slate-800/40 p-2.5 rounded-xl border border-slate-100 dark:border-slate-800/40 flex items-start space-x-2.5 shadow-2xs">
-            <Wifi className="w-4 h-4 text-sky-500 shrink-0 mt-0.5" />
-            <div className="space-y-0.5">
-              <p className="font-bold text-slate-800 dark:text-slate-200">
-                {isEn ? 'Network Overhead' : 'Độ trễ Mạng'}
-              </p>
-              <p className="text-[10px] text-slate-500 dark:text-slate-400">
-                {isEn ? 'Base64 transmission' : 'Thời gian truyền tải dữ liệu'}
-              </p>
-              <p className="text-sm font-black text-slate-900 dark:text-slate-100 mt-1">
-                {networkTimeMs} <span className="text-[10px] font-normal text-slate-500">ms</span>
-              </p>
-            </div>
-          </div>
+
 
           {/* Item 3: Gemini Execution */}
           <div className="bg-white dark:bg-slate-800/40 p-2.5 rounded-xl border border-slate-100 dark:border-slate-800/40 flex items-start space-x-2.5 shadow-2xs">
             <Cpu className="w-4 h-4 text-purple-500 shrink-0 mt-0.5" />
             <div className="space-y-0.5">
               <p className="font-bold text-slate-800 dark:text-slate-200">
-                {isEn ? 'AI Reasoning' : 'Suy luận AI'}
+                {isEn ? 'Server Processing' : 'Đo lường Server'}
               </p>
               <p className="text-[10px] text-slate-500 dark:text-slate-400 truncate max-w-[110px]">
                 {modelUsed || 'Gemini Flash'}

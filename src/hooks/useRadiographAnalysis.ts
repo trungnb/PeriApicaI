@@ -109,19 +109,19 @@ export function useRadiographAnalysis() {
           compressedImageBase64: aiBase64,
           lastCompressionMetrics: {
             dataUrl: prep.dataUrl,
-            originalSizeKB: 0,
-            compressedSizeKB: 0,
             width: prep.width,
             height: prep.height,
-            compressionRatio: 0,
             originalWidth: prep.originalWidth,
             originalHeight: prep.originalHeight,
             scaleX: prep.width / (prep.originalWidth || prep.width || 1),
             scaleY: prep.height / (prep.originalHeight || prep.height || 1),
             processingTimeMs: prep.processingTimeMs,
             outputMime: prep.mimeType,
-            qualityUsed: 0.88,
             wasAccelerated: false,
+            originalSizeKB: undefined,
+            compressedSizeKB: undefined,
+            compressionRatio: undefined,
+            qualityUsed: undefined,
           }
         });
       } catch (e) {
@@ -186,10 +186,9 @@ export function useRadiographAnalysis() {
       const apiDurationMs = Math.round(performance.now() - apiStart);
       const totalTimeMs = Math.round(performance.now() - startTotalTime);
       const wasCached = Boolean(data.isCached);
-      // NOTE (Telemetry & Quality Gate): networkTimeMs is an approximate estimate kept for UI visualization breakdown.
-      // Real benchmarking must evaluate totalTimeMs and apiDurationMs.
-      const networkTimeMs = wasCached ? apiDurationMs : Math.min(apiDurationMs, 1200);
-      const geminiTimeMs = wasCached ? 0 : Math.max(100, apiDurationMs - networkTimeMs);
+      // No more fake network capping
+      const networkTimeMs = 0;
+      const geminiTimeMs = apiDurationMs;
 
       if (!data.success || !data.analysis) {
         handleAnalysisFlowError(

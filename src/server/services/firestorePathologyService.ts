@@ -3,7 +3,7 @@
  * CRUD for the separate `seg_reports` collection.
  */
 import { getFirestoreInstance } from './firebaseService';
-import { saveAndOptimizeImageFile, serverLog } from '../config/env';
+import { saveAndOptimizeImageFile, deleteImageFile, serverLog, generateSignedImageUrl } from '../config/env';
 import { getOrInitServerCache, saveServerCacheToDisk } from './storageAdapter';
 import { executeAtomicPathologyWrite, executeAtomicBulkDelete } from './atomicUpdateService';
 

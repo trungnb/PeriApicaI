@@ -112,11 +112,11 @@ export function serverLog(level: ServerLogLevel, tag: string, message: string, d
 }
 
 // Helper: Save image with accurate MIME extension, verify magic bytes, and return signed URL
-export async function saveAndOptimizeImageFile(assessmentId: string, base64DataUrl: string): Promise<{ localUrl: string }> {
+export async function saveAndOptimizeImageFile(assessmentId: string, base64DataUrl: string): Promise<{ localUrl: string, imageStorageKey?: string }> {
   try {
     if (!base64DataUrl) return { localUrl: '' };
     if (base64DataUrl.startsWith('/api/images/') || base64DataUrl.startsWith('http')) {
-      return { localUrl: base64DataUrl };
+      return { localUrl: base64DataUrl, imageStorageKey: base64DataUrl };
     }
     if (!base64DataUrl.includes('base64,')) {
       return { localUrl: '' };
@@ -154,9 +154,34 @@ export async function saveAndOptimizeImageFile(assessmentId: string, base64DataU
 
     return {
       localUrl: signedUrl,
+      imageStorageKey: safeFilename,
     };
   } catch (err: any) {
     serverLog('WARN', 'ImageSave', 'Unable to save optimized image file', err instanceof Error ? err : new Error(String(err)));
     return { localUrl: '' };
+  }
+}
+
+
+export async function deleteImageFile(storageKey: string): Promise<boolean> {
+  if (!storageKey || storageKey.startsWith('http')) return false;
+  
+  // Extract filename safely, handling legacy paths
+  const filename = storageKey.split('/').pop();
+  if (!filename) return false;
+  
+  // Prevent path traversal
+  const safeFilename = filename.replace(/[^a-zA-Z0-9_.-]/g, '');
+  if (!safeFilename || safeFilename.includes('..')) return false;
+  
+  const filePath = path.join(uploadsDir, safeFilename);
+  try {
+    await fs.promises.unlink(filePath);
+    return true;
+  } catch (err: any) {
+    if (err.code !== 'ENOENT') {
+      serverLog('WARN', 'ImageDelete', `Failed to delete file ${safeFilename}`, err);
+    }
+    return false; // Idempotent handling for ENOENT
   }
 }

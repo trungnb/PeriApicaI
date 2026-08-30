@@ -333,8 +333,7 @@ export async function segmentPathologyWithGemini(
         : `👥 Đang khởi chạy Luồng Phân tích Song song (${modelA} + ${modelB})...`);
 
       const [resA, resB] = await Promise.allSettled([
-        executeWithFailover(
-          async (aiClient: GoogleGenAI, modelName: string) => {
+        executeWithFailover(async (aiClient: GoogleGenAI, modelName: string) => {
             onStatusUpdate?.(isEn 
               ? `🔬 Querying Model 1 (${modelName})...` 
               : `🔬 Đang phân tích Mô hình 1 (${modelName})...`);
@@ -350,13 +349,8 @@ export async function segmentPathologyWithGemini(
             });
             if (!response.text) throw new Error('Empty response from Model 1');
             return validatePathologyOutput(JSON.parse(response.text));
-          },
-          modelA,
-          customApiKey,
-          onStatusUpdate
-        ),
-        executeWithFailover(
-          async (aiClient: GoogleGenAI, modelName: string) => {
+          }, modelA, customApiKey, onStatusUpdate, budget),
+        executeWithFailover(async (aiClient: GoogleGenAI, modelName: string) => {
             onStatusUpdate?.(isEn 
               ? `🔬 Querying Model 2 (${modelName})...` 
               : `🔬 Đang phân tích Mô hình 2 (${modelName})...`);
@@ -372,11 +366,7 @@ export async function segmentPathologyWithGemini(
             });
             if (!response.text) throw new Error('Empty response from Model 2');
             return validatePathologyOutput(JSON.parse(response.text));
-          },
-          modelB,
-          customApiKey,
-          onStatusUpdate
-        )
+          }, modelB, customApiKey, onStatusUpdate, budget)
       ]);
 
       const fulfilledA = resA.status === 'fulfilled' ? resA.value : null;
@@ -434,8 +424,7 @@ export async function segmentPathologyWithGemini(
       // -------------------------------------------------------------
       // SINGLE MODEL PIPELINE (Single-Pass CoT Grounding)
       // -------------------------------------------------------------
-      const failoverRes = await executeWithFailover(
-        async (aiClient: GoogleGenAI, modelName: string) => {
+      const failoverRes = await executeWithFailover(async (aiClient: GoogleGenAI, modelName: string) => {
           onStatusUpdate?.(isEn 
             ? `🔬 Segmenting structures with ${modelName}...` 
             : `🔬 Đang phân đoạn cấu trúc bằng ${modelName}...`);
@@ -458,11 +447,7 @@ export async function segmentPathologyWithGemini(
             parsed.pathologies.forEach((p: any) => p.provenance = 'single_mode');
           }
           return parsed;
-        },
-        preferredModel,
-        customApiKey,
-        onStatusUpdate
-      );
+        }, preferredModel, customApiKey, onStatusUpdate, budget);
 
       const mappedFinalResult = mapOptimizedPathologyToLegacy(failoverRes.result, outputLanguage);
 

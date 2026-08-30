@@ -1,7 +1,7 @@
 import { isLogIncompleteHelper as isLogIncomplete, isLogErrorHelper as isLogError, parseTimestampToMsHelper } from '../utils/metadataHelpers';
 import path from 'path';
 import fs from 'fs';
-import { saveAndOptimizeImageFile, serverLog } from '../config/env';
+import { saveAndOptimizeImageFile, deleteImageFile, serverLog, generateSignedImageUrl } from '../config/env';
 import { restorePathologyDocFromFirestore } from './firestorePathologyService';
 import { getFirestoreInstance } from './firebaseService';
 import {
@@ -280,19 +280,23 @@ export class InMemoryStorageAdapter implements IStorageAdapter {
     let finalImageUrl = '';
     const userAgreedSharing = payload.shareConsent === true;
 
+    let finalStorageKey = payload.imageStorageKey || '';
     if (userAgreedSharing) {
       payload.shareConsent = true;
       const rawImage = imageDataUrl || payload.imageUrl || "";
       if (rawImage && rawImage.startsWith("data:image")) {
         const optimized = await saveAndOptimizeImageFile(payload.assessmentId, rawImage);
         finalImageUrl = optimized.localUrl;
+        finalStorageKey = optimized.imageStorageKey || '';
       } else {
         finalImageUrl = rawImage;
       }
       payload.imageUrl = finalImageUrl;
+      payload.imageStorageKey = finalStorageKey;
     } else {
       payload.shareConsent = false;
       payload.imageUrl = "";
+      payload.imageStorageKey = "";
       finalImageUrl = "";
     }
 
@@ -772,81 +776,7 @@ export function getStorageAdapter(): IStorageAdapter {
   return currentStorageAdapter;
 }
 
-// ==========================================
-// REALTIME SNAPSHOT STREAM MANAGER (0 READS)
-// ==========================================
-let unsubscribeReportsListener: (() => void) | null = null;
-let unsubscribeSegReportsListener: (() => void) | null = null;
-let unsubscribeBugsListener: (() => void) | null = null;
-let isRealtimeListenerActive = false;
 
-/**
- * Generic helper to set up Firestore realtime snapshot stream listener and sync to RAM cache.
- */
-function setupCollectionStreamListener<T extends { timestamp?: string; updatedAt?: string }>(
-  collectionName: string,
-  idField: string,
-  cacheArray: T[],
-  transformFn?: (rawDoc: any) => any
-) {
-  const db = getFirestoreInstance();
-  if (!db) return null;
-
-  return db.collection(collectionName).orderBy('timestamp', 'desc').limit(100).onSnapshot(
-    (snapshot) => {
-      snapshot.docChanges().forEach((change) => {
-        const docData = change.doc.data();
-        const idVal = docData[idField] || change.doc.id;
-        if (!idVal) return;
-
-        const { imageDataUrl, ...cleanData } = docData;
-        let payload: any = { ...cleanData, [idField]: idVal, firestoreSynced: true };
-        if (transformFn) {
-          payload = transformFn(payload);
-        }
-
-        const existingIndex = cacheArray.findIndex((item: any) => item[idField] === idVal);
-
-        if (change.type === 'added' || change.type === 'modified') {
-          if (existingIndex >= 0) {
-            cacheArray[existingIndex] = { ...cacheArray[existingIndex], ...payload };
-          } else {
-            cacheArray.unshift(payload);
-          }
-        } else if (change.type === 'removed') {
-          if (existingIndex >= 0) {
-            cacheArray.splice(existingIndex, 1);
-          }
-        }
-      });
-
-      cacheArray.sort((a, b) => {
-        const tA = new Date(a.updatedAt || a.timestamp || 0).getTime();
-        const tB = new Date(b.updatedAt || b.timestamp || 0).getTime();
-        return tB - tA;
-      });
-
-      const cache = getOrInitServerCache();
-      cache.lastUpdated = new Date().toISOString();
-      saveServerCacheToDisk(false);
-    },
-    (error) => {
-      serverLog('ERROR', 'RealtimeSync', `Lỗi kết nối Realtime ${collectionName} Stream:`, error?.message || error);
-    }
-  );
-}
-
-export function initFirestoreRealtimeListeners() {
-  // Realtime listeners disabled to prevent continuous read quota exhaustion on server startup/restarts.
-  // System uses atomic local caching + on-demand queries when Admin explicitly loads data.
-  serverLog('INFO', 'RealtimeSync', 'Firestore realtime background listeners disabled to protect read quota. On-demand cache active.');
-}
-
-export function stopFirestoreRealtimeListeners() {
-  if (unsubscribeReportsListener) {
-    unsubscribeReportsListener();
-    unsubscribeReportsListener = null;
-  }
   if (unsubscribeSegReportsListener) {
     unsubscribeSegReportsListener();
     unsubscribeSegReportsListener = null;
