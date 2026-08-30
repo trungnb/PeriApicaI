@@ -1,7 +1,8 @@
 import { Type, GoogleGenAI } from '@google/genai';
 import { LRUCache } from 'lru-cache';
-import { executeWithFailover, isRateLimitOrQuotaError, isTransientError, isInvalidApiKeyError } from './geminiService';
+import { executeWithFailover, ExecutionBudget, isRateLimitOrQuotaError, isTransientError, isInvalidApiKeyError } from './geminiService';
 import { PATHOLOGY_DICT } from '../../constants/dictionaries';
+import { validatePathologyOutput } from '../../utils/semanticValidation';
 
 export interface PathologySegmentResult {
   overallSummary: string;
@@ -187,6 +188,7 @@ export function mapOptimizedPathologyToLegacy(optimized: any, language: string):
       polygon_points: path.polygon_points || [],
       clinicalNote,
       treatmentRecommendation,
+      provenance: path.provenance || 'single_mode',
     };
   });
 
@@ -307,7 +309,8 @@ export async function segmentPathologyWithGemini(
   customApiKey?: string,
   onStatusUpdate?: (status: string) => void,
   analysisMode?: string,
-  selectedModelB?: string
+  selectedModelB?: string,
+  externalBudget?: ExecutionBudget
 ): Promise<SegmentPathologyServiceResponse> {
   const isEn = outputLanguage === 'EN' || outputLanguage === 'en' || outputLanguage === 'English' || String(outputLanguage).toUpperCase() === 'EN';
   const systemInstruction = buildPathologyInstruction(toothFdi, outputLanguage);
@@ -321,6 +324,8 @@ export async function segmentPathologyWithGemini(
   };
 
   try {
+    const budget = externalBudget || new ExecutionBudget(analysisMode === 'consensus' ? 4 : 3);
+
     if (analysisMode === 'consensus') {
       // -------------------------------------------------------------
       // PARALLEL CONSENSUS PIPELINE (Model A & Model B in Parallel)

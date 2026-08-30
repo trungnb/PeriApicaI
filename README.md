@@ -58,6 +58,6 @@ graph TD
 ## 📜 Version Logs & History
 
 - **Author**: NBTrung, MD, MSc
-- **Version**: v2.8.0
+- **Version**: v2.8.9
 - **Environment**: Google AI Studio Trial Platform
 

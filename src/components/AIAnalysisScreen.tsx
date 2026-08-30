@@ -238,9 +238,21 @@ export const AIAnalysisScreen: React.FC = React.memo(() => {
                                 <span className="w-1.5 h-1.5 rounded-full bg-amber-600 dark:bg-amber-400" />
                                 <span>{getTaxonomyLabel(err.errorKey, language) || err.errorName}</span>
                               </span>
-                              <span className="text-[9px] font-mono font-bold px-1.5 py-0.5 rounded bg-amber-100 dark:bg-amber-900/60 text-amber-800 dark:text-amber-300 border border-amber-200 dark:border-amber-700">
-                                {t('confidence', { val: err.confidence })}
-                              </span>
+                              <div className="flex items-center gap-1.5">
+                                {err.provenance === 'matched_consensus' && (
+                                  <span className="text-[9px] bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-300 font-semibold px-1.5 py-0.5 rounded border border-purple-200 dark:border-purple-800">
+                                    {language === 'EN' ? 'Consensus' : 'Hội chẩn'}
+                                  </span>
+                                )}
+                                {(err.provenance === 'model_a_only' || err.provenance === 'model_b_only') && (
+                                  <span className="text-[9px] bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300 font-semibold px-1.5 py-0.5 rounded border border-amber-200 dark:border-amber-800">
+                                    {language === 'EN' ? 'Review Needed' : 'Cần rà soát'}
+                                  </span>
+                                )}
+                                <span className="text-[9px] font-mono font-bold px-1.5 py-0.5 rounded bg-amber-100 dark:bg-amber-900/60 text-amber-800 dark:text-amber-300 border border-amber-200 dark:border-amber-700">
+                                  {t('confidence', { val: err.confidence })}
+                                </span>
+                              </div>
                             </div>
                             <p className="text-amber-900/80 dark:text-amber-200/80 text-[11px] leading-relaxed pl-3">
                               {err.clinicalObservation}

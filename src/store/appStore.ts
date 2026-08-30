@@ -482,12 +482,12 @@ export const useAppStore = create<AppState>((set, get) => ({
 
   updateDetectionBbox: (id, bbox) => set((state) => ({
     aiDetections: state.aiDetections.map((d) => d.id === id ? { ...d, bbox, polygonPoints: undefined } : d),
-    confirmedPathologies: state.confirmedPathologies.map((d) => d.id === id ? { ...d, bbox, polygonPoints: undefined, isUserEdited: true, humanReviewed: true, humanReviewed: true } : d),
+    confirmedPathologies: state.confirmedPathologies.map((d) => d.id === id ? { ...d, bbox, polygonPoints: undefined, isUserEdited: true, humanReviewed: true } : d),
   })),
 
   updateDetectionPolygon: (id, polygonPoints) => set((state) => ({
     aiDetections: state.aiDetections.map((d) => d.id === id ? { ...d, polygonPoints } : d),
-    confirmedPathologies: state.confirmedPathologies.map((d) => d.id === id ? { ...d, polygonPoints, isUserEdited: true, humanReviewed: true, humanReviewed: true } : d),
+    confirmedPathologies: state.confirmedPathologies.map((d) => d.id === id ? { ...d, polygonPoints, isUserEdited: true, humanReviewed: true } : d),
   })),
 
   updateDetectionKey: (id, newKey) => {

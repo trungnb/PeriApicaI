@@ -487,11 +487,11 @@ export class InMemoryStorageAdapter implements IStorageAdapter {
     if (collection === 'reports') {
       const initial = cache.reports.length;
       const target = cache.reports.find(r => r.assessmentId === docId || (r as any)._id === docId || (r as any).id === docId);
-      if (target?.imageUrl && target.imageUrl.startsWith('/uploads/')) {
-        try {
-          const filePath = path.join(process.cwd(), 'public', target.imageUrl);
-          if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
-        } catch {}
+      if (target) {
+        const keyToDelete = target.imageStorageKey || target.imageUrl;
+        if (keyToDelete) {
+          deleteImageFile(keyToDelete).catch(() => {});
+        }
       }
       cache.reports = cache.reports.filter(r => r.assessmentId !== docId && (r as any)._id !== docId && (r as any).id !== docId);
       deletedCount = initial - cache.reports.length;
@@ -502,11 +502,11 @@ export class InMemoryStorageAdapter implements IStorageAdapter {
     } else if (collection === 'seg_reports') {
       const initial = (cache.seg_reports || []).length;
       const target = (cache.seg_reports || []).find(p => p.assessmentId === docId || (p as any)._id === docId || (p as any).id === docId);
-      if (target?.imageUrl && target.imageUrl.startsWith('/uploads/')) {
-        try {
-          const filePath = path.join(process.cwd(), 'public', target.imageUrl);
-          if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
-        } catch {}
+      if (target) {
+        const keyToDelete = target.imageStorageKey || target.imageUrl;
+        if (keyToDelete) {
+          deleteImageFile(keyToDelete).catch(() => {});
+        }
       }
       cache.seg_reports = (cache.seg_reports || []).filter(p => p.assessmentId !== docId && (p as any)._id !== docId && (p as any).id !== docId);
       deletedCount = initial - (cache.seg_reports || []).length;
@@ -777,18 +777,3 @@ export function getStorageAdapter(): IStorageAdapter {
 }
 
 
-  if (unsubscribeSegReportsListener) {
-    unsubscribeSegReportsListener();
-    unsubscribeSegReportsListener = null;
-  }
-  if (unsubscribeBugsListener) {
-    unsubscribeBugsListener();
-    unsubscribeBugsListener = null;
-  }
-  isRealtimeListenerActive = false;
-  serverLog('INFO', 'RealtimeSync', 'Đã dừng tất cả Firestore Realtime Listeners.');
-}
-
-export function getIsRealtimeListenerActive(): boolean {
-  return isRealtimeListenerActive;
-}

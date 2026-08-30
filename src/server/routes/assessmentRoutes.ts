@@ -11,6 +11,7 @@ import {
   createAiClient,
   getAvailableVisionModels,
   executeWithFailover,
+  ExecutionBudget,
   DENTAL_ANALYSIS_SCHEMA,
   buildSystemInstruction,
   synthesizeConsensusResults,
@@ -21,6 +22,7 @@ import {
 } from '../services/geminiService';
 import { adminAuth } from './authRoutes';
 import { validateRadiographAnalysis } from '../middleware/validation';
+import { validateClassicOutput } from '../../utils/semanticValidation';
 
 const router = Router();
 
@@ -39,6 +41,17 @@ router.post('/api/available-models', generalActionLimiter, async (req: Request, 
 
 // Primary Endpoint: Radiograph Analysis via Gemini Vision API
 router.post('/api/analyze-radiograph', validateRadiographAnalysis, analyzeLimiter, async (req: Request, res: Response) => {
+  const prepStart = Date.now();
+  const controller = new AbortController();
+  const deadlineTimer = setTimeout(() => {
+    controller.abort();
+  }, 60000); // 60s deadline requirement
+
+  req.on('close', () => {
+    clearTimeout(deadlineTimer);
+    controller.abort();
+  });
+
   try {
     const tooth = typeof req.body.tooth === 'string' ? JSON.parse(req.body.tooth) : req.body.tooth;
     const technique = req.body.technique;
@@ -58,6 +71,7 @@ router.post('/api/analyze-radiograph', validateRadiographAnalysis, analyzeLimite
     const selectedModelB = req.body.selectedModelB || 'gemini-flash-lite-latest';
 
     if (!tooth || !technique || !receptorType) {
+      clearTimeout(deadlineTimer);
       return res.status(400).json({ error: 'Missing required parameters: tooth, technique, receptorType' });
     }
 
@@ -80,6 +94,7 @@ router.post('/api/analyze-radiograph', validateRadiographAnalysis, analyzeLimite
     }
 
     if (!cleanBase64) {
+      clearTimeout(deadlineTimer);
       return res.status(400).json({ error: 'Missing image data (imageBase64 required in JSON body)' });
     }
 
@@ -97,6 +112,7 @@ router.post('/api/analyze-radiograph', validateRadiographAnalysis, analyzeLimite
       .digest('hex');
 
     if (analysisCache.has(cacheKey)) {
+      clearTimeout(deadlineTimer);
       const cached = analysisCache.get(cacheKey);
       res.setHeader('Content-Type', 'text/event-stream');
       res.setHeader('Cache-Control', 'no-cache');
@@ -132,6 +148,7 @@ router.post('/api/analyze-radiograph', validateRadiographAnalysis, analyzeLimite
     }
 
     if (apiKeySources.length === 0) {
+      clearTimeout(deadlineTimer);
       if (isUsingCustomKey) {
         return res.status(400).json({ error: 'Vui lòng nhập API Key cá nhân hợp lệ.' });
       }
@@ -165,6 +182,13 @@ router.post('/api/analyze-radiograph', validateRadiographAnalysis, analyzeLimite
         }
       }
     };
+
+    const prepEnd = Date.now();
+    const preparationTimeMs = prepEnd - prepStart;
+
+    // Execution Budget: max 3 calls for Single Mode, 4 calls for Dual Consensus Mode
+    const budget = new ExecutionBudget(analysisMode === 'consensus' ? 4 : 3, controller.signal);
+    const apiStart = Date.now();
 
     if (analysisMode === 'consensus') {
       updateStatus(isEn ? '👥 Initializing Dual-Model Consensus...' : '👥 Đang khởi tạo Hội chẩn Song song...');
@@ -230,8 +254,17 @@ router.post('/api/analyze-radiograph', validateRadiographAnalysis, analyzeLimite
           )
         : (resultA || resultB);
 
+      const apiDurationMs = Date.now() - apiStart;
+      clearTimeout(deadlineTimer);
+      serverLog('INFO', 'Telemetry', 'Classic Analysis Completed', {
+        preparationTimeMs,
+        apiDurationMs,
+        totalTimeMs: preparationTimeMs + apiDurationMs,
+        mode: 'consensus',
+      });
+
       analysisCache.set(cacheKey, finalResult);
-      res.write(`data: ${JSON.stringify({ text: JSON.stringify(finalResult) })}\n\n`);
+      res.write(`data: ${JSON.stringify({ text: JSON.stringify(finalResult), telemetry: { preparationTimeMs, apiDurationMs } })}\n\n`);
       res.write('data: [DONE]\n\n');
       return res.end();
     } else {
@@ -260,12 +293,22 @@ router.post('/api/analyze-radiograph', validateRadiographAnalysis, analyzeLimite
       );
 
       const mappedResult = mapOptimizedResultToLegacy(singleRes.result, outputLanguage);
+      const apiDurationMs = Date.now() - apiStart;
+      clearTimeout(deadlineTimer);
+      serverLog('INFO', 'Telemetry', 'Classic Analysis Completed', {
+        preparationTimeMs,
+        apiDurationMs,
+        totalTimeMs: preparationTimeMs + apiDurationMs,
+        mode: 'single',
+      });
+
       analysisCache.set(cacheKey, mappedResult);
-      res.write(`data: ${JSON.stringify({ text: JSON.stringify(mappedResult) })}\n\n`);
+      res.write(`data: ${JSON.stringify({ text: JSON.stringify(mappedResult), telemetry: { preparationTimeMs, apiDurationMs } })}\n\n`);
       res.write('data: [DONE]\n\n');
       return res.end();
     }
   } catch (unknownError: unknown) {
+    clearTimeout(deadlineTimer);
     const err = unknownError as any;
     const rawLang = String(req.body.language || req.body.outputLanguage || '');
     const isEn = rawLang.toUpperCase() === 'EN' || rawLang.toLowerCase() === 'english';

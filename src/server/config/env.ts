@@ -13,23 +13,6 @@ if (!fs.existsSync(uploadsDir)) {
   fs.mkdirSync(uploadsDir, { recursive: true });
 }
 
-/**
- * Safely deletes an image file by filename if it exists in uploadsDir.
- */
-export function deleteImageFile(filename: string): boolean {
-  try {
-    const safeFilename = path.basename(filename);
-    const filePath = path.join(uploadsDir, safeFilename);
-    if (fs.existsSync(filePath)) {
-      fs.unlinkSync(filePath);
-      return true;
-    }
-  } catch (err) {
-    serverLog('WARN', 'ImageDelete', `Failed to delete image file: ${filename}`, err);
-  }
-  return false;
-}
-
 // In-memory runtime HMAC secret generated once when process starts
 const RUNTIME_IMAGE_SIGNING_SECRET = crypto.randomBytes(32).toString('hex');
 
@@ -166,8 +149,9 @@ export async function saveAndOptimizeImageFile(assessmentId: string, base64DataU
 export async function deleteImageFile(storageKey: string): Promise<boolean> {
   if (!storageKey || storageKey.startsWith('http')) return false;
   
-  // Extract filename safely, handling legacy paths
-  const filename = storageKey.split('/').pop();
+  // Extract filename safely, handling query parameters & legacy paths
+  const cleanKey = storageKey.split('?')[0];
+  const filename = path.basename(cleanKey);
   if (!filename) return false;
   
   // Prevent path traversal

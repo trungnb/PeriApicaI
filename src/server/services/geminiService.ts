@@ -150,9 +150,10 @@ async function executeRunnerWithRetry<T>(
       const isQuota = isRateLimitOrQuotaError(err);
       const isValidationError = str.includes('400') || str.includes('invalid argument');
       const isParseError = str.includes('json') || str.includes('schema');
+      const isBudgetOrCancel = err.isAllExhausted || str.includes('budget exhausted') || str.includes('cancelled');
       
       // Do not retry these at the model loop level
-      if (isInvalidKey || isQuota || isValidationError || isParseError) {
+      if (isInvalidKey || isQuota || isValidationError || isParseError || isBudgetOrCancel) {
         throw err;
       }
       
@@ -162,12 +163,6 @@ async function executeRunnerWithRetry<T>(
       onStatusUpdate?.(msg);
       await new Promise((resolve) => setTimeout(resolve, jitterMs));
       budget.checkSignal();
-    }
-      const jitterMs = 200 + Math.floor(Math.random() * 200);
-      const msg = `⚠️ Model [${model}] tạm bận, thử lại lần ${attempt}...`;
-      serverLog('WARN', 'GeminiService', `Transient error on model [${model}] (Attempt ${attempt}/${maxAttempts}). Retrying in ${jitterMs}ms...`);
-      onStatusUpdate?.(msg);
-      await new Promise((resolve) => setTimeout(resolve, jitterMs));
     }
   }
 }
@@ -431,7 +426,8 @@ export function mapOptimizedResultToLegacy(optimized: any, language: string): an
           errorKey: normalizedKey || err.errorKey,
           errorName: localizedName,
           confidence: err.confidence || 85,
-          clinicalObservation: clinicalObs || (isEn ? 'Radiographic technical error.' : 'Phát hiện lỗi kỹ thuật phim.')
+          clinicalObservation: clinicalObs || (isEn ? 'Radiographic technical error.' : 'Phát hiện lỗi kỹ thuật phim.'),
+          provenance: err.provenance || 'single_mode'
         };
       });
 
@@ -504,12 +500,14 @@ export function synthesizeConsensusResults(
             (errA.clinicalObservation?.length || 0) >= (matchB.clinicalObservation?.length || 0)
               ? errA.clinicalObservation
               : matchB.clinicalObservation,
+          provenance: 'matched_consensus',
         });
       } else if (Number(errA.confidence || 0) >= singleThreshold) {
         // Adaptive threshold for single-model detection
         mergedErrors.push({
           ...errA,
           confidence: Math.round(Number(errA.confidence || 85) * 0.92),
+          provenance: 'model_a_only',
         });
       }
     }
@@ -524,6 +522,7 @@ export function synthesizeConsensusResults(
           mergedErrors.push({
             ...errB,
             confidence: Math.round(Number(errB.confidence || 85) * 0.92),
+            provenance: 'model_b_only',
           });
         }
       }

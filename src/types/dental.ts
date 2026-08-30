@@ -41,6 +41,7 @@ export interface AIDetectedError {
   errorName: string;
   confidence: number; // 0 - 100
   clinicalObservation: string;
+  provenance?: 'matched_consensus' | 'model_a_only' | 'model_b_only' | 'single_mode';
 }
 
 export interface AIDomainFinding {

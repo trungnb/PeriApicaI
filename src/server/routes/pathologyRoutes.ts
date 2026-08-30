@@ -16,6 +16,7 @@ import {
 import { adminAuth } from './authRoutes';
 import { serverLog } from '../config/env';
 import { validatePathologySegment } from '../middleware/validation';
+import { ExecutionBudget } from '../services/geminiService';
 
 import { generalActionLimiter } from '../config/limiter';
 const router = Router();
@@ -23,10 +24,22 @@ const router = Router();
 // ─── POST /api/segment-pathology ──────────────────────────────
 // Gemini 2D Spatial Polygon Grounding for 8 anatomical & pathological structures
 router.post('/api/segment-pathology', validatePathologySegment, analyzeLimiter, async (req: Request, res: Response) => {
+  const prepStart = Date.now();
+  const controller = new AbortController();
+  const deadlineTimer = setTimeout(() => {
+    controller.abort();
+  }, 60000); // 60s deadline requirement
+
+  req.on('close', () => {
+    clearTimeout(deadlineTimer);
+    controller.abort();
+  });
+
   try {
     const { imageBase64, mimeType, toothFdi, language, customApiKey, selectedModel, analysisMode, selectedModelB } = req.body;
 
     if (!imageBase64 || !toothFdi) {
+      clearTimeout(deadlineTimer);
       return res.status(400).json({ error: 'Missing imageBase64 or toothFdi' });
     }
 
@@ -53,6 +66,7 @@ router.post('/api/segment-pathology', validatePathologySegment, analyzeLimiter, 
       .digest('hex');
 
     if (pathologyVerifyCache.has(cacheKey)) {
+      clearTimeout(deadlineTimer);
       const cached = pathologyVerifyCache.get(cacheKey);
       res.setHeader('Content-Type', 'text/event-stream');
       res.setHeader('Cache-Control', 'no-cache');
@@ -78,6 +92,11 @@ router.post('/api/segment-pathology', validatePathologySegment, analyzeLimiter, 
       }
     };
 
+    const prepEnd = Date.now();
+    const preparationTimeMs = prepEnd - prepStart;
+    const budget = new ExecutionBudget(analysisMode === 'consensus' ? 4 : 3, controller.signal);
+    const apiStart = Date.now();
+
     const segResult = await segmentPathologyWithGemini(
       cleanBase64,
       cleanMime,
@@ -87,12 +106,23 @@ router.post('/api/segment-pathology', validatePathologySegment, analyzeLimiter, 
       customApiKey?.trim() || undefined,
       updateStatus,
       analysisMode,
-      selectedModelB?.trim() || undefined
+      selectedModelB?.trim() || undefined,
+      budget
     );
 
+    const apiDurationMs = Date.now() - apiStart;
+    clearTimeout(deadlineTimer);
+
     if (segResult.success && segResult.result) {
+      serverLog('INFO', 'Telemetry', 'Pathology Segmentation Completed', {
+        preparationTimeMs,
+        apiDurationMs,
+        totalTimeMs: preparationTimeMs + apiDurationMs,
+        mode: analysisMode || 'single',
+      });
+
       pathologyVerifyCache.set(cacheKey, segResult.result);
-      res.write(`data: ${JSON.stringify({ success: true, result: segResult.result, usedModel: segResult.usedModel })}\n\n`);
+      res.write(`data: ${JSON.stringify({ success: true, result: segResult.result, usedModel: segResult.usedModel, telemetry: { preparationTimeMs, apiDurationMs } })}\n\n`);
       res.write('data: [DONE]\n\n');
       return res.end();
     }
@@ -141,6 +171,7 @@ router.post('/api/segment-pathology', validatePathologySegment, analyzeLimiter, 
     res.write('data: [DONE]\n\n');
     return res.end();
   } catch (err: any) {
+    clearTimeout(deadlineTimer);
     serverLog('ERROR', 'PathologyAPI', 'Internal error during segmentation', err);
     if (!res.headersSent) {
       return res.status(500).json({ success: false, error: 'Internal server error', errorType: 'TRANSIENT', isQuotaExhausted: false });
