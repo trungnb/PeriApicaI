@@ -2,7 +2,7 @@ import { Router, Request, Response } from 'express';
 import path from 'path';
 import fs from 'fs';
 import crypto from 'crypto';
-import { analyzeLimiter, generalActionLimiter } from '../config/limiter';
+import { analyzeLimiter, generalActionLimiter, validateKeyLimiter } from '../config/limiter';
 import { uploadsDir, serverLog } from '../config/env';
 import { getStorageAdapter } from '../services/storageAdapter';
 import {
@@ -15,6 +15,9 @@ import {
   buildSystemInstruction,
   synthesizeConsensusResults,
   mapOptimizedResultToLegacy,
+  isRateLimitOrQuotaError,
+  isTransientError,
+  isInvalidApiKeyError,
 } from '../services/geminiService';
 import { adminAuth } from './authRoutes';
 import { validateRadiographAnalysis } from '../middleware/validation';
@@ -40,8 +43,9 @@ router.post('/api/analyze-radiograph', validateRadiographAnalysis, analyzeLimite
     const tooth = typeof req.body.tooth === 'string' ? JSON.parse(req.body.tooth) : req.body.tooth;
     const technique = req.body.technique;
     const receptorType = req.body.receptorType;
-    const language = req.body.language || req.body.outputLanguage;
-    const outputLanguage = language || 'Tiếng Việt';
+    const rawLang = String(req.body.language || req.body.outputLanguage || '');
+    const isEn = rawLang.toUpperCase() === 'EN' || rawLang.toLowerCase() === 'english';
+    const outputLanguage = isEn ? 'EN' : 'VI';
     const analysisMode = req.body.analysisMode === 'consensus' ? 'consensus' : 'single';
 
     let customApiKey = req.body.customApiKey ? String(req.body.customApiKey).trim() : '';
@@ -93,7 +97,14 @@ router.post('/api/analyze-radiograph', validateRadiographAnalysis, analyzeLimite
       .digest('hex');
 
     if (analysisCache.has(cacheKey)) {
-      return res.json({ success: true, analysis: analysisCache.get(cacheKey), isCached: true });
+      const cached = analysisCache.get(cacheKey);
+      res.setHeader('Content-Type', 'text/event-stream');
+      res.setHeader('Cache-Control', 'no-cache');
+      res.setHeader('Connection', 'keep-alive');
+      res.setHeader('X-Accel-Buffering', 'no');
+      res.write(`data: ${JSON.stringify({ text: JSON.stringify(cached), isCached: true })}\n\n`);
+      res.write('data: [DONE]\n\n');
+      return res.end();
     }
 
     if (mimeType.includes('svg')) {
@@ -145,8 +156,6 @@ router.post('/api/analyze-radiograph', validateRadiographAnalysis, analyzeLimite
     res.setHeader('Cache-Control', 'no-cache');
     res.setHeader('Connection', 'keep-alive');
     res.setHeader('X-Accel-Buffering', 'no');
-
-    const isEn = outputLanguage === 'EN' || outputLanguage === 'English';
 
     const updateStatus = (message: string) => {
       if (!res.writableEnded) {
@@ -210,11 +219,14 @@ router.post('/api/analyze-radiograph', validateRadiographAnalysis, analyzeLimite
       const resultB = rawResultB ? mapOptimizedResultToLegacy(rawResultB, outputLanguage) : null;
 
       if (!resultA && !resultB) {
-        throw new Error(
-          isUsingCustomKey
-            ? (isEn ? 'Custom API Key failed on chosen models.' : 'API Key cá nhân không đủ hạn mức hoặc không thể phản hồi trên các model đã chọn.')
-            : (isEn ? 'All models and API keys failed to respond.' : 'Tất cả các model và API Key đều không phản hồi. Vui lòng thử lại sau.')
-        );
+        const errA: any = resA.status === 'rejected' ? resA.reason : null;
+        const errB: any = resB.status === 'rejected' ? resB.reason : null;
+        const rejectionErr: any = new Error(errA?.message || errB?.message || 'Dual models failed');
+        rejectionErr.isCustomKeyFailed = Boolean(errA?.isCustomKeyFailed || errB?.isCustomKeyFailed);
+        rejectionErr.isQuotaExhausted = Boolean(errA?.isQuotaExhausted || errB?.isQuotaExhausted);
+        rejectionErr.isTransient = Boolean(errA?.isTransient || errB?.isTransient);
+        rejectionErr.originalError = errA || errB;
+        throw rejectionErr;
       }
 
       updateStatus(isEn ? '✅ Synthesizing clinical consensus findings...' : '✅ Đang tổng hợp kết quả hội chẩn lâm sàng...');
@@ -263,18 +275,50 @@ router.post('/api/analyze-radiograph', validateRadiographAnalysis, analyzeLimite
       return res.end();
     }
   } catch (unknownError: unknown) {
-    const err = unknownError as (Error & { isCustomKeyFailed?: boolean; isAllExhausted?: boolean; isQuotaExhausted?: boolean });
-    const isEn = req.body.language === 'English' || req.body.language === 'EN';
+    const err = unknownError as any;
+    const rawLang = String(req.body.language || req.body.outputLanguage || '');
+    const isEn = rawLang.toUpperCase() === 'EN' || rawLang.toLowerCase() === 'english';
     const storageAdapter = getStorageAdapter();
-    const isCustomKeyFailed = err?.isCustomKeyFailed || err?.message?.includes('CUSTOM_KEY_QUOTA_EXHAUSTED') || err?.message?.includes('Custom API Key failed');
-    const isAllExhausted = err?.isAllExhausted || err?.isQuotaExhausted || err?.message?.includes('ALL_SYSTEM_KEYS_QUOTA_EXHAUSTED') || err?.message?.includes('exhausted');
 
-    const errorType = isCustomKeyFailed ? 'CUSTOM_KEY_FAILED' : 'ALL_EXHAUSTED';
-    const userMessage = isCustomKeyFailed
-      ? (isEn ? 'Your custom API key has exceeded its quota limit or is invalid.' : 'API Key cá nhân của bạn không hợp lệ hoặc đã vượt quá hạn mức sử dụng.')
-      : (isEn ? 'The system trial quota is currently exhausted. Please try again later or enter your own Gemini API Key (BYOK).' : 'Hạn mức thử nghiệm của hệ thống hiện tại đã hết hoặc đang quá tải.\nVui lòng quay lại sau ít phút hoặc nhập API Key cá nhân (BYOK) để tiếp tục!');
+    const isUsingCustomKey = Boolean(req.body.apiKeyOption === 'custom' && req.body.customApiKey && String(req.body.customApiKey).trim());
+    const isInvalidKey = isInvalidApiKeyError(err) || isInvalidApiKeyError(err?.originalError) || err?.isInvalidKey === true;
+    const isQuota = isRateLimitOrQuotaError(err) || isRateLimitOrQuotaError(err?.originalError) || err?.isQuotaExhausted === true || err?.message?.includes('QUOTA_EXHAUSTED');
+    const isTransient = isTransientError(err) || isTransientError(err?.originalError) || err?.isTransient === true;
 
-    if (!isCustomKeyFailed && !isAllExhausted) {
+    // A custom key failure must have concrete evidence: explicit invalid key, quota exhaustion on custom key, or isCustomKeyFailed flag
+    const isCustomKeyFailed = isUsingCustomKey && (err?.isCustomKeyFailed === true || isInvalidKey || isQuota || err?.message?.includes('CUSTOM_KEY_INVALID') || err?.message?.includes('CUSTOM_KEY_QUOTA_EXHAUSTED'));
+
+    let errorType = 'ALL_EXHAUSTED';
+    let isQuotaExhausted = false;
+    let userMessage = '';
+
+    if (isCustomKeyFailed) {
+      errorType = 'CUSTOM_KEY_FAILED';
+      isQuotaExhausted = isQuota;
+      userMessage = isInvalidKey
+        ? (isEn ? 'Your custom API key is invalid or unauthorized.' : 'API Key cá nhân của bạn không hợp lệ hoặc chưa được kích hoạt.')
+        : (isEn ? 'Your custom API key has exceeded its quota limit or is invalid.' : 'API Key cá nhân của bạn không hợp lệ hoặc đã vượt quá hạn mức sử dụng.');
+    } else if (isQuota || err?.isAllExhausted) {
+      errorType = 'ALL_EXHAUSTED';
+      isQuotaExhausted = true;
+      userMessage = isEn
+        ? 'The system trial quota is currently exhausted. Please try again later or enter your own Gemini API Key (BYOK).'
+        : 'Hạn mức thử nghiệm của hệ thống hiện tại đã hết hoặc đang quá tải.\nVui lòng quay lại sau ít phút hoặc nhập API Key cá nhân (BYOK) để tiếp tục!';
+    } else if (isTransient) {
+      errorType = 'TRANSIENT';
+      isQuotaExhausted = false;
+      userMessage = isEn
+        ? 'The AI service timed out or is temporarily busy. Please try again.'
+        : 'Dịch vụ AI tạm thời bị gián đoạn hoặc quá thời gian phản hồi (Timeout). Vui lòng thử lại.';
+    } else {
+      errorType = 'TRANSIENT';
+      isQuotaExhausted = false;
+      userMessage = isEn
+        ? 'An error occurred during AI analysis. Please try again.'
+        : 'Có lỗi xảy ra trong quá trình phân tích AI. Vui lòng thử lại.';
+    }
+
+    if (!isCustomKeyFailed && !isQuotaExhausted && errorType !== 'ALL_EXHAUSTED') {
       try {
         const nowStr = new Date().toISOString();
         await storageAdapter.saveBug({
@@ -297,16 +341,16 @@ router.post('/api/analyze-radiograph', validateRadiographAnalysis, analyzeLimite
     }
 
     if (res.headersSent && !res.writableEnded) {
-      res.write(`data: ${JSON.stringify({ errorType, userMessage, isCustomKeyFailed, isQuotaExhausted: true })}\n\n`);
+      res.write(`data: ${JSON.stringify({ errorType, userMessage, isCustomKeyFailed, isQuotaExhausted })}\n\n`);
       res.write('data: [DONE]\n\n');
       return res.end();
     } else if (!res.writableEnded) {
-      return res.status(500).json({
+      return res.status(isQuotaExhausted ? 429 : 500).json({
         success: false,
         errorType,
         userMessage,
         isCustomKeyFailed,
-        isQuotaExhausted: true,
+        isQuotaExhausted,
       });
     }
   }
@@ -377,7 +421,7 @@ router.get('/api/images/:filename', async (req: Request, res: Response) => {
 
   if (fs.existsSync(filePath)) {
     res.setHeader('Content-Type', 'image/jpeg');
-    res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
+    res.setHeader('Cache-Control', 'private, max-age=3600');
     return res.sendFile(filePath);
   }
 
@@ -385,7 +429,7 @@ router.get('/api/images/:filename', async (req: Request, res: Response) => {
 });
 
 // Endpoint: Validate custom Gemini API Key
-router.post('/api/validate-key', analyzeLimiter, async (req: Request, res: Response) => {
+router.post('/api/validate-key', validateKeyLimiter, async (req: Request, res: Response) => {
   try {
     let key = req.body.apiKey ? String(req.body.apiKey).trim() : '';
     if ((key.startsWith("'") && key.endsWith("'")) || (key.startsWith('"') && key.endsWith('"'))) {

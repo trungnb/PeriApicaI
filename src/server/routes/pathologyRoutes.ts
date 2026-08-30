@@ -29,7 +29,9 @@ router.post('/api/segment-pathology', validatePathologySegment, analyzeLimiter, 
       return res.status(400).json({ error: 'Missing imageBase64 or toothFdi' });
     }
 
-    const outputLanguage = language || 'Tiếng Việt';
+    const rawLang = String(language || req.body.outputLanguage || '');
+    const isEn = rawLang.toUpperCase() === 'EN' || rawLang.toLowerCase() === 'english';
+    const outputLanguage = isEn ? 'EN' : 'VI';
 
     let cleanBase64 = imageBase64;
     let cleanMime = mimeType || 'image/jpeg';
@@ -50,7 +52,14 @@ router.post('/api/segment-pathology', validatePathologySegment, analyzeLimiter, 
       .digest('hex');
 
     if (pathologyVerifyCache.has(cacheKey)) {
-      return res.json({ success: true, result: pathologyVerifyCache.get(cacheKey), isCached: true });
+      const cached = pathologyVerifyCache.get(cacheKey);
+      res.setHeader('Content-Type', 'text/event-stream');
+      res.setHeader('Cache-Control', 'no-cache');
+      res.setHeader('Connection', 'keep-alive');
+      res.setHeader('X-Accel-Buffering', 'no');
+      res.write(`data: ${JSON.stringify({ success: true, result: cached, isCached: true })}\n\n`);
+      res.write('data: [DONE]\n\n');
+      return res.end();
     }
 
     // Set Server-Sent Events (SSE) headers for real-time status streaming
@@ -87,15 +96,45 @@ router.post('/api/segment-pathology', validatePathologySegment, analyzeLimiter, 
       return res.end();
     }
 
-    serverLog('INFO', 'PathologyAPI', 'Segmentation result unavailable (Quota Exhausted)', { errorType: segResult.isCustomKeyFailed ? 'CUSTOM_KEY_FAILED' : 'ALL_EXHAUSTED' });
+    let errorType = 'ALL_EXHAUSTED';
+    let isQuotaExhausted = false;
+    let isCustomKeyFailed = Boolean(segResult.isCustomKeyFailed);
+    let userMessage = '';
+
+    if (isCustomKeyFailed) {
+      errorType = 'CUSTOM_KEY_FAILED';
+      isQuotaExhausted = Boolean(segResult.isQuotaExhausted);
+      userMessage = isEn
+        ? 'Your custom API key has exceeded its quota limit or is invalid.'
+        : 'API Key cá nhân của bạn không hợp lệ hoặc đã vượt quá hạn mức sử dụng.';
+    } else if (segResult.isQuotaExhausted || segResult.isAllExhausted) {
+      errorType = 'ALL_EXHAUSTED';
+      isQuotaExhausted = true;
+      userMessage = isEn
+        ? 'The system trial quota is currently exhausted. Please try again later or enter your own Gemini API Key (BYOK).'
+        : 'Hạn mức thử nghiệm của hệ thống hiện tại đã hết hoặc đang quá tải.\nVui lòng quay lại sau ít phút hoặc nhập API Key cá nhân (BYOK) để tiếp tục!';
+    } else if (segResult.isTransient) {
+      errorType = 'TRANSIENT';
+      isQuotaExhausted = false;
+      userMessage = isEn
+        ? 'The AI segmentation service timed out or is temporarily busy. Please try again.'
+        : 'Dịch vụ phân đoạn AI tạm thời bị gián đoạn hoặc quá thời gian phản hồi (Timeout). Vui lòng thử lại.';
+    } else {
+      errorType = 'TRANSIENT';
+      isQuotaExhausted = false;
+      userMessage = isEn
+        ? 'An error occurred during AI segmentation. Please try again.'
+        : 'Có lỗi xảy ra trong quá trình phân đoạn AI. Vui lòng thử lại.';
+    }
+
+    serverLog('INFO', 'PathologyAPI', `Segmentation result unavailable (${errorType})`, { errorType, isQuotaExhausted, isTransient: segResult.isTransient });
     res.write(`data: ${JSON.stringify({
       success: false,
-      errorType: segResult.isCustomKeyFailed ? 'CUSTOM_KEY_FAILED' : 'ALL_EXHAUSTED',
-      isCustomKeyFailed: segResult.isCustomKeyFailed,
-      isAllExhausted: segResult.isAllExhausted,
-      userMessage: segResult.isCustomKeyFailed
-        ? (outputLanguage === 'EN' ? 'Your custom API key has exceeded its quota limit or is invalid.' : 'API Key cá nhân của bạn không hợp lệ hoặc đã vượt quá hạn mức sử dụng.')
-        : (outputLanguage === 'EN' ? 'All system API keys and models exhausted.' : 'Tất cả các khóa API và mô hình AI hệ thống đều đã chạm ngưỡng hạn mức (Quota). Vui lòng thử lại sau.'),
+      errorType,
+      isCustomKeyFailed,
+      isAllExhausted: errorType === 'ALL_EXHAUSTED',
+      isQuotaExhausted,
+      userMessage,
       error: segResult.error ?? 'Segmentation failed'
     })}\n\n`);
     res.write('data: [DONE]\n\n');
@@ -103,9 +142,9 @@ router.post('/api/segment-pathology', validatePathologySegment, analyzeLimiter, 
   } catch (err: any) {
     serverLog('ERROR', 'PathologyAPI', 'Internal error during segmentation', err);
     if (!res.headersSent) {
-      return res.status(500).json({ success: false, error: 'Internal server error' });
+      return res.status(500).json({ success: false, error: 'Internal server error', errorType: 'TRANSIENT', isQuotaExhausted: false });
     }
-    res.write(`data: ${JSON.stringify({ success: false, error: 'Internal server error' })}\n\n`);
+    res.write(`data: ${JSON.stringify({ success: false, error: 'Internal server error', errorType: 'TRANSIENT', isQuotaExhausted: false })}\n\n`);
     res.write('data: [DONE]\n\n');
     return res.end();
   }

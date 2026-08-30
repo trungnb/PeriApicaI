@@ -31,8 +31,8 @@ async function startServer() {
       },
     })
   );
-  app.use(express.json({ limit: '10mb' })); // Reduced from 50mb to prevent payload DoS
-  app.use(express.urlencoded({ limit: '10mb', extended: true }));
+  app.use(express.json({ limit: '3mb' })); // 3mb limit for compressed client images
+  app.use(express.urlencoded({ limit: '3mb', extended: true }));
 
   // Security Headers
   app.use((_req, res, next) => {
@@ -64,6 +64,32 @@ async function startServer() {
   app.use(adminRoutes);
   app.use(bugRoutes);
   app.use(pathologyRoutes);
+
+  // Error handling middleware for API routes (Payload Too Large 413, JSON parsing errors)
+  app.use('/api', (err: any, _req: express.Request, res: express.Response, next: express.NextFunction) => {
+    if (err) {
+      if (err.type === 'entity.too.large' || err.status === 413) {
+        return res.status(413).json({
+          success: false,
+          error: 'Payload Too Large: Dung lượng dữ liệu vượt quá giới hạn cho phép (3MB). Vui lòng kiểm tra lại ảnh.',
+          userMessage: 'Dung lượng ảnh/dữ liệu quá lớn (tối đa 3MB).',
+          code: 'PAYLOAD_TOO_LARGE',
+        });
+      }
+      if (err.status === 400 && 'body' in err) {
+        return res.status(400).json({
+          success: false,
+          error: 'Invalid JSON body',
+          userMessage: 'Dữ liệu gửi lên không hợp lệ.',
+        });
+      }
+      return res.status(err.status || 500).json({
+        success: false,
+        error: err.message || 'Internal server error',
+      });
+    }
+    next();
+  });
 
   // Start background jobs & Realtime Snapshot Stream
   startCleanupJob();

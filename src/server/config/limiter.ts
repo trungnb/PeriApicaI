@@ -28,6 +28,13 @@ export const adminSyncLimiter = rateLimit({
   message: { success: false, error: 'Hệ thống giới hạn tối đa 1 lần làm mới dữ liệu mỗi 10 giây để bảo vệ tài nguyên Database. Vui lòng đợi thêm...' },
 });
 
+export const validateKeyLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  max: 5,
+  validate: { xForwardedForHeader: false, default: false },
+  message: { error: 'Quá nhiều yêu cầu kiểm tra API Key. Vui lòng thử lại sau 1 phút.' },
+});
+
 export const generalActionLimiter = rateLimit({
   windowMs: 60 * 1000,
   max: 60,

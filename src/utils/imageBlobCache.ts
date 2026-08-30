@@ -1,31 +1,35 @@
 /**
  * imageBlobCache.ts
- * In-memory LRU Cache with 24-hour TTL for radiograph data blobs and Object URLs.
- * Ensures memory is automatically pruned after 24h and supports immediate eviction upon session completion.
+ * In-memory LRU Cache with byte caps & 2-hour TTL for radiograph data blobs and Object URLs.
+ * Ensures memory is bounded (<= 25MB total or <= 50 entries) and automatically pruned.
  */
 
 interface CacheEntry {
   blobUrl?: string;
   dataUrl?: string;
+  estimatedBytes: number;
   createdAt: number;
   expiresAt: number;
   lastAccessed: number;
 }
 
-const TTL_24_HOURS_MS = 24 * 60 * 60 * 1000;
-const MAX_CACHE_ENTRIES = 100;
+const TTL_2_HOURS_MS = 2 * 60 * 60 * 1000;
+const MAX_CACHE_ENTRIES = 50;
+const MAX_CACHE_BYTES = 25 * 1024 * 1024; // 25 MB max in-memory cache
 
 class ImageBlobCacheManager {
   private cache = new Map<string, CacheEntry>();
+  private totalBytes = 0;
 
   /**
-   * Cleans up expired entries (older than 24 hours).
+   * Cleans up expired entries (older than 2 hours).
    */
   private pruneExpired(): void {
     const now = Date.now();
     for (const [key, entry] of this.cache.entries()) {
       if (now > entry.expiresAt) {
         this.revokeEntry(entry);
+        this.totalBytes = Math.max(0, this.totalBytes - entry.estimatedBytes);
         this.cache.delete(key);
       }
     }
@@ -45,64 +49,75 @@ class ImageBlobCacheManager {
   }
 
   /**
-   * Enforces max capacity using Least Recently Used (LRU) policy.
+   * Enforces max capacity and byte limits using Least Recently Used (LRU) policy.
    */
   private enforceCapacity(): void {
-    if (this.cache.size <= MAX_CACHE_ENTRIES) return;
+    while (this.cache.size > MAX_CACHE_ENTRIES || this.totalBytes > MAX_CACHE_BYTES) {
+      let oldestKey: string | null = null;
+      let oldestAccess = Infinity;
 
-    // Find the least recently accessed key
-    let oldestKey: string | null = null;
-    let oldestAccess = Infinity;
-
-    for (const [key, entry] of this.cache.entries()) {
-      if (entry.lastAccessed < oldestAccess) {
-        oldestAccess = entry.lastAccessed;
-        oldestKey = key;
+      for (const [key, entry] of this.cache.entries()) {
+        if (entry.lastAccessed < oldestAccess) {
+          oldestAccess = entry.lastAccessed;
+          oldestKey = key;
+        }
       }
-    }
 
-    if (oldestKey) {
+      if (!oldestKey) break;
+
       const entry = this.cache.get(oldestKey);
       if (entry) {
         this.revokeEntry(entry);
+        this.totalBytes = Math.max(0, this.totalBytes - entry.estimatedBytes);
         this.cache.delete(oldestKey);
       }
     }
   }
 
   /**
-   * Registers or updates an image blob/dataUrl in the cache with a 24-hour TTL.
+   * Registers or updates an image blob/dataUrl in the cache with a 2-hour TTL.
    */
   public set(key: string, data: { blob?: Blob | File; dataUrl?: string }): { blobUrl?: string; dataUrl?: string } {
     if (!key) return {};
     this.pruneExpired();
 
-    // If an existing entry exists under this key, revoke its previous object URL
+    // If an existing entry exists under this key, revoke its previous object URL and subtract bytes
     const existing = this.cache.get(key);
     if (existing) {
       this.revokeEntry(existing);
+      this.totalBytes = Math.max(0, this.totalBytes - existing.estimatedBytes);
       this.cache.delete(key);
     }
 
     let blobUrl: string | undefined;
+    let estimatedBytes = 0;
+
     if (data.blob) {
       try {
         blobUrl = URL.createObjectURL(data.blob);
+        estimatedBytes += data.blob.size;
       } catch {
         // Fallback if URL.createObjectURL fails
       }
+    }
+
+    if (data.dataUrl) {
+      // If we don't have blob, estimate dataUrl bytes (approx char length * 2)
+      estimatedBytes += Math.round(data.dataUrl.length * 1.5);
     }
 
     const now = Date.now();
     const entry: CacheEntry = {
       blobUrl,
       dataUrl: data.dataUrl,
+      estimatedBytes,
       createdAt: now,
-      expiresAt: now + TTL_24_HOURS_MS,
+      expiresAt: now + TTL_2_HOURS_MS,
       lastAccessed: now,
     };
 
     this.cache.set(key, entry);
+    this.totalBytes += estimatedBytes;
     this.enforceCapacity();
 
     return { blobUrl, dataUrl: data.dataUrl };
@@ -120,6 +135,7 @@ class ImageBlobCacheManager {
 
     if (Date.now() > entry.expiresAt) {
       this.revokeEntry(entry);
+      this.totalBytes = Math.max(0, this.totalBytes - entry.estimatedBytes);
       this.cache.delete(key);
       return null;
     }
@@ -136,6 +152,7 @@ class ImageBlobCacheManager {
     const entry = this.cache.get(key);
     if (entry) {
       this.revokeEntry(entry);
+      this.totalBytes = Math.max(0, this.totalBytes - entry.estimatedBytes);
       this.cache.delete(key);
     }
   }
@@ -148,11 +165,21 @@ class ImageBlobCacheManager {
       this.revokeEntry(entry);
     }
     this.cache.clear();
+    this.totalBytes = 0;
   }
 
   /**
-   * Returns current count of cached sessions for diagnostics.
+   * Returns diagnostics: count and estimated cache memory bytes.
    */
+  public getDiagnostics(): { count: number; totalBytes: number; maxBytes: number } {
+    this.pruneExpired();
+    return {
+      count: this.cache.size,
+      totalBytes: this.totalBytes,
+      maxBytes: MAX_CACHE_BYTES,
+    };
+  }
+
   public size(): number {
     this.pruneExpired();
     return this.cache.size;

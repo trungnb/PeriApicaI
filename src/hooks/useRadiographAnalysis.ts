@@ -5,7 +5,7 @@ import { analyzeRadiograph } from '../services/aiService';
 import { AssessmentLogPayload } from '../types/dental';
 import { useAssessmentSession } from './useAssessmentSession';
 import { usePathologyAnalysis } from './usePathologyAnalysis';
-import { compressImage } from '../utils/imageCompressor';
+import { compressImage, prepareAnalysisImage } from '../utils/imageCompressor';
 import { handleAnalysisFlowError } from '../utils/errorBoundary';
 
 function computeRequestHash(
@@ -98,14 +98,23 @@ export function useRadiographAnalysis() {
 
     if (!aiBase64) {
       try {
-        const compressStart = performance.now();
-        const aiResult = await compressImage(imageFile, { maxWidth: 1200, maxHeight: 1200, quality: 0.88 });
-        clientCompressTimeMs = Math.round(performance.now() - compressStart);
-
-        aiBase64 = aiResult.dataUrl;
+        const prep = await prepareAnalysisImage(
+          imageFile || imageDataUrl,
+          { maxWidth: 1200, maxHeight: 1200, quality: 0.88 },
+          store.lastCompressionMetrics
+        );
+        clientCompressTimeMs = prep.processingTimeMs;
+        aiBase64 = prep.dataUrl;
         useAppStore.setState({ 
           compressedImageBase64: aiBase64,
-          lastCompressionMetrics: aiResult
+          lastCompressionMetrics: {
+            processingTimeMs: prep.processingTimeMs,
+            width: prep.width,
+            height: prep.height,
+            originalWidth: prep.originalWidth,
+            originalHeight: prep.originalHeight,
+            outputMime: prep.mimeType,
+          } as any
         });
       } catch (e) {
         setGlobalError(t('upload:compressError'));
@@ -169,6 +178,8 @@ export function useRadiographAnalysis() {
       const apiDurationMs = Math.round(performance.now() - apiStart);
       const totalTimeMs = Math.round(performance.now() - startTotalTime);
       const wasCached = Boolean(data.isCached);
+      // NOTE (Telemetry & Quality Gate): networkTimeMs is an approximate estimate kept for UI visualization breakdown.
+      // Real benchmarking must evaluate totalTimeMs and apiDurationMs.
       const networkTimeMs = wasCached ? apiDurationMs : Math.min(apiDurationMs, 1200);
       const geminiTimeMs = wasCached ? 0 : Math.max(100, apiDurationMs - networkTimeMs);
 

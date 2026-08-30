@@ -9,6 +9,7 @@ import { PATHOLOGY_DICT } from '../constants/dictionaries';
 import { analyzeRadiograph } from '../services/aiService';
 import { useAssessmentSession } from './useAssessmentSession';
 import { handleAnalysisFlowError } from '../utils/errorBoundary';
+import { prepareAnalysisImage } from '../utils/imageCompressor';
 
 function makeConfirmedPathology(det: AIDetection, clinicalNote?: string): ConfirmedPathology {
   const taxItem = PATHOLOGY_DICT[det.pathologyKey];
@@ -78,19 +79,36 @@ export function usePathologyAnalysis() {
     }
 
     try {
-      // 1. Get natural dimensions of image to descale 0-1000 normalized coordinates
-      const img = await new Promise<HTMLImageElement>((res, rej) => {
-        const i = new Image();
-        i.crossOrigin = 'anonymous';
-        i.onload = () => res(i);
-        i.onerror = rej;
-        i.src = imageDataUrl;
-      });
+      const lastCompressionMetrics = appState.lastCompressionMetrics;
+      // 1. Prepare image in unified pipeline (reuses existing compressed image & dimensions without re-compressing)
+      const prep = await prepareAnalysisImage(
+        compressedImageBase64 || imageDataUrl,
+        {
+          maxWidth: 1200,
+          maxHeight: 1200,
+          quality: 0.88,
+        },
+        lastCompressionMetrics
+      );
 
-      const imgW = img.naturalWidth || img.width || 640;
-      const imgH = img.naturalHeight || img.height || 480;
+      const imgW = prep.width || 640;
+      const imgH = prep.height || 480;
+      const imageBase64 = prep.dataUrl;
 
-      const imageBase64 = compressedImageBase64 || imageDataUrl;
+      // Update store with compressed base64 if not already set
+      if (!compressedImageBase64 || !lastCompressionMetrics?.width) {
+        useAppStore.setState({
+          compressedImageBase64: imageBase64,
+          lastCompressionMetrics: {
+            processingTimeMs: prep.processingTimeMs,
+            width: prep.width,
+            height: prep.height,
+            originalWidth: prep.originalWidth,
+            originalHeight: prep.originalHeight,
+            outputMime: prep.mimeType,
+          } as any,
+        });
+      }
 
       const apiStart = performance.now();
 
@@ -196,6 +214,8 @@ export function usePathologyAnalysis() {
       const apiDurationMs = Math.round(performance.now() - apiStart);
       const totalTimeMs = Math.round(performance.now() - startTotalTime);
       const wasCached = Boolean(res.isCached);
+      // NOTE (Telemetry & Quality Gate): networkTimeMs is an approximate estimate kept for UI visualization breakdown.
+      // Real benchmarking must evaluate totalTimeMs and apiDurationMs.
       const networkTimeMs = wasCached ? apiDurationMs : Math.min(apiDurationMs, 1400);
       const geminiTimeMs = wasCached ? 0 : Math.max(100, apiDurationMs - networkTimeMs);
       const clientCompressTimeMs = useAppStore.getState().lastCompressionMetrics?.processingTimeMs || 0;

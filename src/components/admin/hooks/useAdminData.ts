@@ -4,6 +4,37 @@ import { getAdminToken } from '../../../utils/adminAuthUtils';
 import { useTranslation } from 'react-i18next';
 import { useMetadataStore } from '../../../store/useMetadataStore';
 
+// Safe sessionStorage helpers with byte caps to prevent QuotaExceeded errors
+const MAX_SESSION_CACHE_ITEMS = 50;
+
+function stripLargePayloadsForCache<T>(items: T[]): T[] {
+  if (!Array.isArray(items)) return [];
+  const capped = items.slice(0, MAX_SESSION_CACHE_ITEMS);
+  return capped.map((item: any) => {
+    if (item && typeof item === 'object') {
+      const copy = { ...item };
+      // Strip heavy dataUrl strings from browser session cache
+      if (copy.imageDataUrl && copy.imageDataUrl.length > 5000) {
+        delete copy.imageDataUrl;
+      }
+      if (copy.imageUrl && copy.imageUrl.startsWith('data:') && copy.imageUrl.length > 5000) {
+        delete copy.imageUrl;
+      }
+      return copy;
+    }
+    return item;
+  });
+}
+
+function safeSetSessionItem(key: string, data: any[]): void {
+  try {
+    const cleaned = stripLargePayloadsForCache(data);
+    sessionStorage.setItem(key, JSON.stringify(cleaned));
+  } catch (err) {
+    console.debug(`[useAdminData] SessionStorage cap prevented write for ${key}:`, err);
+  }
+}
+
 export const useAdminData = (logout: () => void) => {
   const { i18n } = useTranslation('admin');
   const [isSyncing, setIsSyncing] = useState<boolean>(false);
@@ -172,11 +203,9 @@ export const useAdminData = (logout: () => void) => {
           setPathologyLogs(pathology);
           
           if (!isBackgroundLoad) {
-            try {
-              sessionStorage.setItem('admin_cached_bugs', JSON.stringify(bugs));
-              sessionStorage.setItem('admin_cached_logs', JSON.stringify(logs));
-              sessionStorage.setItem('admin_cached_pathology_logs', JSON.stringify(pathology));
-            } catch {}
+            safeSetSessionItem('admin_cached_bugs', bugs);
+            safeSetSessionItem('admin_cached_logs', logs);
+            safeSetSessionItem('admin_cached_pathology_logs', pathology);
           }
         }
         

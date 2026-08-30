@@ -409,6 +409,8 @@ async function processStreamData<T>(
   let customKeyError: any = null;
   let allExhaustedError: any = null;
   let errorMsg: string | null = null;
+  let userErrMsg: string | null = null;
+  let isCached = false;
   let isDone = false;
 
   while (!isDone) {
@@ -432,6 +434,10 @@ async function processStreamData<T>(
       try {
         const parsed = JSON.parse(rawData);
 
+        if (parsed.isCached) {
+          isCached = true;
+        }
+
         if (parsed.statusMessage) {
           onStatusUpdate?.(parsed.statusMessage);
         }
@@ -450,17 +456,18 @@ async function processStreamData<T>(
             userMessage: parsed.userMessage || 'Custom API Key failed validation or exceeded quota.',
             errorNotice: parsed.errorNotice || parsed.error,
           };
-        }
-
-        if (parsed.isAllExhausted || parsed.errorType === 'ALL_EXHAUSTED') {
+        } else if (parsed.isQuotaExhausted || parsed.isAllExhausted || parsed.errorType === 'ALL_EXHAUSTED') {
           allExhaustedError = {
             isAllExhausted: true,
             userMessage: parsed.userMessage || 'System API trial limit exhausted.',
             resetNotice: parsed.resetNotice || '1 minute',
           };
+        } else if (parsed.errorType === 'TRANSIENT' || parsed.success === false) {
+          errorMsg = parsed.error || parsed.errorNotice || 'Analysis timed out or temporary connection error.';
+          userErrMsg = parsed.userMessage || null;
         }
 
-        if (parsed.success === false && !parsed.statusMessage) {
+        if (parsed.success === false && !parsed.statusMessage && !errorMsg) {
           errorMsg = parsed.userMessage || parsed.error || parsed.errorNotice || 'Analysis failed.';
         }
 
@@ -492,6 +499,7 @@ async function processStreamData<T>(
     if (rawData !== '[DONE]') {
       try {
         const parsed = JSON.parse(rawData);
+        if (parsed.isCached) isCached = true;
         const candidatePayload = parsed.result || parsed.analysis || parsed.text || parsed;
         const validation =
           type === 'classic'
@@ -526,6 +534,9 @@ async function processStreamData<T>(
   }
 
   if (finalData) {
+    if (isCached && typeof finalData === 'object') {
+      finalData.isCached = true;
+    }
     return {
       success: true,
       data: finalData,
@@ -538,6 +549,7 @@ async function processStreamData<T>(
   return {
     success: false,
     isMalformedOutput: true,
+    userMessage: userErrMsg || undefined,
     errorNotice: errorMsg || 'No structured output received from AI.',
   };
 }
@@ -569,7 +581,7 @@ export async function analyzeRadiograph(
     onStatusUpdate,
     onProgress,
     externalSignal,
-    maxRetries = 2,
+    maxRetries = 1,
   } = options;
 
   const isEn = language === 'EN';
@@ -622,8 +634,8 @@ export async function analyzeRadiograph(
       if (attempt > 1) {
         onStatusUpdate?.(
           isEn
-            ? `🔄 Re-attempting connection (${attempt}/${maxRetries + 1})...`
-            : `🔄 Đang thử lại kết nối (${attempt}/${maxRetries + 1})...`
+            ? `🔄 Re-attempting connection (Attempt ${attempt}/${maxRetries + 1})...`
+            : `🔄 Đang thử lại kết nối (Lần ${attempt}/${maxRetries + 1})...`
         );
       }
 
@@ -651,7 +663,7 @@ export async function analyzeRadiograph(
         );
 
         if (!streamRes.success) {
-          if (streamRes.isCustomKeyFailed || streamRes.isAllExhausted) {
+          if (streamRes.isCustomKeyFailed || streamRes.isAllExhausted || streamRes.isQuotaExhausted) {
             return {
               success: false,
               type,
@@ -664,17 +676,23 @@ export async function analyzeRadiograph(
             };
           }
 
-          // Trigger retry mechanism immediately for non-structured / malformed output
-          console.debug(`[aiService] Debug: Technical failure in stream (Attempt ${attempt}/${maxRetries + 1}):`, streamRes.errorNotice);
+          // Non-transient malformed stream: retry only once if budget allows
           if (attempt <= maxRetries) {
             onStatusUpdate?.(
               isEn
-                ? `🔄 Non-structured AI output. Retrying analysis (${attempt}/${maxRetries + 1})...`
-                : `🔄 Phản hồi AI không đúng định dạng. Đang tự động thử lại (${attempt}/${maxRetries + 1})...`
+                ? `🔄 Retrying analysis...`
+                : `🔄 Đang thử lại kết nối...`
             );
-            await new Promise((res) => setTimeout(res, 1200 * attempt));
+            await new Promise((res) => setTimeout(res, 500));
             continue;
           }
+
+          return {
+            success: false,
+            type,
+            userMessage: streamRes.userMessage,
+            errorNotice: streamRes.errorNotice || 'Analysis failed',
+          };
         } else {
           const rawData = streamRes.data;
           if (type === 'classic') {
@@ -708,8 +726,8 @@ export async function analyzeRadiograph(
         const isAllExhausted = Boolean(data.isAllExhausted || data.errorType === 'ALL_EXHAUSTED' || response.status === 429);
         const isQuotaExhausted = Boolean(data.isQuotaExhausted || response.status === 429);
 
-        // If it's a definitive key/quota error, do not retry
-        if (isCustomKeyFailed || isAllExhausted) {
+        // If it's a definitive key/quota/auth error, do not retry
+        if (isCustomKeyFailed || isAllExhausted || response.status === 400 || response.status === 401 || response.status === 429) {
           return {
             success: false,
             type,
@@ -724,13 +742,12 @@ export async function analyzeRadiograph(
 
         // Transient failure: trigger retry if attempts remain
         if (attempt <= maxRetries) {
-          console.debug(`[aiService] Debug: API failure ${response.status} (Attempt ${attempt}/${maxRetries + 1}). Retrying...`);
           onStatusUpdate?.(
             isEn
-              ? `🔄 Server response error (${response.status}). Retrying (${attempt}/${maxRetries + 1})...`
-              : `🔄 Lỗi phản hồi máy chủ (${response.status}). Đang thử lại (${attempt}/${maxRetries + 1})...`
+              ? `🔄 Retrying server connection...`
+              : `🔄 Đang thử lại kết nối máy chủ...`
           );
-          await new Promise((res) => setTimeout(res, 1200 * attempt));
+          await new Promise((res) => setTimeout(res, 500));
           continue;
         }
 
@@ -749,13 +766,12 @@ export async function analyzeRadiograph(
           : validatePathologySchema(payloadCandidate);
 
       if (!jsonValidation.isValid && attempt <= maxRetries) {
-        console.debug('[aiService] Debug: Malformed JSON output:', jsonValidation.errorReason, payloadCandidate);
         onStatusUpdate?.(
           isEn
-            ? `🔄 Malformed AI response. Retrying (${attempt}/${maxRetries + 1})...`
-            : `🔄 Phản hồi AI không khớp định dạng. Đang tự động thử lại (${attempt}/${maxRetries + 1})...`
+            ? `🔄 Retrying analysis...`
+            : `🔄 Đang tự động thử lại...`
         );
-        await new Promise((res) => setTimeout(res, 1200 * attempt));
+        await new Promise((res) => setTimeout(res, 500));
         continue;
       }
 
@@ -794,10 +810,10 @@ export async function analyzeRadiograph(
         };
       }
 
-      // Retry transient network errors
+      // Retry transient network errors once
       if (attempt <= maxRetries) {
-        console.debug(`[aiService] Debug: Exception caught on attempt ${attempt}:`, err?.message);
-        await new Promise((res) => setTimeout(res, 1000 * Math.pow(2, attempt - 1)));
+        console.debug(`[aiService] Debug: Transient network error on attempt ${attempt}:`, err?.message);
+        await new Promise((res) => setTimeout(res, 500));
       }
     }
   }
@@ -808,43 +824,9 @@ export async function analyzeRadiograph(
     { type, toothFdi, analysisMode, apiKeyOption, stack: lastError?.stack }
   );
 
-  // Deliver safe fallback analysis structure if retries are completely exhausted
-  console.debug('[aiService] Debug: All retries exhausted. Providing fallback experience.');
-  if (type === 'classic') {
-    const fallbackAnalysis = validateAndNormalizeClassicSchema(
-      {
-        isPeriapicalRadiograph: true,
-        overallQuality: 'Diagnostic',
-        observationChain: [isEn ? 'Automatic fallback analysis generated.' : 'Tự động tạo phân tích dự phòng.'],
-        errors: [],
-      },
-      language
-    );
-
-    return {
-      success: true,
-      type: 'classic',
-      analysis: fallbackAnalysis,
-      isFallback: true,
-      usedModel: selectedModelA || 'gemini-flash-latest',
-      errorNotice: isEn ? 'AI output was malformed; rendered fallback analysis.' : 'Phản hồi AI không khớp định dạng; đã chuyển sang kết quả dự phòng.',
-    };
-  } else {
-    const fallbackPathology = validateAndNormalizePathologySchema(
-      {
-        overallSummary: isEn ? 'Pathology segmentation completed (Fallback mode).' : 'Phân đoạn tổn thương (Chế độ dự phòng).',
-        pathologies: [],
-      },
-      language
-    );
-
-    return {
-      success: true,
-      type: 'pathology',
-      pathologyResult: fallbackPathology,
-      isCached: false,
-      usedModel: selectedModelA || 'gemini-flash-latest',
-      errorNotice: isEn ? 'AI output was malformed; rendered fallback analysis.' : 'Phản hồi AI không khớp định dạng; đã chuyển sang kết quả dự phòng.',
-    };
-  }
+  return {
+    success: false,
+    type,
+    errorNotice: lastError?.message || (isEn ? 'Analysis failed. Please try again.' : 'Phân tích thất bại. Vui lòng thử lại.'),
+  };
 }

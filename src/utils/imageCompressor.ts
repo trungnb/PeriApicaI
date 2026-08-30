@@ -124,7 +124,7 @@ function drawScaledCanvas(
  * quality control loop specifically tuned for clinical diagnostics.
  */
 export async function compressImage(
-  source: File | string,
+  source: File | Blob | string,
   options: CompressionOptions = {}
 ): Promise<CompressionResult> {
   const startTime = performance.now();
@@ -143,7 +143,7 @@ export async function compressImage(
   let sourceBlob: Blob | null = null;
 
   // 1. Resolve source to a Blob
-  if (source instanceof File) {
+  if (source instanceof Blob) {
     sourceBlob = source;
     originalSizeKB = Math.round(source.size / 1024);
   } else if (typeof source === 'string' && source.startsWith('data:')) {
@@ -435,6 +435,135 @@ export async function compressImage(
     outputMime: targetFormat,
     qualityUsed: finalQualityUsed,
     wasAccelerated
+  };
+}
+
+export interface PreparedAnalysisImage {
+  dataUrl: string;
+  cleanBase64: string;
+  mimeType: string;
+  width: number;
+  height: number;
+  originalWidth: number;
+  originalHeight: number;
+  processingTimeMs: number;
+  wasCompressed: boolean;
+}
+
+/**
+ * Extracts clean base64 data and mimeType from a data URL string.
+ */
+export function extractDataUrlMeta(dataUrl: string): { cleanBase64: string; mimeType: string } {
+  let cleanBase64 = dataUrl;
+  let mimeType = 'image/jpeg';
+  if (dataUrl.startsWith('data:')) {
+    const match = dataUrl.match(/^data:([^;]+);base64,(.+)$/);
+    if (match) {
+      mimeType = match[1];
+      cleanBase64 = match[2];
+    } else {
+      cleanBase64 = cleanBase64.replace(/^data:image\/[a-zA-Z+]+;base64,/, '');
+    }
+  }
+  return { cleanBase64, mimeType };
+}
+
+/**
+ * Reads natural image dimensions from a Data URL without performing canvas drawing or re-encoding.
+ */
+export function getImageDimensionsFromDataUrl(dataUrl: string): Promise<{ width: number; height: number }> {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.onload = () => {
+      resolve({
+        width: img.naturalWidth || img.width || 640,
+        height: img.naturalHeight || img.height || 480,
+      });
+    };
+    img.onerror = () => reject(new Error('Lỗi nạp hình ảnh để đọc kích thước'));
+    img.src = dataUrl;
+  });
+}
+
+/**
+ * Standardized helper for preparing radiograph images before analysis across both pipelines.
+ * Enforces compression to <= 1200px (or custom options), extracts dimensions, and ensures clean base64/mimeType.
+ * Reuses already-compressed prepared images without re-compressing or re-encoding.
+ */
+export async function prepareAnalysisImage(
+  source: File | Blob | string,
+  options: CompressionOptions = { maxWidth: 1200, maxHeight: 1200, quality: 0.88 },
+  existingMetrics?: Partial<CompressionResult> | null
+): Promise<PreparedAnalysisImage> {
+  // Case A: source is already a prepared data URL
+  if (typeof source === 'string' && source.startsWith('data:image/')) {
+    const { cleanBase64, mimeType } = extractDataUrlMeta(source);
+
+    // If dimensions already exist in metrics, reuse immediately (0ms, 0 loss)
+    if (existingMetrics?.width && existingMetrics?.height) {
+      return {
+        dataUrl: source,
+        cleanBase64,
+        mimeType: existingMetrics.outputMime || mimeType,
+        width: existingMetrics.width,
+        height: existingMetrics.height,
+        originalWidth: existingMetrics.originalWidth || existingMetrics.width,
+        originalHeight: existingMetrics.originalHeight || existingMetrics.height,
+        processingTimeMs: existingMetrics.processingTimeMs || 0,
+        wasCompressed: false,
+      };
+    }
+
+    // Otherwise, decode natural dimensions without re-encoding
+    try {
+      const dims = await getImageDimensionsFromDataUrl(source);
+      return {
+        dataUrl: source,
+        cleanBase64,
+        mimeType,
+        width: dims.width,
+        height: dims.height,
+        originalWidth: existingMetrics?.originalWidth || dims.width,
+        originalHeight: existingMetrics?.originalHeight || dims.height,
+        processingTimeMs: 0,
+        wasCompressed: false,
+      };
+    } catch {
+      // Fall through to compressImage if decoding failed
+    }
+  }
+
+  // Case B: source is a File, Blob, or blob: URL that requires initial compression
+  let resolvedSource: File | Blob | string = source;
+
+  if (typeof source === 'string' && source.startsWith('blob:')) {
+    try {
+      const resp = await fetch(source);
+      resolvedSource = await resp.blob();
+    } catch {
+      resolvedSource = source;
+    }
+  }
+
+  const comp = await compressImage(resolvedSource, {
+    maxWidth: options.maxWidth ?? 1200,
+    maxHeight: options.maxHeight ?? 1200,
+    quality: options.quality ?? 0.88,
+    targetMaxSizeKB: options.targetMaxSizeKB ?? 1000,
+  });
+
+  const { cleanBase64, mimeType } = extractDataUrlMeta(comp.dataUrl);
+
+  return {
+    dataUrl: comp.dataUrl,
+    cleanBase64,
+    mimeType: comp.outputMime || mimeType,
+    width: comp.width,
+    height: comp.height,
+    originalWidth: comp.originalWidth,
+    originalHeight: comp.originalHeight,
+    processingTimeMs: comp.processingTimeMs,
+    wasCompressed: comp.width !== comp.originalWidth || comp.height !== comp.originalHeight || comp.compressionRatio > 0,
   };
 }
 

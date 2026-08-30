@@ -101,111 +101,278 @@ export const validateCustomApiKey = async (apiKey: string): Promise<{ valid: boo
 const PENDING_LOGS_QUEUE_KEY = 'dental_pending_logs_queue';
 const PENDING_PATHOLOGY_LOGS_QUEUE_KEY = 'dental_pending_pathology_logs_queue';
 
-export const flushPendingLogs = async () => {
+// Queue Limits
+const MAX_QUEUE_ITEMS = 25;
+const MAX_QUEUE_TOTAL_BYTES = 500 * 1024; // 500KB cap
+const MAX_OFFLINE_IMAGE_BYTES = 80 * 1024; // 80KB cap for image in offline queue
+
+function estimateStringBytes(str: string): number {
+  return str ? str.length * 2 : 0;
+}
+
+function estimateQueueBytes(queue: any[]): number {
   try {
-    const raw = localStorage.getItem(PENDING_LOGS_QUEUE_KEY);
+    return estimateStringBytes(JSON.stringify(queue));
+  } catch {
+    return 0;
+  }
+}
+
+/**
+ * Prunes offline queue by dropping large base64 images first, then oldest entries if size exceeds limits.
+ */
+function pruneOfflineQueue(queue: any[]): any[] {
+  if (!Array.isArray(queue)) return [];
+
+  // 1. Strip images exceeding MAX_OFFLINE_IMAGE_BYTES
+  let pruned = queue.map((item) => {
+    if (item.imageDataUrl && estimateStringBytes(item.imageDataUrl) > MAX_OFFLINE_IMAGE_BYTES) {
+      const { imageDataUrl, ...rest } = item;
+      return rest;
+    }
+    return item;
+  });
+
+  // 2. Cap item count (keep newest items)
+  if (pruned.length > MAX_QUEUE_ITEMS) {
+    pruned = pruned.slice(pruned.length - MAX_QUEUE_ITEMS);
+  }
+
+  // 3. Check total byte limit; strip all images first if still over limit
+  if (estimateQueueBytes(pruned) > MAX_QUEUE_TOTAL_BYTES) {
+    pruned = pruned.map((item) => {
+      const { imageDataUrl, imageUrl, ...rest } = item;
+      return rest;
+    });
+  }
+
+  // 4. If still over limit, drop oldest items until under limit
+  while (pruned.length > 1 && estimateQueueBytes(pruned) > MAX_QUEUE_TOTAL_BYTES) {
+    pruned.shift();
+  }
+
+  return pruned;
+}
+
+function safelySaveQueue(key: string, queue: any[]): void {
+  try {
+    const safeQueue = pruneOfflineQueue(queue);
+    localStorage.setItem(key, JSON.stringify(safeQueue));
+  } catch (err) {
+    console.debug(`[apiService] Failed to save offline queue for ${key}:`, err);
+  }
+}
+
+let isFlushingClassic = false;
+let isFlushingPathology = false;
+
+export const flushPendingLogs = async () => {
+  if (isFlushingClassic) return;
+  isFlushingClassic = true;
+  try {
+    let raw: string | null = null;
+    try {
+      raw = localStorage.getItem(PENDING_LOGS_QUEUE_KEY);
+    } catch {
+      return;
+    }
     if (!raw) return;
-    const queue = JSON.parse(raw);
+    let queue: any[] = [];
+    try {
+      queue = JSON.parse(raw);
+    } catch {
+      localStorage.removeItem(PENDING_LOGS_QUEUE_KEY);
+      return;
+    }
     if (!Array.isArray(queue) || queue.length === 0) return;
 
     const remaining: any[] = [];
-    const results = await Promise.allSettled(
-      queue.map(async (item) => {
-        try {
-          const response = await fetch('/api/log-assessment', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(item),
-          });
-          if (!response.ok) {
+    // Process sequentially or concurrency = 2 to avoid hammering server
+    for (let i = 0; i < queue.length; i += 2) {
+      const batch = queue.slice(i, i + 2);
+      const results = await Promise.allSettled(
+        batch.map(async (item) => {
+          const controller = new AbortController();
+          const timer = setTimeout(() => controller.abort(), 10000);
+          try {
+            const response = await fetch('/api/log-assessment', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify(item),
+              signal: controller.signal,
+            });
+            clearTimeout(timer);
+            if (response.status === 429) {
+              // Rate limited: stop flushing and keep remaining
+              return { success: false, item, shouldStop: true };
+            }
+            return { success: response.ok, item };
+          } catch {
+            clearTimeout(timer);
             return { success: false, item };
           }
-          return { success: true, item };
-        } catch {
-          return { success: false, item };
-        }
-      })
-    );
+        })
+      );
 
-    results.forEach((res) => {
-      if (res.status === 'fulfilled' && !res.value.success) {
-        remaining.push(res.value.item);
+      let shouldStopFlushing = false;
+      for (const res of results) {
+        if (res.status === 'fulfilled') {
+          if (!res.value.success) {
+            remaining.push(res.value.item);
+          }
+          if ((res.value as any).shouldStop) {
+            shouldStopFlushing = true;
+          }
+        }
       }
-    });
+
+      if (shouldStopFlushing) {
+        // Collect whatever was unattempted
+        const unattempted = queue.slice(i + 2);
+        remaining.push(...unattempted);
+        break;
+      }
+    }
 
     if (remaining.length === 0) {
-      localStorage.removeItem(PENDING_LOGS_QUEUE_KEY);
+      try {
+        localStorage.removeItem(PENDING_LOGS_QUEUE_KEY);
+      } catch {}
     } else {
-      localStorage.setItem(PENDING_LOGS_QUEUE_KEY, JSON.stringify(remaining));
+      safelySaveQueue(PENDING_LOGS_QUEUE_KEY, remaining);
     }
   } catch (err) {
-    console.error('Error flushing pending logs:', err);
+    console.debug('[apiService] Error flushing pending logs:', err);
+  } finally {
+    isFlushingClassic = false;
   }
 };
 
 export const flushPendingPathologyLogs = async () => {
+  if (isFlushingPathology) return;
+  isFlushingPathology = true;
   try {
-    const raw = localStorage.getItem(PENDING_PATHOLOGY_LOGS_QUEUE_KEY);
+    let raw: string | null = null;
+    try {
+      raw = localStorage.getItem(PENDING_PATHOLOGY_LOGS_QUEUE_KEY);
+    } catch {
+      return;
+    }
     if (!raw) return;
-    const queue = JSON.parse(raw);
+    let queue: any[] = [];
+    try {
+      queue = JSON.parse(raw);
+    } catch {
+      localStorage.removeItem(PENDING_PATHOLOGY_LOGS_QUEUE_KEY);
+      return;
+    }
     if (!Array.isArray(queue) || queue.length === 0) return;
 
     const remaining: any[] = [];
-    const results = await Promise.allSettled(
-      queue.map(async (item) => {
-        try {
-          const response = await fetch('/api/save-pathology', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(item),
-          });
-          if (!response.ok) {
+    // Process max 2 at a time
+    for (let i = 0; i < queue.length; i += 2) {
+      const batch = queue.slice(i, i + 2);
+      const results = await Promise.allSettled(
+        batch.map(async (item) => {
+          const controller = new AbortController();
+          const timer = setTimeout(() => controller.abort(), 10000);
+          try {
+            const response = await fetch('/api/save-pathology', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify(item),
+              signal: controller.signal,
+            });
+            clearTimeout(timer);
+            if (response.status === 429) {
+              return { success: false, item, shouldStop: true };
+            }
+            return { success: response.ok, item };
+          } catch {
+            clearTimeout(timer);
             return { success: false, item };
           }
-          return { success: true, item };
-        } catch {
-          return { success: false, item };
-        }
-      })
-    );
+        })
+      );
 
-    results.forEach((res) => {
-      if (res.status === 'fulfilled' && !res.value.success) {
-        remaining.push(res.value.item);
+      let shouldStopFlushing = false;
+      for (const res of results) {
+        if (res.status === 'fulfilled') {
+          if (!res.value.success) {
+            remaining.push(res.value.item);
+          }
+          if ((res.value as any).shouldStop) {
+            shouldStopFlushing = true;
+          }
+        }
       }
-    });
+
+      if (shouldStopFlushing) {
+        const unattempted = queue.slice(i + 2);
+        remaining.push(...unattempted);
+        break;
+      }
+    }
 
     if (remaining.length === 0) {
-      localStorage.removeItem(PENDING_PATHOLOGY_LOGS_QUEUE_KEY);
+      try {
+        localStorage.removeItem(PENDING_PATHOLOGY_LOGS_QUEUE_KEY);
+      } catch {}
     } else {
-      localStorage.setItem(PENDING_PATHOLOGY_LOGS_QUEUE_KEY, JSON.stringify(remaining));
+      safelySaveQueue(PENDING_PATHOLOGY_LOGS_QUEUE_KEY, remaining);
     }
   } catch (err) {
-    console.error('Error flushing pending pathology logs:', err);
+    console.debug('[apiService] Error flushing pending pathology logs:', err);
+  } finally {
+    isFlushingPathology = false;
   }
 };
 
 export const saveAssessmentLog = async (payload: AssessmentLogPayload, imageDataUrl?: string) => {
-  const dataToSave = { payload, imageDataUrl };
-  
-  for (let attempt = 1; attempt <= 3; attempt++) {
-    try {
-      const response = await postJSON<any>('/api/log-assessment', dataToSave);
+  const isConsent = payload.shareConsent === true;
+  const safeImageDataUrl = isConsent ? imageDataUrl : undefined;
+  const dataToSave = {
+    payload: {
+      ...payload,
+      imageUrl: isConsent ? payload.imageUrl : undefined,
+    },
+    imageDataUrl: safeImageDataUrl,
+  };
+
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 8000);
+
+  try {
+    const response = await fetch('/api/log-assessment', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(dataToSave),
+      signal: controller.signal,
+    });
+    clearTimeout(timeoutId);
+
+    if (response.ok) {
+      const resJson = await response.json().catch(() => ({ success: true }));
       flushPendingLogs().catch(() => {});
-      return response;
-    } catch {
-      if (attempt === 3) {
-        try {
-          const existing = JSON.parse(localStorage.getItem(PENDING_LOGS_QUEUE_KEY) || '[]');
-          existing.push({ ...dataToSave, queuedAt: new Date().toISOString() });
-          localStorage.setItem(PENDING_LOGS_QUEUE_KEY, JSON.stringify(existing));
-        } catch {
-          // Ignore storage quota errors
-        }
-        return { success: true, id: `offline-${Date.now()}` };
-      }
-      await new Promise(resolve => setTimeout(resolve, attempt * 1000));
+      return resJson;
     }
+    throw new Error(`Server returned ${response.status}`);
+  } catch (err) {
+    clearTimeout(timeoutId);
+    console.debug('[apiService] Background log failed, queueing offline:', err);
+    try {
+      const existing: any[] = JSON.parse(localStorage.getItem(PENDING_LOGS_QUEUE_KEY) || '[]');
+      const assessmentId = payload.assessmentId || `offline-${Date.now()}`;
+      // Deduplicate by assessmentId + lastCompletedStep
+      const deduped = existing.filter(
+        (e) => !(e.payload?.assessmentId === assessmentId && e.payload?.lastCompletedStep === payload.lastCompletedStep)
+      );
+      deduped.push({ ...dataToSave, queuedAt: new Date().toISOString() });
+      safelySaveQueue(PENDING_LOGS_QUEUE_KEY, deduped);
+    } catch {
+      // Ignore storage errors
+    }
+    return { success: true, id: `offline-${Date.now()}`, isQueued: true };
   }
 };
 
@@ -218,24 +385,39 @@ export const savePathologyAssessmentLog = async (payload: any, imageDataUrl?: st
     imageDataUrl: safeImageDataUrl,
   };
 
-  for (let attempt = 1; attempt <= 3; attempt++) {
-    try {
-      const response = await postJSON<any>('/api/save-pathology', dataToSave);
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 8000);
+
+  try {
+    const response = await fetch('/api/save-pathology', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(dataToSave),
+      signal: controller.signal,
+    });
+    clearTimeout(timeoutId);
+
+    if (response.ok) {
+      const resJson = await response.json().catch(() => ({ success: true }));
       flushPendingPathologyLogs().catch(() => {});
-      return response;
-    } catch {
-      if (attempt === 3) {
-        try {
-          const existing = JSON.parse(localStorage.getItem(PENDING_PATHOLOGY_LOGS_QUEUE_KEY) || '[]');
-          existing.push({ ...dataToSave, queuedAt: new Date().toISOString() });
-          localStorage.setItem(PENDING_PATHOLOGY_LOGS_QUEUE_KEY, JSON.stringify(existing));
-        } catch {
-          // Ignore storage quota errors
-        }
-        return { success: true, id: `offline-pathology-${Date.now()}` };
-      }
-      await new Promise(resolve => setTimeout(resolve, attempt * 1000));
+      return resJson;
     }
+    throw new Error(`Server returned ${response.status}`);
+  } catch (err) {
+    clearTimeout(timeoutId);
+    console.debug('[apiService] Background pathology log failed, queueing offline:', err);
+    try {
+      const existing: any[] = JSON.parse(localStorage.getItem(PENDING_PATHOLOGY_LOGS_QUEUE_KEY) || '[]');
+      const assessmentId = payload.assessmentId || `offline-pathology-${Date.now()}`;
+      const deduped = existing.filter(
+        (e) => !(e.assessmentId === assessmentId && e.lastCompletedStep === payload.lastCompletedStep)
+      );
+      deduped.push({ ...dataToSave, queuedAt: new Date().toISOString() });
+      safelySaveQueue(PENDING_PATHOLOGY_LOGS_QUEUE_KEY, deduped);
+    } catch {
+      // Ignore storage errors
+    }
+    return { success: true, id: `offline-pathology-${Date.now()}`, isQueued: true };
   }
 };
 
@@ -316,6 +498,28 @@ export const deleteAdminData = async (
     throw new Error(errData.error || `Lỗi HTTP ${response.status}`);
   }
   return response.json() as Promise<{ success: boolean; deletedCount: number; message: string }>;
+};
+
+export const getOfflineQueueDiagnostics = () => {
+  try {
+    const rawClassic = localStorage.getItem(PENDING_LOGS_QUEUE_KEY) || '[]';
+    const rawPathology = localStorage.getItem(PENDING_PATHOLOGY_LOGS_QUEUE_KEY) || '[]';
+    const queueClassic = JSON.parse(rawClassic);
+    const queuePathology = JSON.parse(rawPathology);
+    return {
+      classicQueueCount: Array.isArray(queueClassic) ? queueClassic.length : 0,
+      classicQueueBytes: estimateStringBytes(rawClassic),
+      pathologyQueueCount: Array.isArray(queuePathology) ? queuePathology.length : 0,
+      pathologyQueueBytes: estimateStringBytes(rawPathology),
+    };
+  } catch {
+    return {
+      classicQueueCount: 0,
+      classicQueueBytes: 0,
+      pathologyQueueCount: 0,
+      pathologyQueueBytes: 0,
+    };
+  }
 };
 
 export const getReportById = async (assessmentId: string, authHeaders: Record<string, string> = {}) => {

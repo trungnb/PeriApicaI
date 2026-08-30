@@ -1,37 +1,49 @@
 import { useEffect } from 'react';
 import { useAppStore } from '../store/appStore';
 import { warmupImageDecoder } from '../utils/imageCompressor';
+import { AppEngineMode } from '../types/dental';
 
-let step2PrefetchDone = false;
+// Track prefetched modules by name to allow switching modes without missing prefetches
+const prefetchedModules = new Set<string>();
 
 /**
- * Proactively prefetches and warms up all Step 3 (UploadScreen), Step 4 (AI Analysis),
+ * Proactively prefetches and warms up Step 3 (UploadScreen), Step 4 (AI Analysis),
  * base64 image decoding engines, Web Workers, and AI diagnostic chunks in the background.
  * Call this as soon as the user enters the Configuration screen (Step 2).
  */
-export async function prefetchStep2AIModules(): Promise<void> {
-  if (step2PrefetchDone) return;
-  step2PrefetchDone = true;
-
+export async function prefetchStep2AIModules(mode: AppEngineMode = 'classic'): Promise<void> {
   try {
-    // 1. Proactively warm up and initialize the base64 image decoding engine,
-    // WebP support check, OffscreenCanvas, and Web Worker thread.
-    // This removes the ~300ms first-run compilation and thread startup penalty.
-    warmupImageDecoder().catch((err) => {
-      console.debug('[PredictivePrefetch] Background image decoder warmup notice:', err);
-    });
+    // 1. Proactively warm up and initialize the base64 image decoding engine
+    if (!prefetchedModules.has('imageDecoder')) {
+      prefetchedModules.add('imageDecoder');
+      warmupImageDecoder().catch((err) => {
+        console.debug('[PredictivePrefetch] Background image decoder warmup notice:', err);
+      });
+    }
 
-    // 2. Prefetch Lazy Route Chunks (Step 3, 4, 5 and Modals)
-    await Promise.allSettled([
-      import('../components/UploadScreen'),
-      import('../components/AIAnalysisScreen'),
-      import('../components/PathologyAnalysisScreen'),
-      import('../components/ValidationScreen'),
-      import('../components/TreatmentRecommendationScreen'),
-      import('../components/AdminPortalModal'),
-    ]);
+    // 2. Prefetch Lazy Route Chunks relevant to current mode (never prefetch admin portal early)
+    if (!prefetchedModules.has('UploadScreen')) {
+      prefetchedModules.add('UploadScreen');
+      import('../components/UploadScreen').catch(() => {});
+    }
 
-    console.log('[PredictivePrefetch] Step 2 -> Step 3/4 AI diagnostic chunks and image decoder primed successfully.');
+    if (mode === 'pathology_segmentation') {
+      if (!prefetchedModules.has('pathology_flow')) {
+        prefetchedModules.add('pathology_flow');
+        await Promise.allSettled([
+          import('../components/PathologyAnalysisScreen'),
+          import('../components/TreatmentRecommendationScreen'),
+        ]);
+      }
+    } else {
+      if (!prefetchedModules.has('classic_flow')) {
+        prefetchedModules.add('classic_flow');
+        await Promise.allSettled([
+          import('../components/AIAnalysisScreen'),
+          import('../components/ValidationScreen'),
+        ]);
+      }
+    }
   } catch (err) {
     // Silently handle any prefetch errors; runtime imports will fetch normally if needed
     console.debug('[PredictivePrefetch] Non-blocking prefetch info:', err);
@@ -43,30 +55,42 @@ export function usePredictivePrefetch() {
   const appEngineMode = useAppStore((state) => state.appEngineMode);
 
   useEffect(() => {
-    // Advanced Predictive Prefetching & Engine Warm-up Strategy:
-    // Anticipates the user's workflow to load assets, JS chunks, and spin up
-    // background processing threads (Web Workers, OffscreenCanvas) before they are needed.
+    // Advanced Predictive Prefetching Strategy:
+    // Anticipates the user's workflow to load assets & JS chunks before they are needed.
     const prefetchNextStep = async () => {
       try {
         switch (currentStep) {
           case 1:
             // Being on Welcome, user will go to Config next
-            await import('../components/ConfigurationScreen');
+            if (!prefetchedModules.has('ConfigurationScreen')) {
+              prefetchedModules.add('ConfigurationScreen');
+              await import('../components/ConfigurationScreen');
+            }
             break;
 
           case 2:
-            // Being on Config (Step 2), immediately run full prefetch and base64 engine warmup
-            await prefetchStep2AIModules();
+            // Being on Config (Step 2), immediately run mode-aware prefetch and base64 engine warmup
+            await prefetchStep2AIModules(appEngineMode);
             break;
 
           case 3:
             // Being on Upload, user will trigger analysis next
             if (appEngineMode === 'pathology_segmentation') {
-              await import('../components/PathologyAnalysisScreen');
-              await import('../components/TreatmentRecommendationScreen');
+              if (!prefetchedModules.has('pathology_flow')) {
+                prefetchedModules.add('pathology_flow');
+                await Promise.allSettled([
+                  import('../components/PathologyAnalysisScreen'),
+                  import('../components/TreatmentRecommendationScreen'),
+                ]);
+              }
             } else {
-              await import('../components/AIAnalysisScreen');
-              await import('../components/ValidationScreen');
+              if (!prefetchedModules.has('classic_flow')) {
+                prefetchedModules.add('classic_flow');
+                await Promise.allSettled([
+                  import('../components/AIAnalysisScreen'),
+                  import('../components/ValidationScreen'),
+                ]);
+              }
             }
             break;
 

@@ -1,6 +1,6 @@
 import { Type, GoogleGenAI } from '@google/genai';
 import { LRUCache } from 'lru-cache';
-import { executeWithFailover } from './geminiService';
+import { executeWithFailover, isRateLimitOrQuotaError, isTransientError, isInvalidApiKeyError } from './geminiService';
 import { PATHOLOGY_DICT } from '../../constants/dictionaries';
 
 export interface PathologySegmentResult {
@@ -13,6 +13,17 @@ export interface PathologySegmentResult {
     clinicalNote: string;
     treatmentRecommendation: string;
   }>;
+}
+
+export interface SegmentPathologyServiceResponse {
+  success: boolean;
+  result?: PathologySegmentResult;
+  usedModel?: string;
+  isCustomKeyFailed?: boolean;
+  isAllExhausted?: boolean;
+  isQuotaExhausted?: boolean;
+  isTransient?: boolean;
+  error?: string;
 }
 
 // ─── Pathology Cache ─────────────────────────────────────────
@@ -80,7 +91,7 @@ export function buildPathologyInstruction(
   toothFdi: string,
   outputLanguage: string,
 ): string {
-  const isEn = outputLanguage === 'EN' || outputLanguage === 'English';
+  const isEn = outputLanguage === 'EN' || outputLanguage === 'en' || outputLanguage === 'English' || String(outputLanguage).toUpperCase() === 'EN';
   const langPrompt = isEn ? 'English' : 'Tiếng Việt';
 
   return `You are a Board-Certified Oral and Maxillofacial Radiologist and Dental AI Spatial Grounding Specialist.
@@ -155,7 +166,7 @@ function calculateIoU(box1: any, box2: any) {
  */
 export function mapOptimizedPathologyToLegacy(optimized: any, language: string): any {
   if (!optimized) return null;
-  const isEn = language === 'EN' || language === 'English';
+  const isEn = language === 'EN' || language === 'en' || language === 'English' || String(language).toUpperCase() === 'EN';
   
   const rawPathologies = Array.isArray(optimized.pathologies) ? optimized.pathologies : [];
 
@@ -294,15 +305,8 @@ export async function segmentPathologyWithGemini(
   onStatusUpdate?: (status: string) => void,
   analysisMode?: string,
   selectedModelB?: string
-): Promise<{
-  success: boolean;
-  result?: PathologySegmentResult;
-  usedModel?: string;
-  isCustomKeyFailed?: boolean;
-  isAllExhausted?: boolean;
-  error?: string;
-}> {
-  const isEn = outputLanguage === 'EN' || outputLanguage === 'English';
+): Promise<SegmentPathologyServiceResponse> {
+  const isEn = outputLanguage === 'EN' || outputLanguage === 'en' || outputLanguage === 'English' || String(outputLanguage).toUpperCase() === 'EN';
   const systemInstruction = buildPathologyInstruction(toothFdi, outputLanguage);
   const promptText = `Analyze this periapical radiograph for FDI ${toothFdi}. Perform Single-Pass CoT observation and segment all 8 standardized pathological & anatomical structures with exact [y, x] polygon boundary contours.`;
 
@@ -382,12 +386,17 @@ export async function segmentPathologyWithGemini(
         const reasonA: any = resA.status === 'rejected' ? resA.reason : null;
         const reasonB: any = resB.status === 'rejected' ? resB.reason : null;
         const isCustom = Boolean(reasonA?.isCustomKeyFailed || reasonB?.isCustomKeyFailed);
-        const isAll = Boolean(reasonA?.isAllExhausted || reasonB?.isAllExhausted || (!isCustom && !customApiKey));
+        const isQuota = Boolean(reasonA?.isQuotaExhausted || reasonB?.isQuotaExhausted);
+        const isTransient = Boolean(reasonA?.isTransient || reasonB?.isTransient);
+        const isAll = Boolean(reasonA?.isAllExhausted || reasonB?.isAllExhausted || (!isCustom && !customApiKey && isQuota));
         const combinedErr: any = new Error(
           reasonA?.message || reasonB?.message || (isEn ? 'All vision models failed to segment radiograph.' : 'Tất cả các mô hình AI đều không thể phân đoạn ảnh.')
         );
         combinedErr.isCustomKeyFailed = isCustom;
         combinedErr.isAllExhausted = isAll;
+        combinedErr.isQuotaExhausted = isQuota;
+        combinedErr.isTransient = isTransient;
+        combinedErr.originalError = reasonA || reasonB;
         throw combinedErr;
       }
 
@@ -452,11 +461,22 @@ export async function segmentPathologyWithGemini(
       };
     }
   } catch (unknownError: unknown) {
-    const err = unknownError as (Error & { isCustomKeyFailed?: boolean; isAllExhausted?: boolean });
+    const err = unknownError as any;
+    const isUsingCustom = Boolean(customApiKey && String(customApiKey).trim());
+    const isInvalidKey = isInvalidApiKeyError(err) || isInvalidApiKeyError(err?.originalError) || err?.isInvalidKey === true;
+    const isQuota = isRateLimitOrQuotaError(err) || isRateLimitOrQuotaError(err?.originalError) || err?.isQuotaExhausted === true || err?.message?.includes('QUOTA_EXHAUSTED');
+    const isTransient = isTransientError(err) || isTransientError(err?.originalError) || err?.isTransient === true;
+
+    // A custom key failure must have concrete evidence: explicit invalid key, quota exhaustion on custom key, or isCustomKeyFailed flag
+    const isCustomKeyFailed = isUsingCustom && (err?.isCustomKeyFailed === true || isInvalidKey || isQuota || err?.message?.includes('CUSTOM_KEY_INVALID') || err?.message?.includes('CUSTOM_KEY_QUOTA_EXHAUSTED'));
+    const isAllExhausted = !isUsingCustom && isQuota;
+
     return {
       success: false,
-      isCustomKeyFailed: err?.isCustomKeyFailed || err?.message?.includes('CUSTOM_KEY_QUOTA_EXHAUSTED'),
-      isAllExhausted: err?.isAllExhausted || err?.message?.includes('ALL_SYSTEM_KEYS_QUOTA_EXHAUSTED'),
+      isCustomKeyFailed,
+      isQuotaExhausted: isQuota,
+      isAllExhausted,
+      isTransient: isTransient && !isInvalidKey && !isQuota,
       error: err?.message || 'Pathology segmentation failed',
     };
   }

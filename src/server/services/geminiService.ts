@@ -40,8 +40,8 @@ export function getApiKeySources(): { key: string; isBackup: boolean }[] {
 }
 
 export function createAiClient(apiKey: string): GoogleGenAI {
-  // Set explicit 25s timeout so that requests don't hang indefinitely waiting for GCP Load Balancers (which default to 1 min)
-  return new GoogleGenAI({ apiKey, httpOptions: { timeout: 25000 } });
+  // Set explicit 55s timeout so that requests don't hang indefinitely while staying safely under client abort (65s)
+  return new GoogleGenAI({ apiKey, httpOptions: { timeout: 55000 } });
 }
 
 // Nguồn thông tin chuẩn duy nhất (Single Source of Truth) cho các mô hình chẩn đoán nha khoa khả dụng
@@ -185,6 +185,9 @@ export async function executeWithFailover<T>(
     const customErr: any = new Error(customErrMsg);
     customErr.isCustomKeyFailed = true;
     customErr.isQuotaExhausted = wasQuota;
+    customErr.isInvalidKey = wasInvalidKey;
+    customErr.isTransient = isTransientError(lastError);
+    customErr.originalError = lastError;
     throw customErr;
   }
 
@@ -258,13 +261,16 @@ export async function executeWithFailover<T>(
     }
   }
 
+  const isLastTransient = isTransientError(lastError);
   const overallMsg = allQuotaExhausted
     ? 'ALL_SYSTEM_KEYS_QUOTA_EXHAUSTED: Tất cả các khóa API hệ thống đều đã chạm ngưỡng hạn mức (Quota).'
     : `All system API keys and model fallbacks exhausted. Last error: ${lastError?.message || 'Unknown error'}`;
 
   const overallErr: any = new Error(overallMsg);
-  overallErr.isAllExhausted = true;
+  overallErr.isAllExhausted = allQuotaExhausted;
   overallErr.isQuotaExhausted = allQuotaExhausted;
+  overallErr.isTransient = !allQuotaExhausted && isLastTransient;
+  overallErr.originalError = lastError;
   throw overallErr;
 }
 

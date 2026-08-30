@@ -67,5 +67,5 @@ For complete release notes, version history, and detailed feature logs, please r
 ---
 
 - **Author**: NBTrung, MD, MSc
-- **Version**: v2.7.0
+- **Version**: v2.8.0
 - **License**: Proprietary / Educational & Clinical Research

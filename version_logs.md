@@ -4,7 +4,47 @@ Documenting the evolution and release history of the **PeriApicaI** Next-Gen Mul
 
 ---
 
-## 🚀 Version 2.7.0 (Current Stable Release — August 2026)
+## 🚀 Version 2.8.0 (Current Stable Release — August 2026)
+
+### 🌟 Major Highlights, Unified AI Pipeline & Operational UX Hardening
+- **P0: Elimination of Redundant Image Re-Compression (Single-Pass Preparation)**:
+  - **Zero Re-Encode Overhead**: Updated `prepareAnalysisImage` in `imageCompressor.ts` to inspect incoming data URLs and immediately reuse already compressed images (`compressedImageBase64`) alongside `lastCompressionMetrics` (0ms re-compression latency).
+  - **Dimension Extraction Without Re-Drawing**: Added `getImageDimensionsFromDataUrl` to safely decode image bounds without canvas repaints or quality degradation.
+  - **Pipeline Parity**: Guaranteed identical, uncorrupted prepared image inputs (1200px / 0.88 quality), real MIME preservation, and exact dimension mapping across Classic and Pathology AI flows.
+- **P0: Accurate BYOK Error Classification (No False Positives)**:
+  - **Eliminated Faulty Key Inference**: Fixed false-positive `CUSTOM_KEY_FAILED` tagging in `assessmentRoutes.ts` and `geminiPathologyService.ts` that previously treated any request carrying a custom API key as an invalid key error.
+  - **Transient vs. Auth Classification**: Network timeouts, socket resets, or 5xx server issues with custom keys are now correctly classified as `TRANSIENT` (`isQuotaExhausted: false`), allowing single-shot client retry to function properly.
+  - **Strict Auth & Quota Guard**: `CUSTOM_KEY_FAILED` is now strictly reserved for authenticated invalid key errors or verified BYOK quota exhaustion.
+- **P0: Dual-Queue Offline Resiliency & Reconnect Flush**:
+  - **Universal Offline Flush**: In `App.tsx`, both Classic (`flushPendingLogs`) and Pathology (`flushPendingPathologyLogs`) queues are automatically triggered non-blockingly on app mount.
+  - **Online Event Listener**: Added `window.online` listener with cleanup on unmount to re-sync queued logs as soon as network connectivity is restored.
+- **P1: Fully Non-Blocking Step 4 & Step 5 Transitions (Zero-Latency UI Reset)**:
+  - **Instant Navigation**: Transitioning from Step 4 to Step 5 (`handleProceedFromAnalysisPathology`) and finishing Step 5 session reset (`completeValidationAndSave`, `completePathologySessionAndSave`) now switch UI steps immediately without blocking on 8-second network timeouts.
+  - **Safe Background Dispatch**: Session snapshots are captured synchronously prior to state reset, and log persistence requests execute in the background with explicit `.catch()` handlers, seamlessly fallback-queuing on failures.
+  - **Consent Guard**: Ensured radiograph image payloads are never dispatched in log updates unless `shareConsent === true`.
+- **Unified AI Image Preparation & Dispatch Architecture**:
+  - **Unified Client Retry Budget**: Streamlined client dispatch logic across Classic Quality and Pathology Segmentation, cutting retry loops to a single transient network retry while instantly failing fast on invalid API keys, authentication errors, or quota exhaustion (HTTP 429).
+  - **Standardized SSE Streaming**: Normalized real-time progress events, status messages, and AbortController signal handling across both diagnostic pipelines.
+- **Resilient Bounded Offline Log Queue**:
+  - **Strict Queue & Payload Caps**: Configured `MAX_QUEUE_ITEMS = 25`, `MAX_QUEUE_TOTAL_BYTES = 500KB`, and `MAX_OFFLINE_IMAGE_BYTES = 80KB`. Automatically strips bulky base64 images before dropping metadata items.
+  - **Controlled Concurrency Flush**: Flushes pending offline logs in small sequential batches (concurrency $\le 2$) with automatic back-off and pause when encountering server rate limits (429).
+  - **Storage Quota & Privacy Protection**: Wrapped all localStorage interactions in try/catch blocks to ensure flawless operation in Private Browsing / full-storage environments without logging API keys or PHI.
+- **Flow-Aware Predictive Prefetching**:
+  - **Dynamic Mode-Based Prefetching**: Tracked prefetched modules via a Set. Step 2 prefetching strictly adapts to `appEngineMode` (Classic loads `AIAnalysisScreen` & `ValidationScreen`; Pathology loads `PathologyAnalysisScreen` & `TreatmentRecommendationScreen`).
+  - **Admin Lazy Loading Guarantee**: Prevented heavy `AdminPortalModal` chunks from being prefetched prematurely at Step 2. Dynamically fetches new flow modules if the user switches mode during setup.
+- **Bounded In-Memory Image Blob Cache**:
+  - **Memory & Byte Capacity Control**: Added `MAX_CACHE_BYTES = 25MB`, `MAX_CACHE_ENTRIES = 50`, and calculated `estimatedBytes` per entry with LRU eviction and automatic `URL.revokeObjectURL()` release.
+  - **Session-Optimized TTL**: Reduced in-memory cache TTL from 24 hours to 2 hours, preventing stale memory accumulation during long browser sessions.
+- **Express Payload Hardening & Clear JSON Errors**:
+  - Adjusted Express body parsers to a hardened **3MB** limit, matching the standardized client compression standard.
+  - Added dedicated API error handling middleware that returns clean JSON responses with HTTP 413 (`PAYLOAD_TOO_LARGE`) instead of generic HTML error pages.
+- **Admin Session Storage Protection & Diagnostics**:
+  - Safeguarded `sessionStorage` in Admin view (`useAdminData.ts`) with a 50-item cap and automatic base64 stripping to prevent browser storage quota crashes.
+  - Introduced lightweight queue and cache diagnostics (`getOfflineQueueDiagnostics`, `getDiagnostics`).
+
+---
+
+## ⚡ Version 2.7.0 (August 2026)
 
 ### 🌟 Major Highlights, Read Quota Fixes & Performance Optimization
 - **Elimination of Firestore Background Read Flooding (Read Quota Protection)**:

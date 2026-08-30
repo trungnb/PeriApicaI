@@ -1,4 +1,4 @@
-import React, { useEffect, useState, Suspense, lazy } from 'react';
+import React, { useEffect, useState, useRef, Suspense, lazy } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { useTranslation } from 'react-i18next';
 import { ThemeProvider } from './theme/ThemeProvider';
@@ -7,7 +7,7 @@ import { StickyBottomNav } from './components/StickyBottomNav';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { MainScreenSkeleton, ModalSkeleton } from './components/SkeletonLoaders';
 import { useAppStore } from './store/appStore';
-import { flushPendingLogs } from './services/apiService';
+import { flushPendingLogs, flushPendingPathologyLogs } from './services/apiService';
 import { usePredictivePrefetch } from './hooks/usePredictivePrefetch';
 import { useRadiographAnalysis } from './hooks/useRadiographAnalysis';
 import { useAssessmentSession } from './hooks/useAssessmentSession';
@@ -91,7 +91,7 @@ function AppContent() {
 
   useEffect(() => {
     try {
-      if (!sessionStorage.getItem('periapic_disclaimer_seen')) {
+      if (!localStorage.getItem('periapic_disclaimer_seen')) {
         const timer = setTimeout(() => setIsDisclaimerOpen(true), 400);
         return () => clearTimeout(timer);
       }
@@ -100,22 +100,35 @@ function AppContent() {
 
   const handleCloseDisclaimer = React.useCallback(() => {
     try {
-      sessionStorage.setItem('periapic_disclaimer_seen', 'true');
+      localStorage.setItem('periapic_disclaimer_seen', 'true');
     } catch {}
     setIsDisclaimerOpen(false);
   }, []);
 
-  const [prevStep, setPrevStep] = useState(currentStep);
+  const prevStepRef = useRef(currentStep);
   const [direction, setDirection] = useState<'forward' | 'backward'>('forward');
 
-  if (currentStep !== prevStep) {
-    setDirection(currentStep > prevStep ? 'forward' : 'backward');
-    setPrevStep(currentStep);
-  }
+  useEffect(() => {
+    if (currentStep !== prevStepRef.current) {
+      setDirection(currentStep > prevStepRef.current ? 'forward' : 'backward');
+      prevStepRef.current = currentStep;
+    }
+  }, [currentStep]);
 
   useEffect(() => {
     fetch('/api/health').catch(() => {});
-    flushPendingLogs().catch(() => {});
+
+    const triggerFlush = () => {
+      flushPendingLogs().catch(() => {});
+      flushPendingPathologyLogs().catch(() => {});
+    };
+
+    triggerFlush();
+
+    window.addEventListener('online', triggerFlush);
+    return () => {
+      window.removeEventListener('online', triggerFlush);
+    };
   }, []);
 
   const isAnalyzing = useAppStore(state => state.isAnalyzing);
@@ -136,17 +149,25 @@ function AppContent() {
     store.setCurrentStep(5);
   }, []);
 
-  const handleProceedFromAnalysisPathology = React.useCallback(async () => {
-    await savePathologyStep4();
+  const handleProceedFromAnalysisPathology = React.useCallback(() => {
+    // 1. Transition immediately
     useAppStore.getState().setCurrentStep(5);
+    // 2. Persist Step 4 progress in background
+    savePathologyStep4().catch((err) => {
+      console.debug('[App] Step 4 background log notice:', err);
+    });
   }, [savePathologyStep4]);
 
-  const handleFinishRemediationClassic = React.useCallback(async () => {
-    await completeValidationAndSave();
+  const handleFinishRemediationClassic = React.useCallback(() => {
+    completeValidationAndSave().catch((err) => {
+      console.debug('[App] Step 5 Classic finish background save notice:', err);
+    });
   }, [completeValidationAndSave]);
 
-  const handleFinishRemediationPathology = React.useCallback(async () => {
-    await completePathologySessionAndSave();
+  const handleFinishRemediationPathology = React.useCallback(() => {
+    completePathologySessionAndSave().catch((err) => {
+      console.debug('[App] Step 5 Pathology finish background save notice:', err);
+    });
   }, [completePathologySessionAndSave]);
 
   // Memoized Bottom Navigation Node
