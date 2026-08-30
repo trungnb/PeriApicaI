@@ -12,6 +12,8 @@ export interface PathologySegmentResult {
     polygon_points: number[][];
     clinicalNote: string;
     treatmentRecommendation: string;
+    provenance?: 'matched_consensus' | 'model_a_only' | 'model_b_only' | 'single_mode';
+    humanReviewed?: boolean;
   }>;
 }
 
@@ -264,12 +266,13 @@ export function synthesizePathologyConsensus(
         polygon_points: betterPolygonItem.polygon_points,
         clinicalNote: higherConfItem.clinicalNote || itemA.clinicalNote,
         treatmentRecommendation: higherConfItem.treatmentRecommendation || itemA.treatmentRecommendation,
+        provenance: 'matched_consensus'
       });
     } else if (Number(itemA.confidence || 0) >= 65) {
       // Single-model detection preserved if confidence >= 65%
       mergedPathologies.push({
         ...itemA,
-        confidence: Math.round(Number(itemA.confidence || 85) * 0.95),
+        provenance: 'model_a_only'
       });
     }
   }
@@ -281,7 +284,7 @@ export function synthesizePathologyConsensus(
       if (Number(itemB.confidence || 0) >= 65) {
         mergedPathologies.push({
           ...itemB,
-          confidence: Math.round(Number(itemB.confidence || 85) * 0.95),
+          provenance: 'model_b_only'
         });
       }
     }
@@ -346,7 +349,7 @@ export async function segmentPathologyWithGemini(
               },
             });
             if (!response.text) throw new Error('Empty response from Model 1');
-            return JSON.parse(response.text);
+            return validatePathologyOutput(JSON.parse(response.text));
           },
           modelA,
           customApiKey,
@@ -368,7 +371,7 @@ export async function segmentPathologyWithGemini(
               },
             });
             if (!response.text) throw new Error('Empty response from Model 2');
-            return JSON.parse(response.text);
+            return validatePathologyOutput(JSON.parse(response.text));
           },
           modelB,
           customApiKey,
@@ -415,6 +418,11 @@ export async function segmentPathologyWithGemini(
         usedModelString = fulfilledB.usedModel;
       }
 
+      // Inject provenance for single mode fallback if finalResult is not yet updated
+      if (!resultB || !resultA) {
+        finalResult!.pathologies.forEach(p => { p.provenance = p.provenance || 'single_mode'; });
+      }
+
       const mappedFinalResult = mapOptimizedPathologyToLegacy(finalResult!, outputLanguage);
 
       return {
@@ -445,7 +453,11 @@ export async function segmentPathologyWithGemini(
           if (!response.text) {
             throw new Error('Empty response text from Gemini');
           }
-          return JSON.parse(response.text);
+          const parsed = validatePathologyOutput(JSON.parse(response.text));
+          if (parsed && Array.isArray(parsed.pathologies)) {
+            parsed.pathologies.forEach((p: any) => p.provenance = 'single_mode');
+          }
+          return parsed;
         },
         preferredModel,
         customApiKey,

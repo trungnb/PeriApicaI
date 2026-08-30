@@ -6,10 +6,11 @@ import { useCallback, useRef } from 'react';
 import { useAppStore } from '../store/appStore';
 import { AIDetection, ConfirmedPathology, PathologyKey } from '../types/dental';
 import { PATHOLOGY_DICT } from '../constants/dictionaries';
+import { convertWireToPixelPolygon } from '../utils/polygonAdapter';
 import { analyzeRadiograph } from '../services/aiService';
 import { useAssessmentSession } from './useAssessmentSession';
 import { handleAnalysisFlowError } from '../utils/errorBoundary';
-import { prepareAnalysisImage } from '../utils/imageCompressor';
+import { prepareAnalysisImage, DEFAULT_ANALYSIS_IMAGE_OPTIONS } from '../utils/imageCompressor';
 
 function makeConfirmedPathology(det: AIDetection, clinicalNote?: string): ConfirmedPathology {
   const taxItem = PATHOLOGY_DICT[det.pathologyKey];
@@ -83,11 +84,7 @@ export function usePathologyAnalysis() {
       // 1. Prepare image in unified pipeline (reuses existing compressed image & dimensions without re-compressing)
       const prep = await prepareAnalysisImage(
         compressedImageBase64 || imageDataUrl,
-        {
-          maxWidth: 1200,
-          maxHeight: 1200,
-          quality: 0.88,
-        },
+        DEFAULT_ANALYSIS_IMAGE_OPTIONS,
         lastCompressionMetrics
       );
 
@@ -100,13 +97,21 @@ export function usePathologyAnalysis() {
         useAppStore.setState({
           compressedImageBase64: imageBase64,
           lastCompressionMetrics: {
-            processingTimeMs: prep.processingTimeMs,
+            dataUrl: prep.dataUrl,
+            originalSizeKB: 0,
+            compressedSizeKB: 0,
             width: prep.width,
             height: prep.height,
+            compressionRatio: 0,
             originalWidth: prep.originalWidth,
             originalHeight: prep.originalHeight,
+            scaleX: prep.width / (prep.originalWidth || prep.width || 1),
+            scaleY: prep.height / (prep.originalHeight || prep.height || 1),
+            processingTimeMs: prep.processingTimeMs,
             outputMime: prep.mimeType,
-          } as any,
+            qualityUsed: 0.88,
+            wasAccelerated: false,
+          },
         });
       }
 
@@ -160,10 +165,7 @@ export function usePathologyAnalysis() {
           fillColor: 'rgba(148,163,184,0.22)',
         };
 
-        const pixelPoints: [number, number][] = (p.polygon_points || []).map(([normY, normX]) => [
-          Math.round((normX / 1000) * imgW),
-          Math.round((normY / 1000) * imgH),
-        ]);
+        const pixelPoints = convertWireToPixelPolygon(p.polygon_points || [], imgW, imgH);
 
         // Calculate bounding box from polygon points
         let minX = Infinity,
@@ -191,10 +193,10 @@ export function usePathologyAnalysis() {
           confidence: Math.round(p.confidence || 90),
           bbox,
           polygonPoints: pixelPoints,
-          areaMm2: Math.round((bbox[2] - bbox[0]) * (bbox[3] - bbox[1]) * 0.0625),
+          pixelArea: Math.round((bbox[2] - bbox[0]) * (bbox[3] - bbox[1]) ),
           color: taxItem.color,
           fillColor: taxItem.fillColor,
-          treatmentRecommendation: p.treatmentRecommendation,
+          treatmentRecommendation: p.treatmentRecommendation, provenance: p.provenance, humanReviewed: p.humanReviewed,
         };
       });
 

@@ -5,7 +5,7 @@ import { analyzeRadiograph } from '../services/aiService';
 import { AssessmentLogPayload } from '../types/dental';
 import { useAssessmentSession } from './useAssessmentSession';
 import { usePathologyAnalysis } from './usePathologyAnalysis';
-import { compressImage, prepareAnalysisImage } from '../utils/imageCompressor';
+import { prepareAnalysisImage, DEFAULT_ANALYSIS_IMAGE_OPTIONS } from '../utils/imageCompressor';
 import { handleAnalysisFlowError } from '../utils/errorBoundary';
 
 function computeRequestHash(
@@ -100,7 +100,7 @@ export function useRadiographAnalysis() {
       try {
         const prep = await prepareAnalysisImage(
           imageFile || imageDataUrl,
-          { maxWidth: 1200, maxHeight: 1200, quality: 0.88 },
+          DEFAULT_ANALYSIS_IMAGE_OPTIONS,
           store.lastCompressionMetrics
         );
         clientCompressTimeMs = prep.processingTimeMs;
@@ -108,13 +108,21 @@ export function useRadiographAnalysis() {
         useAppStore.setState({ 
           compressedImageBase64: aiBase64,
           lastCompressionMetrics: {
-            processingTimeMs: prep.processingTimeMs,
+            dataUrl: prep.dataUrl,
+            originalSizeKB: 0,
+            compressedSizeKB: 0,
             width: prep.width,
             height: prep.height,
+            compressionRatio: 0,
             originalWidth: prep.originalWidth,
             originalHeight: prep.originalHeight,
+            scaleX: prep.width / (prep.originalWidth || prep.width || 1),
+            scaleY: prep.height / (prep.originalHeight || prep.height || 1),
+            processingTimeMs: prep.processingTimeMs,
             outputMime: prep.mimeType,
-          } as any
+            qualityUsed: 0.88,
+            wasAccelerated: false,
+          }
         });
       } catch (e) {
         setGlobalError(t('upload:compressError'));

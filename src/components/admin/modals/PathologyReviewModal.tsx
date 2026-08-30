@@ -12,6 +12,7 @@ import {
   Trash2,
 } from 'lucide-react';
 import { PathologyAssessmentLog, Language, ConfirmedPathology } from '../../../types/dental';
+import { PATHOLOGY_TAXONOMY } from '../../../data/pathologyTaxonomyData';
 import { formatDisplayTimestamp } from '../../../utils/dateUtils';
 import { verifyPathologyAssessmentLog } from '../../../services/apiService';
 import { imageBlobCache } from '../../../utils/imageBlobCache';
@@ -26,17 +27,6 @@ interface PathologyReviewModalProps {
   setToastMsg: (msg: string | null) => void;
   onRequestDelete?: (target: { docId: string; collection: 'seg_reports'; title?: string; timestamp?: string; meta?: string }) => void;
 }
-
-const PATHOLOGY_TAXONOMY: Array<{ key: string; labelVi: string; labelEn: string; color: string }> = [
-  { key: 'periapical_radiolucency', labelVi: 'Thấu quang quanh chóp / Nang', labelEn: 'Periapical Radiolucency / Cyst', color: '#ef4444' },
-  { key: 'alveolar_bone_loss', labelVi: 'Tiêu xương ổ / vách nha chu', labelEn: 'Alveolar Bone Loss', color: '#f59e0b' },
-  { key: 'enamel_radiolucency', labelVi: 'Sâu men răng', labelEn: 'Enamel Caries', color: '#3b82f6' },
-  { key: 'dentin_radiolucency', labelVi: 'Sâu ngà răng / tủy', labelEn: 'Dentin / Pulp Caries', color: '#10b981' },
-  { key: 'crown_restoration', labelVi: 'Mão răng / Chụp răng', labelEn: 'Crown Restoration', color: '#8b5cf6' },
-  { key: 'filling_restoration', labelVi: 'Miếng trám răng', labelEn: 'Filling Restoration', color: '#06b6d4' },
-  { key: 'root_canal_filling', labelVi: 'Chất trám bít ống tủy (Nội nha)', labelEn: 'Root Canal Therapy', color: '#ec4899' },
-  { key: 'dental_implant', labelVi: 'Trụ cấy ghép Implant', labelEn: 'Dental Implant', color: '#6366f1' },
-];
 
 export const PathologyReviewModal: React.FC<PathologyReviewModalProps> = ({
   selectedLog,
@@ -128,7 +118,7 @@ export const PathologyReviewModal: React.FC<PathologyReviewModalProps> = ({
           polygonPoints: existing?.polygonPoints || [],
           color: itemInfo?.color || '#3b82f6',
           fillColor: `${itemInfo?.color || '#3b82f6'}33`,
-          label: itemInfo?.labelVi || key,
+          label: itemInfo?.label || key,
           labelEn: itemInfo?.labelEn || key,
           description: '',
           descriptionEn: '',
@@ -399,7 +389,7 @@ export const PathologyReviewModal: React.FC<PathologyReviewModalProps> = ({
                               <div className="flex items-center space-x-2">
                                 <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ backgroundColor: itemInfo.color }} />
                                 <span className="font-bold text-slate-800 dark:text-slate-200 text-xs">
-                                  {language === 'EN' ? itemInfo.labelEn : itemInfo.labelVi}
+                                  {language === 'EN' ? itemInfo.labelEn : (itemInfo.label || (itemInfo as any).labelVi)}
                                 </span>
                               </div>
                             </div>
@@ -450,7 +440,7 @@ export const PathologyReviewModal: React.FC<PathologyReviewModalProps> = ({
                                 <div className="col-span-5 flex items-center space-x-1.5">
                                   <span className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: item.color }} />
                                   <span className="font-medium text-slate-800 dark:text-slate-200 text-[10px] leading-tight">
-                                    {language === 'EN' ? item.labelEn : item.labelVi}
+                                    {language === 'EN' ? item.labelEn : (item.label || (item as any).labelVi)}
                                   </span>
                                 </div>
 

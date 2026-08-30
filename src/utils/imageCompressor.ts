@@ -438,6 +438,13 @@ export async function compressImage(
   };
 }
 
+export const DEFAULT_ANALYSIS_IMAGE_OPTIONS: Readonly<CompressionOptions> = {
+  maxWidth: 1200,
+  maxHeight: 1200,
+  quality: 0.88,
+  targetMaxSizeKB: 1000,
+};
+
 export interface PreparedAnalysisImage {
   dataUrl: string;
   cleanBase64: string;
@@ -492,7 +499,7 @@ export function getImageDimensionsFromDataUrl(dataUrl: string): Promise<{ width:
  */
 export async function prepareAnalysisImage(
   source: File | Blob | string,
-  options: CompressionOptions = { maxWidth: 1200, maxHeight: 1200, quality: 0.88 },
+  options: CompressionOptions = DEFAULT_ANALYSIS_IMAGE_OPTIONS,
   existingMetrics?: Partial<CompressionResult> | null
 ): Promise<PreparedAnalysisImage> {
   // Case A: source is already a prepared data URL

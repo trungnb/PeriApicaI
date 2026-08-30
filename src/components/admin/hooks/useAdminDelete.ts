@@ -4,6 +4,10 @@ import { parseLogDateParts } from '../../../utils/dateUtils';
 import { BatchDeleteSuccessInfo } from '../DeleteDataModal';
 import { DeleteTargetItem } from '../modals/DeleteConfirmModal';
 import { AssessmentLogPayload, BugReport, PathologyAssessmentLog } from '../../../types/dental';
+import {
+  ADMIN_CACHE_KEYS,
+  safeSetAdminSessionItem,
+} from '../../../utils/adminSessionCache';
 
 interface UseAdminDeleteProps {
   setDisplayLogs: React.Dispatch<React.SetStateAction<AssessmentLogPayload[]>>;
@@ -47,9 +51,7 @@ export const useAdminDelete = ({
     if (collection === 'reports') {
       setDisplayLogs((prev) => {
         const next = prev.filter((item) => item.assessmentId !== docId);
-        try {
-          sessionStorage.setItem('admin_cached_logs', JSON.stringify(next));
-        } catch {}
+        safeSetAdminSessionItem(ADMIN_CACHE_KEYS.LOGS, next);
         return next;
       });
       fetchMetadataForDateRange(dateRangeFilter);
@@ -61,9 +63,7 @@ export const useAdminDelete = ({
     } else if (collection === 'bugs') {
       setBugsList((prev) => {
         const next = prev.filter((item) => item.bugId !== docId && item.timestamp !== docId && (item as any).id !== docId);
-        try {
-          sessionStorage.setItem('admin_cached_bugs', JSON.stringify(next));
-        } catch {}
+        safeSetAdminSessionItem(ADMIN_CACHE_KEYS.BUGS, next);
         return next;
       });
       fetchMetadataForDateRange(dateRangeFilter);
@@ -75,9 +75,7 @@ export const useAdminDelete = ({
     } else if (collection === 'seg_reports') {
       setPathologyLogs((prev) => {
         const next = prev.filter((item) => item.assessmentId !== docId);
-        try {
-          sessionStorage.setItem('admin_cached_pathology_logs', JSON.stringify(next));
-        } catch {}
+        safeSetAdminSessionItem(ADMIN_CACHE_KEYS.PATHOLOGY_LOGS, next);
         return next;
       });
       fetchMetadataForDateRange(dateRangeFilter);
@@ -127,9 +125,7 @@ export const useAdminDelete = ({
           if (deleteTypes.includes('test') && isTest) return false;
           return true;
         });
-        try {
-          sessionStorage.setItem('admin_cached_logs', JSON.stringify(next));
-        } catch {}
+        safeSetAdminSessionItem(ADMIN_CACHE_KEYS.LOGS, next);
         return next;
       });
     }
@@ -141,9 +137,7 @@ export const useAdminDelete = ({
           if (!isDateMatch(b.timestamp, (b as any).createdAt)) return true;
           return false;
         });
-        try {
-          sessionStorage.setItem('admin_cached_bugs', JSON.stringify(next));
-        } catch {}
+        safeSetAdminSessionItem(ADMIN_CACHE_KEYS.BUGS, next);
         return next;
       });
     }
@@ -155,9 +149,7 @@ export const useAdminDelete = ({
           if (!isDateMatch(p.timestamp, (p as any).createdAt)) return true;
           return false;
         });
-        try {
-          sessionStorage.setItem('admin_cached_pathology_logs', JSON.stringify(next));
-        } catch {}
+        safeSetAdminSessionItem(ADMIN_CACHE_KEYS.PATHOLOGY_LOGS, next);
         return next;
       });
     }

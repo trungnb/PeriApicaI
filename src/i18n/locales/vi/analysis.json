@@ -17,7 +17,7 @@
   "errorsFoundCount": "{{count}} lỗi phát hiện",
   "errorsBadge": "Lỗi",
   "acceptableBadge": "Đạt chuẩn",
-  "confidence": "Độ tin cậy: {{val}}%",
+  "confidence": "Điểm rà soát AI: {{val}}%",
   "clinicalVerificationTitle": "Xác minh Lâm sàng",
   "concurredBadge": "Đồng ý với AI",
   "manualBadge": "Chọn lỗi thủ công",

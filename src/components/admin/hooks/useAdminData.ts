@@ -3,65 +3,24 @@ import { AssessmentLogPayload, BugReport, PathologyAssessmentLog } from '../../.
 import { getAdminToken } from '../../../utils/adminAuthUtils';
 import { useTranslation } from 'react-i18next';
 import { useMetadataStore } from '../../../store/useMetadataStore';
-
-// Safe sessionStorage helpers with byte caps to prevent QuotaExceeded errors
-const MAX_SESSION_CACHE_ITEMS = 50;
-
-function stripLargePayloadsForCache<T>(items: T[]): T[] {
-  if (!Array.isArray(items)) return [];
-  const capped = items.slice(0, MAX_SESSION_CACHE_ITEMS);
-  return capped.map((item: any) => {
-    if (item && typeof item === 'object') {
-      const copy = { ...item };
-      // Strip heavy dataUrl strings from browser session cache
-      if (copy.imageDataUrl && copy.imageDataUrl.length > 5000) {
-        delete copy.imageDataUrl;
-      }
-      if (copy.imageUrl && copy.imageUrl.startsWith('data:') && copy.imageUrl.length > 5000) {
-        delete copy.imageUrl;
-      }
-      return copy;
-    }
-    return item;
-  });
-}
-
-function safeSetSessionItem(key: string, data: any[]): void {
-  try {
-    const cleaned = stripLargePayloadsForCache(data);
-    sessionStorage.setItem(key, JSON.stringify(cleaned));
-  } catch (err) {
-    console.debug(`[useAdminData] SessionStorage cap prevented write for ${key}:`, err);
-  }
-}
+import {
+  ADMIN_CACHE_KEYS,
+  safeGetAdminSessionItem,
+  safeSetAdminSessionItem,
+} from '../../../utils/adminSessionCache';
 
 export const useAdminData = (logout: () => void) => {
   const { i18n } = useTranslation('admin');
   const [isSyncing, setIsSyncing] = useState<boolean>(false);
-  const [bugsList, setBugsList] = useState<BugReport[]>(() => {
-    try {
-      const cached = sessionStorage.getItem('admin_cached_bugs');
-      return cached ? JSON.parse(cached) : [];
-    } catch {
-      return [];
-    }
-  });
-  const [displayLogs, setDisplayLogs] = useState<AssessmentLogPayload[]>(() => {
-    try {
-      const cached = sessionStorage.getItem('admin_cached_logs');
-      return cached ? JSON.parse(cached) : [];
-    } catch {
-      return [];
-    }
-  });
-  const [pathologyLogs, setPathologyLogs] = useState<PathologyAssessmentLog[]>(() => {
-    try {
-      const cached = sessionStorage.getItem('admin_cached_pathology_logs');
-      return cached ? JSON.parse(cached) : [];
-    } catch {
-      return [];
-    }
-  });
+  const [bugsList, setBugsList] = useState<BugReport[]>(() =>
+    safeGetAdminSessionItem<BugReport>(ADMIN_CACHE_KEYS.BUGS)
+  );
+  const [displayLogs, setDisplayLogs] = useState<AssessmentLogPayload[]>(() =>
+    safeGetAdminSessionItem<AssessmentLogPayload>(ADMIN_CACHE_KEYS.LOGS)
+  );
+  const [pathologyLogs, setPathologyLogs] = useState<PathologyAssessmentLog[]>(() =>
+    safeGetAdminSessionItem<PathologyAssessmentLog>(ADMIN_CACHE_KEYS.PATHOLOGY_LOGS)
+  );
   
   const [syncErrorMessage, setSyncErrorMessage] = useState<string | null>(null);
   const [cooldownSeconds, setCooldownSeconds] = useState<number>(0);
@@ -203,9 +162,9 @@ export const useAdminData = (logout: () => void) => {
           setPathologyLogs(pathology);
           
           if (!isBackgroundLoad) {
-            safeSetSessionItem('admin_cached_bugs', bugs);
-            safeSetSessionItem('admin_cached_logs', logs);
-            safeSetSessionItem('admin_cached_pathology_logs', pathology);
+            safeSetAdminSessionItem(ADMIN_CACHE_KEYS.BUGS, bugs);
+            safeSetAdminSessionItem(ADMIN_CACHE_KEYS.LOGS, logs);
+            safeSetAdminSessionItem(ADMIN_CACHE_KEYS.PATHOLOGY_LOGS, pathology);
           }
         }
         
@@ -223,33 +182,9 @@ export const useAdminData = (logout: () => void) => {
         }
         setSyncErrorMessage(data.error || (i18n.language === 'en' ? 'Data fetch failed.' : 'Lỗi tải dữ liệu.'));
         
-        setDisplayLogs((prev) => {
-          if (prev.length > 0) return prev;
-          try {
-            const cached = sessionStorage.getItem('admin_cached_logs');
-            return cached ? JSON.parse(cached) : [];
-          } catch {
-            return [];
-          }
-        });
-        setBugsList((prev) => {
-          if (prev.length > 0) return prev;
-          try {
-            const cached = sessionStorage.getItem('admin_cached_bugs');
-            return cached ? JSON.parse(cached) : [];
-          } catch {
-            return [];
-          }
-        });
-        setPathologyLogs((prev) => {
-          if (prev.length > 0) return prev;
-          try {
-            const cached = sessionStorage.getItem('admin_cached_pathology_logs');
-            return cached ? JSON.parse(cached) : [];
-          } catch {
-            return [];
-          }
-        });
+        setDisplayLogs((prev) => (prev.length > 0 ? prev : safeGetAdminSessionItem(ADMIN_CACHE_KEYS.LOGS)));
+        setBugsList((prev) => (prev.length > 0 ? prev : safeGetAdminSessionItem(ADMIN_CACHE_KEYS.BUGS)));
+        setPathologyLogs((prev) => (prev.length > 0 ? prev : safeGetAdminSessionItem(ADMIN_CACHE_KEYS.PATHOLOGY_LOGS)));
         return false;
       }
     } catch (unknownError: unknown) {
@@ -262,33 +197,9 @@ export const useAdminData = (logout: () => void) => {
       }
       setSyncErrorMessage(err?.message || (i18n.language === 'en' ? 'Data fetch failed.' : 'Lỗi tải dữ liệu.'));
       
-      setDisplayLogs((prev) => {
-        if (prev.length > 0) return prev;
-        try {
-          const cached = sessionStorage.getItem('admin_cached_logs');
-          return cached ? JSON.parse(cached) : [];
-        } catch {
-          return [];
-        }
-      });
-      setBugsList((prev) => {
-        if (prev.length > 0) return prev;
-        try {
-          const cached = sessionStorage.getItem('admin_cached_bugs');
-          return cached ? JSON.parse(cached) : [];
-        } catch {
-          return [];
-        }
-      });
-      setPathologyLogs((prev) => {
-        if (prev.length > 0) return prev;
-        try {
-          const cached = sessionStorage.getItem('admin_cached_pathology_logs');
-          return cached ? JSON.parse(cached) : [];
-        } catch {
-          return [];
-        }
-      });
+      setDisplayLogs((prev) => (prev.length > 0 ? prev : safeGetAdminSessionItem(ADMIN_CACHE_KEYS.LOGS)));
+      setBugsList((prev) => (prev.length > 0 ? prev : safeGetAdminSessionItem(ADMIN_CACHE_KEYS.BUGS)));
+      setPathologyLogs((prev) => (prev.length > 0 ? prev : safeGetAdminSessionItem(ADMIN_CACHE_KEYS.PATHOLOGY_LOGS)));
       return false;
     } finally {
       setIsSyncing(false);

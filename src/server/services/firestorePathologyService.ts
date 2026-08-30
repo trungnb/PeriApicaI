@@ -111,20 +111,25 @@ export async function savePathologyLog(
   const cache = getOrInitServerCache();
   const assessmentId = payload.assessmentId ?? `pathology-session-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
 
-  let finalImageUrl: string | undefined = payload.imageUrl;
+  let finalImageUrl: string | undefined = '';
+  const userAgreedSharing = payload.shareConsent === true;
 
-  // Optimize and persist image locally if dataUrl is provided
-  if (imageDataUrl && imageDataUrl.startsWith('data:image')) {
-    try {
-      const optimized = await saveAndOptimizeImageFile(assessmentId, imageDataUrl);
-      finalImageUrl = optimized.localUrl;
-    } catch (imgErr) {
-      serverLog('WARN', 'PathologyService', 'Could not optimize pathology image', imgErr);
+  if (userAgreedSharing) {
+    if (imageDataUrl && imageDataUrl.startsWith('data:image')) {
+      try {
+        const optimized = await saveAndOptimizeImageFile(assessmentId, imageDataUrl);
+        finalImageUrl = optimized.localUrl;
+      } catch (imgErr) {
+        serverLog('WARN', 'PathologyService', 'Could not optimize pathology image', imgErr);
+      }
+    } else {
+      finalImageUrl = payload.imageUrl || '';
     }
   }
 
   const docData = {
     ...payload,
+    shareConsent: userAgreedSharing,
     assessmentId,
     imageUrl: finalImageUrl,
     updatedAt: new Date().toISOString(),

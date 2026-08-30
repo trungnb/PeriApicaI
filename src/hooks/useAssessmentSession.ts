@@ -3,7 +3,7 @@ import { useAppStore } from '../store/appStore';
 import { AssessmentLogPayload, ConfirmedPathology, AIDetection } from '../types/dental';
 import { saveAssessmentLog, savePathologyAssessmentLog } from '../services/apiService';
 import { getOrCreateUserId } from '../utils/userUtils';
-import { compressImage } from '../utils/imageCompressor';
+import { compressImage, DEFAULT_ANALYSIS_IMAGE_OPTIONS } from '../utils/imageCompressor';
 
 export function useAssessmentSession() {
   const saveAssessment = useCallback(async (payload: AssessmentLogPayload, imageDataUrlParam?: string) => {
@@ -68,7 +68,7 @@ export function useAssessmentSession() {
 
     try {
       // 1. Immediately kick off compression as high priority
-      const compressResult = await compressImage(file, { maxWidth: 1200, maxHeight: 1200, quality: 0.88 });
+      const compressResult = await compressImage(file, DEFAULT_ANALYSIS_IMAGE_OPTIONS);
       useAppStore.setState({ 
         compressedImageBase64: compressResult.dataUrl,
         lastCompressionMetrics: compressResult

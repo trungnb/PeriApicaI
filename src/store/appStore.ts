@@ -15,6 +15,7 @@ import {
 import { ALL_TEETH } from '../data/taxonomyData';
 import { PATHOLOGY_DICT } from '../constants/dictionaries';
 import { imageBlobCache } from '../utils/imageBlobCache';
+import { CompressionResult } from '../utils/imageCompressor';
 import i18next from '../i18n';
 
 
@@ -56,8 +57,8 @@ export interface AppState {
   selectedOverrideKeys: string[];
   userNotes: string;
   compressedImageBase64: string | null;
-  lastCompressionMetrics: any | null;
-  setLastCompressionMetrics: (metrics: any | null) => void;
+  lastCompressionMetrics: CompressionResult | null;
+  setLastCompressionMetrics: (metrics: CompressionResult | null) => void;
   lastAnalysisMetrics: {
     clientCompressTimeMs: number;
     networkTimeMs: number;
@@ -67,7 +68,15 @@ export interface AppState {
     pipeline: 'classic' | 'pathology';
     modelUsed?: string;
   } | null;
-  setLastAnalysisMetrics: (metrics: any | null) => void;
+  setLastAnalysisMetrics: (metrics: {
+    clientCompressTimeMs: number;
+    networkTimeMs: number;
+    geminiTimeMs: number;
+    totalTimeMs: number;
+    wasCached: boolean;
+    pipeline: 'classic' | 'pathology';
+    modelUsed?: string;
+  } | null) => void;
   apiKeyOption: 'system' | 'custom';
   customApiKey: string;
   rememberCustomApiKey: boolean;
@@ -229,7 +238,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   customKeyErrorModal: null,
   isQuotaExhausted: false,
   quotaResetNotice: null,
-  shareConsent: true,
+  shareConsent: false,
   userConcurred: null,
   selectedOverrideKeys: [],
   userNotes: '',
@@ -295,12 +304,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     set({ language: nextLang });
   },
 
-  setCurrentStep: (step) => set((state) => {
-    if (step === 1 || step === 2) {
-      return { currentStep: step, shareConsent: true };
-    }
-    return { currentStep: step };
-  }),
+  setCurrentStep: (step) => set({ currentStep: step }),
   setCurrentAssessmentId: (id) => set({ currentAssessmentId: id }),
   setSelectedTechnique: (technique) => set((state) => {
     if (state.selectedTechnique === technique) return {};
@@ -453,6 +457,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       lastAnalyzedRequestHash: null,
       confirmedErrorKeys: [],
       currentStep: 1,
+      shareConsent: false,
       selectedTechnique: 'Paralleling',
       selectedReceptor: 'Digital Sensor',
       selectedTooth: ALL_TEETH[7], // R11 default
@@ -477,12 +482,12 @@ export const useAppStore = create<AppState>((set, get) => ({
 
   updateDetectionBbox: (id, bbox) => set((state) => ({
     aiDetections: state.aiDetections.map((d) => d.id === id ? { ...d, bbox, polygonPoints: undefined } : d),
-    confirmedPathologies: state.confirmedPathologies.map((d) => d.id === id ? { ...d, bbox, polygonPoints: undefined, isUserEdited: true } : d),
+    confirmedPathologies: state.confirmedPathologies.map((d) => d.id === id ? { ...d, bbox, polygonPoints: undefined, isUserEdited: true, humanReviewed: true, humanReviewed: true } : d),
   })),
 
   updateDetectionPolygon: (id, polygonPoints) => set((state) => ({
     aiDetections: state.aiDetections.map((d) => d.id === id ? { ...d, polygonPoints } : d),
-    confirmedPathologies: state.confirmedPathologies.map((d) => d.id === id ? { ...d, polygonPoints, isUserEdited: true } : d),
+    confirmedPathologies: state.confirmedPathologies.map((d) => d.id === id ? { ...d, polygonPoints, isUserEdited: true, humanReviewed: true, humanReviewed: true } : d),
   })),
 
   updateDetectionKey: (id, newKey) => {
@@ -498,7 +503,7 @@ export const useAppStore = create<AppState>((set, get) => ({
           descriptionEn: taxItem?.descriptionEn ?? '',
           color: taxItem?.color ?? d.color,
           fillColor: taxItem?.fillColor ?? d.fillColor,
-          isUserEdited: true,
+          isUserEdited: true, humanReviewed: true,
         } : d
       ),
     }));

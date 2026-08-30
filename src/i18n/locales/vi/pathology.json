@@ -10,13 +10,13 @@
   "findings": "Tổn Thương Phát Hiện",
   "geminiVerified": "Gemini xác nhận",
   "notVerified": "Chưa xác minh",
-  "confidence": "Độ tin cậy",
+  "confidence": "Điểm rà soát AI",
   "area": "Diện tích",
   "edited": "Đã sửa",
   "reclassify": "Sửa phân loại tổn thương",
   "hideOverlay": "Ẩn overlay",
   "showOverlay": "Hiện overlay",
-  "geminiSummary": "Tóm Tắt Lâm Sàng",
+  "geminiSummary": "Tóm Tắt Hỗ Trợ Rà Soát",
   "additionalFindings": "Bổ Sung Từ Gemini",
   "confirmed": "Xác nhận",
   "rejected": "Bác bỏ",
@@ -30,14 +30,14 @@
   "treatmentProtocol": "Phác Đồ Điều Trị",
   "followUp": "Theo Dõi",
   "specialistReferral": "Cần chuyển chuyên khoa",
-  "clinicalSummary": "Tóm Tắt Lâm Sàng Gemini",
+  "clinicalSummary": "Tóm Tắt Hỗ Trợ Rà Soát",
   "saveAndReturn": "Lưu & Trở Về Trang Chủ",
   "saving": "Đang lưu...",
   "saved": "Đã lưu! Trở về trang chủ...",
   "saveFailed": "Lưu thất bại — thử lại",
   "urgentIntervention": "Can thiệp khẩn cấp",
   "noTreatmentNeeded": "Không cần điều trị",
-  "disclaimer": "Phác đồ điều trị chỉ mang tính hướng dẫn giáo dục. Luôn thực hiện khám lâm sàng và đối chiếu X-quang đầy đủ trước khi tiến hành điều trị.",
+  "disclaimer": "Các phác đồ điều trị chỉ mang tính chất giáo dục và tham khảo. Luôn thực hiện khám lâm sàng toàn diện trước khi chỉ định điều trị.",
   "backToAnalysis": "Quay lại phân tích",
   "back": "Quay lại",
   "domains": {
@@ -51,5 +51,5 @@
     "urgent": "Khẩn",
     "emergency": "🚨 Nguy Cấp"
   },
-  "treatmentRecommendation": "Hướng xử trí & Điều trị đề xuất:"
+  "treatmentRecommendation": "Hướng xử trí (Tham khảo y khoa):"
 }

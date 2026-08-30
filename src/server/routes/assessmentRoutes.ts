@@ -3,7 +3,7 @@ import path from 'path';
 import fs from 'fs';
 import crypto from 'crypto';
 import { analyzeLimiter, generalActionLimiter, validateKeyLimiter } from '../config/limiter';
-import { uploadsDir, serverLog } from '../config/env';
+import { uploadsDir, serverLog, verifySignedImageUrl } from '../config/env';
 import { getStorageAdapter } from '../services/storageAdapter';
 import {
   analysisCache,
@@ -184,7 +184,7 @@ router.post('/api/analyze-radiograph', validateRadiographAnalysis, analyzeLimite
               },
             });
             if (!response.text) throw new Error('Empty response from AI Model 1');
-            return JSON.parse(response.text);
+            return validateClassicOutput(JSON.parse(response.text));
           },
           selectedModelA,
           isUsingCustomKey ? customApiKey : undefined,
@@ -204,7 +204,7 @@ router.post('/api/analyze-radiograph', validateRadiographAnalysis, analyzeLimite
               },
             });
             if (!response.text) throw new Error('Empty response from AI Model 2');
-            return JSON.parse(response.text);
+            return validateClassicOutput(JSON.parse(response.text));
           },
           selectedModelB,
           isUsingCustomKey ? customApiKey : undefined,
@@ -261,7 +261,7 @@ router.post('/api/analyze-radiograph', validateRadiographAnalysis, analyzeLimite
             },
           });
           if (!response.text) throw new Error('Empty response from AI');
-          return JSON.parse(response.text);
+          return validateClassicOutput(JSON.parse(response.text));
         },
         selectedModelA,
         isUsingCustomKey ? customApiKey : undefined,
@@ -414,18 +414,38 @@ router.get('/api/assessment-logs', adminAuth, async (_req: Request, res: Respons
   }
 });
 
-// Endpoint: Serve temporarily saved radiograph images
+// Endpoint: Serve temporarily saved radiograph images with HMAC signature verification
 router.get('/api/images/:filename', async (req: Request, res: Response) => {
   const safeFilename = path.basename(req.params.filename);
+  const ext = path.extname(safeFilename).toLowerCase();
+  const allowedExtensions = ['.jpg', '.jpeg', '.png', '.webp'];
+
+  if (!allowedExtensions.includes(ext)) {
+    return res.status(400).json({ error: 'Invalid or unsupported image file extension' });
+  }
+
+  // Validate HMAC signature and expiry for trial image access
+  const expires = req.query.expires ? String(req.query.expires) : '';
+  const sig = req.query.sig ? String(req.query.sig) : '';
+
+  if (!expires || !sig || !verifySignedImageUrl(safeFilename, expires, sig)) {
+    return res.status(403).json({ error: 'Forbidden: Invalid or expired signed image URL' });
+  }
+
   const filePath = path.join(uploadsDir, safeFilename);
 
   if (fs.existsSync(filePath)) {
-    res.setHeader('Content-Type', 'image/jpeg');
-    res.setHeader('Cache-Control', 'private, max-age=3600');
+    let contentType = 'image/jpeg';
+    if (ext === '.png') contentType = 'image/png';
+    else if (ext === '.webp') contentType = 'image/webp';
+
+    res.setHeader('Content-Type', contentType);
+    res.setHeader('Cache-Control', 'private, no-store, max-age=0');
+    res.setHeader('X-Content-Type-Options', 'nosniff');
     return res.sendFile(filePath);
   }
 
-  return res.status(404).send('Image not found');
+  return res.status(404).json({ error: 'Image not found' });
 });
 
 // Endpoint: Validate custom Gemini API Key

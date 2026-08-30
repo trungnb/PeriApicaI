@@ -29,6 +29,11 @@ import { DatasetNoticeModal } from './modals/DatasetNoticeModal';
 import { PathologyReviewModal } from './modals/PathologyReviewModal';
 import { PathologyStatsCards } from './PathologyStatsCards';
 import { UserDirectoryModal, UniqueUserItem } from './modals/UserDirectoryModal';
+import {
+  ADMIN_CACHE_KEYS,
+  safeGetAdminSessionItem,
+  safeSetAdminSessionItem,
+} from '../../utils/adminSessionCache';
 
 interface PathologyLogsPanelProps {
   pathologyLogs?: PathologyAssessmentLog[];
@@ -58,12 +63,7 @@ export const PathologyLogsPanel: React.FC<PathologyLogsPanelProps> = ({
   const language = useAppStore((state) => state.language);
   const [logs, setLogs] = useState<PathologyAssessmentLog[]>(() => {
     if (pathologyLogs && pathologyLogs.length > 0) return pathologyLogs;
-    try {
-      const cached = sessionStorage.getItem('admin_cached_pathology_logs');
-      return cached ? JSON.parse(cached) : [];
-    } catch {
-      return [];
-    }
+    return safeGetAdminSessionItem<PathologyAssessmentLog>(ADMIN_CACHE_KEYS.PATHOLOGY_LOGS);
   });
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -85,9 +85,7 @@ export const PathologyLogsPanel: React.FC<PathologyLogsPanelProps> = ({
       const newLogs = prevLogs.map((l) =>
         l.assessmentId === updatedLog.assessmentId ? { ...l, ...updatedLog } : l
       );
-      try {
-        sessionStorage.setItem('admin_cached_pathology_logs', JSON.stringify(newLogs));
-      } catch {}
+      safeSetAdminSessionItem(ADMIN_CACHE_KEYS.PATHOLOGY_LOGS, newLogs);
       return newLogs;
     });
   };

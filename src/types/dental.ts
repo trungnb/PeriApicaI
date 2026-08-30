@@ -153,10 +153,12 @@ export interface AIDetection {
   confidence: number; // 0-100
   bbox: [number, number, number, number]; // [x1, y1, x2, y2] in pixels relative to canvas
   polygonPoints?: [number, number][]; // pixel coords for smooth boundary contour
-  areaMm2?: number;
+  pixelArea?: number;
   color: string;
   fillColor: string;
   treatmentRecommendation?: string;
+  provenance?: 'matched_consensus' | 'model_a_only' | 'model_b_only' | 'single_mode';
+  humanReviewed?: boolean;
 }
 
 export interface TreatmentProtocol {

@@ -17,7 +17,7 @@
   "errorsFoundCount": "{{count}} error(s) detected",
   "errorsBadge": "Errors",
   "acceptableBadge": "Acceptable",
-  "confidence": "Confidence: {{val}}%",
+  "confidence": "AI review score: {{val}}%",
   "clinicalVerificationTitle": "Clinical Verification",
   "concurredBadge": "Concurred with AI",
   "manualBadge": "Manual Override",

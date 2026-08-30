@@ -10,9 +10,12 @@ router.get('/api/health', async (req, res) => {
     const mem = process.memoryUsage();
     const uptimeSeconds = Math.floor(process.uptime());
     
-    // Check auth for sensitive info
-    const token = req.headers['x-admin-token'] as string;
-    const isAdmin = token && isValidAdminToken(token);
+    // Check auth for sensitive info via Bearer token or x-admin-token
+    const authHeader = req.headers['authorization'];
+    const bearerToken = authHeader && authHeader.startsWith('Bearer ') ? authHeader.slice(7) : null;
+    const headerToken = req.headers['x-admin-token'] as string;
+    const token = bearerToken || headerToken;
+    const isAdmin = Boolean(token && isValidAdminToken(token));
 
     if (!isAdmin) {
       return res.json({

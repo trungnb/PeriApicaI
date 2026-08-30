@@ -74,6 +74,21 @@ export const PathologyFindingCard: React.FC<Props> = React.memo(({
                   {t('geminiVerified')}
                 </span>
               )}
+              {detection.provenance === 'matched_consensus' && (
+                <span className="text-[10px] bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-300 font-semibold px-2 py-0.5 rounded-full border border-purple-200 dark:border-purple-800">
+                  {language === 'EN' ? 'Consensus' : 'Hội chẩn'}
+                </span>
+              )}
+              {(detection.provenance === 'model_a_only' || detection.provenance === 'model_b_only') && !detection.humanReviewed && (
+                <span className="text-[10px] bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300 font-semibold px-2 py-0.5 rounded-full border border-amber-200 dark:border-amber-800">
+                  {language === 'EN' ? 'Single-model/Review Required' : 'Cần rà soát (1 Model)'}
+                </span>
+              )}
+              {detection.humanReviewed && (
+                <span className="text-[10px] bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300 font-semibold px-2 py-0.5 rounded-full border border-blue-200 dark:border-blue-800">
+                  {language === 'EN' ? 'Human Reviewed' : 'Đã xác nhận'}
+                </span>
+              )}
             </div>
             <p className="mt-1 text-sm font-bold text-slate-800 dark:text-slate-100 leading-tight truncate">
               {label}

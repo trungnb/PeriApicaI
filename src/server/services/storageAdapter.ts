@@ -278,7 +278,7 @@ export class InMemoryStorageAdapter implements IStorageAdapter {
     }
 
     let finalImageUrl = '';
-    const userAgreedSharing = payload.shareConsent !== false;
+    const userAgreedSharing = payload.shareConsent === true;
 
     if (userAgreedSharing) {
       payload.shareConsent = true;

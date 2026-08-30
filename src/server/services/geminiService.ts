@@ -117,7 +117,7 @@ async function executeRunnerWithRetry<T>(
   runner: (aiClient: GoogleGenAI, modelName: string) => Promise<T>,
   aiClient: GoogleGenAI,
   model: string,
-  maxRetries = 2,
+  maxAttempts = 2,
   onStatusUpdate?: (status: string) => void
 ): Promise<T> {
   let attempt = 0;
@@ -127,13 +127,16 @@ async function executeRunnerWithRetry<T>(
     } catch (err: any) {
       attempt++;
       const isInvalidKey = isInvalidApiKeyError(err);
-      if (!isInvalidKey && attempt <= maxRetries) {
-        const msg = `⚠️ Model [${model}] lỗi, thử lại lần ${attempt}...`;
-        serverLog('WARN', 'GeminiService', `Error on model [${model}] (Attempt ${attempt}/${maxRetries}). Retrying immediately (0ms delay)...`);
-        onStatusUpdate?.(msg);
-        continue;
+      const isQuota = isRateLimitOrQuotaError(err);
+      // Immediately throw on 401 unauthenticated or 429 quota errors to failover to next key/model
+      if (isInvalidKey || isQuota || attempt >= maxAttempts) {
+        throw err;
       }
-      throw err;
+      const jitterMs = 200 + Math.floor(Math.random() * 200);
+      const msg = `⚠️ Model [${model}] tạm bận, thử lại lần ${attempt}...`;
+      serverLog('WARN', 'GeminiService', `Transient error on model [${model}] (Attempt ${attempt}/${maxAttempts}). Retrying in ${jitterMs}ms...`);
+      onStatusUpdate?.(msg);
+      await new Promise((resolve) => setTimeout(resolve, jitterMs));
     }
   }
 }

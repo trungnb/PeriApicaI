@@ -10,13 +10,13 @@
   "findings": "Findings",
   "geminiVerified": "Gemini ✓",
   "notVerified": "AI only",
-  "confidence": "Confidence",
+  "confidence": "AI review score",
   "area": "Area",
   "edited": "Edited",
   "reclassify": "Reclassify finding",
   "hideOverlay": "Hide overlay",
   "showOverlay": "Show overlay",
-  "geminiSummary": "Clinical Summary",
+  "geminiSummary": "AI-assisted Review Summary",
   "additionalFindings": "Additional Findings",
   "confirmed": "Confirmed",
   "rejected": "Rejected",
@@ -30,7 +30,7 @@
   "treatmentProtocol": "Treatment Protocol",
   "followUp": "Follow-Up",
   "specialistReferral": "Specialist referral recommended",
-  "clinicalSummary": "Gemini Clinical Summary",
+  "clinicalSummary": "AI-assisted Review Summary",
   "saveAndReturn": "Save & Return Home",
   "saving": "Saving...",
   "saved": "Saved! Returning home...",
@@ -51,5 +51,5 @@
     "urgent": "Urgent",
     "emergency": "🚨 Emergency"
   },
-  "treatmentRecommendation": "Treatment Recommendation:"
+  "treatmentRecommendation": "Treatment Recommendation (Educational Reference):"
 }

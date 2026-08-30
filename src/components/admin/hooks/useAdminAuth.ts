@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { getAdminToken, setAdminToken, clearAdminToken } from '../../../utils/adminAuthUtils';
+import { clearAdminSessionCache } from '../../../utils/adminSessionCache';
 
 export const useAdminAuth = () => {
   const [isAuthenticated, setIsAuthenticated] = useState<boolean>(() => {
@@ -48,12 +49,7 @@ export const useAdminAuth = () => {
     }
     
     clearAdminToken();
-    
-    try {
-      sessionStorage.removeItem('admin_cached_logs');
-      sessionStorage.removeItem('admin_cached_bugs');
-      sessionStorage.removeItem('admin_cached_pathology_logs');
-    } catch {}
+    clearAdminSessionCache();
     
     setIsAuthenticated(false);
     setIsVerifyingToken(false);
