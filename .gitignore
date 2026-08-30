@@ -9,3 +9,5 @@ temp_cache.json
 
 # Temporary uploaded medical images (deleted on server restart anyway)
 public/uploads/
+.idea/
+*.zip
