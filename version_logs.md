@@ -3,6 +3,22 @@
 Documenting the evolution and release history of the **PeriApicaI** Next-Gen Multimodal AI Imaging Platform for Dental Radiology.
 
 ---
+## 🚀 Version 2.8.9 (AiRIser Trial Stable Release — August 2026)
+
+### 🌟 Major Highlights: Reliability Engineering & Safety Guardrails
+- **P0: Clinical Safety & AI Provenance**:
+  - Removed faulty `areaMm2` physical measurement derived from uncalibrated pixel extrapolation; safely fallback to `pixelArea`.
+  - Added strict AI Provenance Tracking (`matched_consensus`, `single_mode`). Dual-mode non-overlapping findings are correctly labeled as "Single-model/Review Required" instead of generic consensus. 
+  - Overhauled clinical language in EN/VI to act as an educational/review copilot ("AI review score" instead of "Confidence").
+- **P0: Strict Semantic Validation & Polygon Contract**:
+  - Bound incoming model polygon outputs with a strict Y/X to X/Y adapter clamping coordinates rigidly inside `[0, 1000]` constraints.
+  - Implemented hard backend schema validator enforcing bounds on pathology tags (only valid dict keys) and prediction bounds.
+- **P0: Resource Management & Architecture Hardening**:
+  - Introduced Global Gemini Request Budget (`ExecutionBudget`), hard-capping total failover retries to 3 (Single Mode) and 4 (Dual Mode), with `AbortController` injection to halt redundant executions upon tab closure.
+  - Revamped Image Preparation Storage Lifecycle: Temporarily signed URLs are no longer persisted long-term in the database. Saved reports now persist reliable `imageStorageKey`s, strictly re-signing URLs dynamically on demand while garbage-collecting storage accurately upon deletion.
+  - Fixed duplicate admin panel database fetch sequences, saving 50k read operations by squashing sequential fetches. Dropped background Firebase listener to fully eliminate runaway cloud quotas.
+  - Reduced Admin Session token TTL down to 2 hours, utilizing standard 12-Factor app principles. Migrated tokens aggressively to volatile `sessionStorage` ensuring no persistent admin tokens remain across restarts.
+  - Enforced strong payload limiting (3MB Express limits, 400 validation for `/api/save-pathology`).
 
 ## 🚀 Version 2.8.0 (Current Stable Release — August 2026)
 
