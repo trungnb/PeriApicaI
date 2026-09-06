@@ -1,9 +1,17 @@
 import { PATHOLOGY_DICT, TECH_FAILURE_DICT, normalizeTechFailureKey } from '../constants/dictionaries';
-import { validateWirePolygon } from './polygonAdapter';
+import { validateWirePolygon, WirePointYX } from './polygonAdapter';
 
 export function validateClassicOutput(parsed: any): any {
-  if (!parsed || typeof parsed !== 'object') {
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
     throw new Error('Invalid JSON structure returned by classic AI model');
+  }
+
+  if (
+    typeof parsed.isPeriapicalRadiograph !== 'boolean' ||
+    typeof parsed.overallQuality !== 'string' ||
+    !Array.isArray(parsed.errors)
+  ) {
+    throw new Error('Malformed AI Output: Missing required root fields (isPeriapicalRadiograph, overallQuality, errors)');
   }
   
   const validErrors: any[] = [];
@@ -20,19 +28,22 @@ export function validateClassicOutput(parsed: any): any {
         // Must belong to standardized technical failure taxonomy
         continue;
       }
-      
+
+      if (err.confidence === undefined || err.confidence === null) {
+        throw new Error(`Malformed AI Output: Technical error "${normalizedKey}" is missing required confidence`);
+      }
+      const numConf = Number(err.confidence);
+      if (!Number.isFinite(numConf) || isNaN(numConf)) {
+        throw new Error(`Malformed AI Output: Technical error "${normalizedKey}" has non-numeric confidence: ${err.confidence}`);
+      }
+      const clampedConf = Math.max(0, Math.min(100, Math.round(numConf)));
+
       if (!seenKeys.has(normalizedKey)) {
         seenKeys.add(normalizedKey);
-        
-        // Clamp confidence strictly 0-100
-        let conf = Number(err.confidence);
-        if (isNaN(conf) || !Number.isFinite(conf)) conf = 85;
-        conf = Math.max(0, Math.min(100, Math.round(conf)));
-        
         validErrors.push({
           ...err,
           errorKey: normalizedKey,
-          confidence: conf,
+          confidence: clampedConf,
         });
       }
     }
@@ -52,9 +63,19 @@ export function validateClassicOutput(parsed: any): any {
   };
 }
 
+export const CANONICAL_PATHOLOGY_KEYS = Object.keys(PATHOLOGY_DICT) as Array<keyof typeof PATHOLOGY_DICT>;
+
 export function validatePathologyOutput(parsed: any): any {
-  if (!parsed || typeof parsed !== 'object') {
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
     throw new Error('Invalid JSON structure returned by pathology AI model');
+  }
+
+  if (
+    typeof parsed.overallSummary !== 'string' ||
+    !Array.isArray(parsed.observationChain) ||
+    !Array.isArray(parsed.pathologies)
+  ) {
+    throw new Error('Malformed AI Output: Missing required root fields (overallSummary, observationChain, pathologies)');
   }
 
   const validPathologies: any[] = [];
@@ -69,24 +90,38 @@ export function validatePathologyOutput(parsed: any): any {
         continue;
       }
 
-      // Validate polygon contour points
+      if (p.confidence === undefined || p.confidence === null) {
+        throw new Error(`Malformed AI Output: Pathology finding "${key}" is missing required confidence`);
+      }
+      const numConf = Number(p.confidence);
+      if (!Number.isFinite(numConf) || isNaN(numConf)) {
+        throw new Error(`Malformed AI Output: Pathology finding "${key}" has non-numeric confidence: ${p.confidence}`);
+      }
+      const clampedConf = Math.max(0, Math.min(100, Math.round(numConf)));
+
+      // Determine geometry status and normalize polygon contour points
       const rawPoints = p.polygon_points || p.polygonPoints;
-      const validPoints = validateWirePolygon(rawPoints);
-      
-      // Require at least 3 vertices to form a valid spatial closed contour
-      if (validPoints.length < 3) {
-        continue;
+      let geometryStatus: 'valid' | 'unavailable' | 'malformed' = 'valid';
+      let validPoints: WirePointYX[] = [];
+
+      if (!rawPoints || (Array.isArray(rawPoints) && rawPoints.length === 0)) {
+        geometryStatus = 'unavailable';
+        validPoints = [];
+      } else {
+        validPoints = validateWirePolygon(rawPoints);
+        if (validPoints.length < 3) {
+          geometryStatus = 'malformed';
+          validPoints = [];
+        } else {
+          geometryStatus = 'valid';
+        }
       }
 
-      // Clamp confidence strictly 0-100
-      let conf = Number(p.confidence);
-      if (isNaN(conf) || !Number.isFinite(conf)) conf = 85;
-      conf = Math.max(0, Math.min(100, Math.round(conf)));
-      
       validPathologies.push({
         key,
-        confidence: conf,
+        confidence: clampedConf,
         polygon_points: validPoints,
+        geometryStatus,
         clinicalNote: typeof p.clinicalNote === 'string' ? p.clinicalNote : '',
         treatmentRecommendation: typeof p.treatmentRecommendation === 'string' ? p.treatmentRecommendation : '',
         provenance: p.provenance || 'single_mode',

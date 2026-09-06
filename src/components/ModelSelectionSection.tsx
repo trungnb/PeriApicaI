@@ -1,5 +1,5 @@
 import React, { useEffect } from 'react';
-import { Cpu, RefreshCw, Check, Sparkles } from 'lucide-react';
+import { Cpu, Check, Sparkles } from 'lucide-react';
 import { useAppStore } from '../store/appStore';
 import { apiRequest } from '../services/apiService';
 
@@ -11,58 +11,22 @@ export const ModelSelectionSection: React.FC = React.memo(() => {
   const analysisMode = useAppStore((s) => s.analysisMode);
   const setAnalysisMode = useAppStore((s) => s.setAnalysisMode);
 
-  const selectedModelA = useAppStore((s) => s.selectedModelA);
-  const setSelectedModelA = useAppStore((s) => s.setSelectedModelA);
-  const selectedModelB = useAppStore((s) => s.selectedModelB);
-  const setSelectedModelB = useAppStore((s) => s.setSelectedModelB);
-
-  const availableModels = useAppStore((s) => s.availableModels);
-  const setAvailableModels = useAppStore((s) => s.setAvailableModels);
-  const isLoadingModels = useAppStore((s) => s.isLoadingModels);
-  const setIsLoadingModels = useAppStore((s) => s.setIsLoadingModels);
-
-  const apiKeyOption = useAppStore((s) => s.apiKeyOption);
-  const customApiKey = useAppStore((s) => s.customApiKey);
-
   const isEn = language === 'EN';
 
-  const loadModels = React.useCallback(async () => {
-    setIsLoadingModels(true);
-    try {
-      const data = await apiRequest<{
-        success: boolean;
-        models: Array<{ id: string; displayName: string }>;
-      }>('/api/available-models', {
-        method: 'POST',
-        body: JSON.stringify({
-          customApiKey: apiKeyOption === 'custom' ? customApiKey : undefined,
-        }),
-      });
-
-      if (data && data.success && Array.isArray(data.models)) {
-        setAvailableModels(data.models);
-        
-        // Set default selections if needed
-        const flashModel = data.models.find((m) => m.id.includes('flash')) || data.models[0];
-        const proModel = data.models.find((m) => m.id.includes('pro')) || data.models[0];
-
-        if (flashModel && !selectedModelA) {
-          setSelectedModelA(flashModel.id);
-        }
-        if (proModel && !selectedModelB) {
-          setSelectedModelB(proModel.id);
-        }
-      }
-    } catch (err) {
-      console.error('Failed to load available models:', err);
-    } finally {
-      setIsLoadingModels(false);
-    }
-  }, [apiKeyOption, customApiKey, selectedModelA, selectedModelB, setAvailableModels, setIsLoadingModels, setSelectedModelA, setSelectedModelB]);
-
   useEffect(() => {
-    loadModels();
-  }, [apiKeyOption, customApiKey]);
+    // Clear a pre-pilot preference retained in this browser's running session.
+    const state = useAppStore.getState();
+    if (state.selectedModelA) state.setSelectedModelA('');
+    if (state.selectedModelB) state.setSelectedModelB('');
+    // Preserve BYOK's system-fallback availability hint without fetching selectable models.
+    let active = true;
+    apiRequest<{ systemApiAvailable: boolean }>('/api/system-capabilities')
+      .then(data => {
+        if (active && typeof data.systemApiAvailable === 'boolean') state.setSystemApiAvailable(data.systemApiAvailable);
+      })
+      .catch(err => console.error('Failed to load system capabilities:', err));
+    return () => { active = false; };
+  }, []);
 
   return (
     <div className="bg-white dark:bg-slate-800/90 rounded-2xl p-4 border border-slate-200/80 dark:border-slate-700/80 shadow-xs space-y-3">
@@ -74,14 +38,7 @@ export const ModelSelectionSection: React.FC = React.memo(() => {
             {isEn ? 'AI Processing Mode & Model Selection' : 'Chế độ & Mô hình AI Phân tích'}
           </h4>
         </div>
-        <button
-          onClick={loadModels}
-          disabled={isLoadingModels}
-          className="p-1 rounded-lg text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 transition-colors cursor-pointer"
-          title={isEn ? 'Refresh models' : 'Làm mới danh sách mô hình'}
-        >
-          <RefreshCw className={`w-3.5 h-3.5 ${isLoadingModels ? 'animate-spin' : ''}`} />
-        </button>
+
       </div>
 
       {/* Single vs Dual Mode Selection */}
@@ -171,65 +128,10 @@ export const ModelSelectionSection: React.FC = React.memo(() => {
         </div>
       )}
 
-      {/* Model Dropdown Selectors */}
-      <div className="pt-2 border-t border-slate-100 dark:border-slate-700/80 space-y-3">
-        {analysisMode === 'single' ? (
-          <div className="space-y-1.5">
-            <label htmlFor="select-model-single" className="block text-xs font-bold text-slate-800 dark:text-slate-200">
-              {isEn ? 'Choose Active AI Model:' : 'Lựa chọn Mô hình AI Phân tích:'}
-            </label>
-            <select
-              id="select-model-single"
-              value={selectedModelA || 'gemini-flash-latest'}
-              onChange={(e) => setSelectedModelA(e.target.value)}
-              className="w-full text-xs bg-slate-50 dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-xl px-3 py-2 text-slate-800 dark:text-slate-200 focus:outline-none focus:ring-2 focus:ring-teal-500 font-medium cursor-pointer"
-            >
-              {availableModels.map((m) => (
-                <option key={m.id} value={m.id}>
-                  {m.displayName || m.id}
-                </option>
-              ))}
-            </select>
-          </div>
-        ) : (
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            <div className="space-y-1.5">
-              <label htmlFor="select-model-primary" className="block text-xs font-bold text-slate-800 dark:text-slate-200">
-                {isEn ? 'Primary Model (Model 1):' : 'Mô hình AI Ưu tiên 1:'}
-              </label>
-              <select
-                id="select-model-primary"
-                value={selectedModelA || 'gemini-flash-latest'}
-                onChange={(e) => setSelectedModelA(e.target.value)}
-                className="w-full text-xs bg-slate-50 dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-xl px-3 py-2 text-slate-800 dark:text-slate-200 focus:outline-none focus:ring-2 focus:ring-teal-500 font-medium cursor-pointer"
-              >
-                {availableModels.map((m) => (
-                  <option key={m.id} value={m.id}>
-                    {m.displayName || m.id}
-                  </option>
-                ))}
-              </select>
-            </div>
-
-            <div className="space-y-1.5">
-              <label htmlFor="select-model-secondary" className="block text-xs font-bold text-slate-800 dark:text-slate-200">
-                {isEn ? 'Secondary Model (Model 2):' : 'Mô hình AI Phản biện 2:'}
-              </label>
-              <select
-                id="select-model-secondary"
-                value={selectedModelB || 'gemini-pro-latest'}
-                onChange={(e) => setSelectedModelB(e.target.value)}
-                className="w-full text-xs bg-slate-50 dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-xl px-3 py-2 text-slate-800 dark:text-slate-200 focus:outline-none focus:ring-2 focus:ring-teal-500 font-medium cursor-pointer"
-              >
-                {availableModels.map((m) => (
-                  <option key={m.id} value={m.id}>
-                    {m.displayName || m.id}
-                  </option>
-                ))}
-              </select>
-            </div>
-          </div>
-        )}
+      <div className="pt-2 border-t border-slate-100 dark:border-slate-700/80">
+        <p className="text-xs text-slate-800 dark:text-slate-200">
+          {isEn ? 'Model: Automatic' : 'Mô hình: Tự động'}
+        </p>
       </div>
     </div>
   );

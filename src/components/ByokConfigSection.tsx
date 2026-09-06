@@ -11,10 +11,8 @@ export const ByokConfigSection: React.FC = React.memo(() => {
 
   const apiKeyOption = useAppStore(state => state.apiKeyOption);
   const customApiKey = useAppStore(state => state.customApiKey);
-  const rememberCustomApiKey = useAppStore(state => state.rememberCustomApiKey);
   const setApiKeyOption = useAppStore(state => state.setApiKeyOption);
   const setCustomApiKey = useAppStore(state => state.setCustomApiKey);
-  const setRememberCustomApiKey = useAppStore(state => state.setRememberCustomApiKey);
 
   const [isValidating, setIsValidating] = useState(false);
   const [validationResult, setValidationResult] = useState<{ valid: boolean; message: string } | null>(null);
@@ -216,25 +214,13 @@ export const ByokConfigSection: React.FC = React.memo(() => {
             </a>
           </div>
 
-          {/* Remember Key Checkbox & Notice */}
-          <div className="pt-2 border-t border-slate-100 dark:border-slate-700/80 space-y-1.5">
-            <label className="flex items-start space-x-2 cursor-pointer select-none">
-              <input
-                type="checkbox"
-                checked={rememberCustomApiKey}
-                onChange={(e) => setRememberCustomApiKey(e.target.checked)}
-                className={`mt-0.5 w-3.5 h-3.5 rounded border-slate-300 dark:border-slate-700 cursor-pointer ${
-                  isPathology
-                    ? 'text-teal-600 focus:ring-teal-500 accent-teal-600'
-                    : 'text-blue-600 focus:ring-blue-500 accent-blue-600'
-                }`}
-              />
-              <span className="text-xs font-semibold text-slate-800 dark:text-slate-200">
-                {t('byokRememberKeyLabel')}
-              </span>
-            </label>
-            <p className="text-[11px] text-slate-500 dark:text-slate-400 leading-relaxed pl-5">
-              {t('byokRememberKeyNotice')}
+          {/* R5 Mandate: Memory-Only Session Notice */}
+          <div className="pt-2 border-t border-slate-100 dark:border-slate-700/80 flex items-start space-x-2 text-[11px] text-slate-500 dark:text-slate-400">
+            <ShieldCheck className="w-3.5 h-3.5 mt-0.5 shrink-0 text-slate-400 dark:text-slate-500" />
+            <p className="leading-relaxed">
+              {i18n.language === 'en'
+                ? 'Your personal API key is kept only in the active session and is not stored by the browser.'
+                : 'Khóa cá nhân chỉ được giữ trong phiên đang mở và sẽ không được lưu trên trình duyệt.'}
             </p>
           </div>
         </div>

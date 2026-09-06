@@ -13,10 +13,12 @@ export default defineConfig(() => {
       dedupe: ['react', 'react-dom'],
     },
     optimizeDeps: {
-      include: ['react', 'react-dom', 'zustand', 'lucide-react'],
+      include: ['react', 'react-dom', 'zustand', 'lucide-react', 'react-i18next', 'i18next', 'motion'],
     },
     build: {
       target: 'esnext',
+      outDir: 'dist/client',
+      emptyOutDir: true,
       chunkSizeWarningLimit: 1000,
       rollupOptions: {
         output: {

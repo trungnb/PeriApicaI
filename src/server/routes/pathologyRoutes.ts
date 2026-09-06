@@ -1,3 +1,4 @@
+import { isTerminalExecutionError } from '../services/geminiService';
 /**
  * Pathology Routes — POST /api/segment-pathology | POST /api/save-pathology | GET /api/pathology-logs
  */
@@ -10,33 +11,56 @@ import {
 } from '../services/geminiPathologyService';
 import {
   savePathologyLog,
+  saveAdminPathologyReview,
   getPathologyLogs,
-  deletePathologyLogs,
 } from '../services/firestorePathologyService';
 import { adminAuth } from './authRoutes';
 import { serverLog } from '../config/env';
 import { validatePathologySegment } from '../middleware/validation';
-import { ExecutionBudget } from '../services/geminiService';
+import { requireUsableApiKeyMode } from '../middleware/apiKeyMode';
+import { requireValidityReceipt } from '../middleware/validityReceipt';
+import { ExecutionBudget, getApiKeySources } from '../services/geminiService';
+import { getOrCreateAssessmentSnapshot } from '../services/assessmentModelSnapshot';
+import '../services/modelResolverService';
 
 import { generalActionLimiter } from '../config/limiter';
+import { bindCancellationLifecycle } from '../utils/lifecycle';
+import {
+  parsePublicPathologySaveDto,
+  PublicPersistenceValidationError,
+} from '../middleware/publicPersistenceDto';
 const router = Router();
 
 // ─── POST /api/segment-pathology ──────────────────────────────
 // Gemini 2D Spatial Polygon Grounding for 8 anatomical & pathological structures
-router.post('/api/segment-pathology', validatePathologySegment, analyzeLimiter, async (req: Request, res: Response) => {
+router.post('/api/segment-pathology', requireUsableApiKeyMode, validatePathologySegment, requireValidityReceipt, analyzeLimiter, async (req: Request, res: Response) => {
   const prepStart = Date.now();
   const controller = new AbortController();
   const deadlineTimer = setTimeout(() => {
     controller.abort();
   }, 60000); // 60s deadline requirement
 
-  req.on('close', () => {
-    clearTimeout(deadlineTimer);
-    controller.abort();
-  });
+  bindCancellationLifecycle(res, controller, deadlineTimer);
 
   try {
-    const { imageBase64, mimeType, toothFdi, language, customApiKey, selectedModel, analysisMode, selectedModelB } = req.body;
+    const { imageBase64, mimeType, toothFdi, language, selectedModel, analysisMode, selectedModelB } = req.body;
+    const { apiKeyOption, customApiKey } = res.locals.apiKeyMode;
+
+    const assessmentId = req.body.assessmentId || res.locals.validityReceipt?.assessmentId;
+    const snapshot = getOrCreateAssessmentSnapshot(
+      assessmentId,
+      (selectedModel || selectedModelB)
+        ? {
+            pathology_branch_a: selectedModel,
+            pathology_branch_b: selectedModelB,
+          }
+        : undefined
+    );
+
+    const roleA = snapshot.roles.pathology_branch_a;
+    const roleB = snapshot.roles.pathology_branch_b;
+    const effectiveModelA = roleA.primaryModel;
+    const effectiveModelB = roleB.primaryModel;
 
     if (!imageBase64 || !toothFdi) {
       clearTimeout(deadlineTimer);
@@ -59,10 +83,10 @@ router.post('/api/segment-pathology', validatePathologySegment, analyzeLimiter, 
       .update(cleanBase64)
       .update(String(toothFdi || ''))
       .update(String(outputLanguage || ''))
-      .update(String(selectedModel || 'gemini-flash-latest'))
+      .update(String(effectiveModelA || 'gemini-flash-latest'))
       .update(String(analysisMode || 'single'))
-      .update(String(selectedModelB || 'gemini-flash-lite-latest'))
-      .update(customApiKey ? `custom_${customApiKey.trim()}` : 'system')
+      .update(String(effectiveModelB || 'gemini-flash-lite-latest'))
+      .update(apiKeyOption === 'custom' ? `custom_${customApiKey}` : 'system')
       .digest('hex');
 
     if (pathologyVerifyCache.has(cacheKey)) {
@@ -72,7 +96,7 @@ router.post('/api/segment-pathology', validatePathologySegment, analyzeLimiter, 
       res.setHeader('Cache-Control', 'no-cache');
       res.setHeader('Connection', 'keep-alive');
       res.setHeader('X-Accel-Buffering', 'no');
-      res.write(`data: ${JSON.stringify({ success: true, result: cached, isCached: true })}\n\n`);
+      res.write(`data: ${JSON.stringify({ success: true, result: { ...cached, validityAudit: res.locals.validityAudit }, isCached: true })}\n\n`);
       res.write('data: [DONE]\n\n');
       return res.end();
     }
@@ -94,7 +118,13 @@ router.post('/api/segment-pathology', validatePathologySegment, analyzeLimiter, 
 
     const prepEnd = Date.now();
     const preparationTimeMs = prepEnd - prepStart;
-    const budget = new ExecutionBudget(analysisMode === 'consensus' ? 4 : 3, controller.signal);
+    // Execution Budget: max 4 calls for Single Mode (allows ladder fallback across keys), 4 calls for Dual Consensus Mode
+    const budget = new ExecutionBudget(
+      4, 
+      controller.signal,
+      analysisMode === 'consensus' ? 2 : 4,
+      prepStart + 60000
+    );
     const apiStart = Date.now();
 
     const segResult = await segmentPathologyWithGemini(
@@ -102,12 +132,17 @@ router.post('/api/segment-pathology', validatePathologySegment, analyzeLimiter, 
       cleanMime,
       toothFdi,
       outputLanguage,
-      selectedModel?.trim() || undefined,
-      customApiKey?.trim() || undefined,
+      effectiveModelA?.trim() || undefined,
+      apiKeyOption === 'custom' ? customApiKey : undefined,
       updateStatus,
       analysisMode,
-      selectedModelB?.trim() || undefined,
-      budget
+      effectiveModelB?.trim() || undefined,
+      budget,
+      {
+        assessmentId,
+        roleA,
+        roleB,
+      }
     );
 
     const apiDurationMs = Date.now() - apiStart;
@@ -122,7 +157,21 @@ router.post('/api/segment-pathology', validatePathologySegment, analyzeLimiter, 
       });
 
       pathologyVerifyCache.set(cacheKey, segResult.result);
-      res.write(`data: ${JSON.stringify({ success: true, result: segResult.result, usedModel: segResult.usedModel, telemetry: { preparationTimeMs, apiDurationMs } })}\n\n`);
+      res.write(`data: ${JSON.stringify({
+        success: true,
+        result: {
+          ...segResult.result,
+          matrixRevision: snapshot.matrixRevision,
+          ladderRevision: snapshot.ladderRevision,
+      resolverPlanType: snapshot.resolverPlanType,
+          validityAudit: res.locals.validityAudit,
+        },
+        usedModel: segResult.usedModel,
+        matrixRevision: snapshot.matrixRevision,
+        ladderRevision: snapshot.ladderRevision,
+      resolverPlanType: snapshot.resolverPlanType,
+        telemetry: { preparationTimeMs, apiDurationMs },
+      })}\n\n`);
       res.write('data: [DONE]\n\n');
       return res.end();
     }
@@ -165,6 +214,7 @@ router.post('/api/segment-pathology', validatePathologySegment, analyzeLimiter, 
       isCustomKeyFailed,
       isAllExhausted: errorType === 'ALL_EXHAUSTED',
       isQuotaExhausted,
+      systemApiAvailable: getApiKeySources().length > 0,
       userMessage,
       error: segResult.error ?? 'Segmentation failed'
     })}\n\n`);
@@ -172,6 +222,14 @@ router.post('/api/segment-pathology', validatePathologySegment, analyzeLimiter, 
     return res.end();
   } catch (err: any) {
     clearTimeout(deadlineTimer);
+    if (isTerminalExecutionError(err)) {
+      if (!res.destroyed) {
+        const payload = { success: false, errorType: err.code || 'CANCELLED', error: err.message };
+        if (res.headersSent) { res.write(`data: ${JSON.stringify(payload)}\n\n`); res.end(); }
+        else res.status(err.code === 'EXECUTION_DEADLINE' ? 504 : 499).json(payload);
+      }
+      return;
+    }
     serverLog('ERROR', 'PathologyAPI', 'Internal error during segmentation', err);
     if (!res.headersSent) {
       return res.status(500).json({ success: false, error: 'Internal server error', errorType: 'TRANSIENT', isQuotaExhausted: false });
@@ -186,19 +244,19 @@ router.post('/api/segment-pathology', validatePathologySegment, analyzeLimiter, 
 // Save completed pathology assessment to Firestore seg_reports
 router.post('/api/save-pathology', generalActionLimiter, async (req: Request, res: Response) => {
   try {
-    const payload = req.body;
-    if (!payload || !payload.tooth || typeof payload.assessmentId !== 'string' || payload.assessmentId.length > 100) {
-      return res.status(400).json({ error: 'Invalid payload' });
-    }
-    
     // Do not allow arbitrary large payloads in objects other than image Base64
-    if (JSON.stringify(payload).length > 3 * 1024 * 1024) {
+    if (JSON.stringify(req.body).length > 3 * 1024 * 1024) {
       return res.status(413).json({ error: 'Payload too large' });
     }
 
-    const result = await savePathologyLog(payload, payload.imageDataUrl);
+    const { record, imageDataUrl } = parsePublicPathologySaveDto(req.body);
+    const result = await savePathologyLog(record, imageDataUrl);
     return res.json(result);
-  } catch (err: any) {
+  } catch (unknownError: unknown) {
+    const err = unknownError instanceof Error ? unknownError : new Error(String(unknownError));
+    if (err instanceof PublicPersistenceValidationError) {
+      return res.status(400).json({ success: false, error: err.message });
+    }
     serverLog('ERROR', 'PathologyAPI', 'Failed to save pathology log', err);
     return res.status(500).json({ success: false, error: 'Failed to save pathology data' });
   }
@@ -226,16 +284,14 @@ router.post('/api/verify-pathology', adminAuth, async (req: Request, res: Respon
       return res.status(400).json({ success: false, error: 'Thiếu assessmentId' });
     }
 
-    const payloadToUpdate = {
+    const reviewedAt = new Date().toISOString();
+    const result = await saveAdminPathologyReview({
       assessmentId,
-      finalConfirmedPathologies: Array.isArray(verifiedPathologies) ? verifiedPathologies : [],
-      verifiedNotes: verifiedNotes || '',
-      verifiedAt: new Date().toISOString(),
-      verifiedBy: 'Admin',
-      isReviewedByAdmin: true,
-    };
-
-    const result = await savePathologyLog(payloadToUpdate);
+      finalFindings: Array.isArray(verifiedPathologies) ? verifiedPathologies : [],
+      notes: verifiedNotes || '',
+      reviewedAt,
+      reviewerId: res.locals.adminReviewerId,
+    });
     return res.json({ success: true, ...result });
   } catch (err: any) {
     serverLog('ERROR', 'PathologyAPI', 'Failed to verify pathology log', err);
@@ -243,16 +299,9 @@ router.post('/api/verify-pathology', adminAuth, async (req: Request, res: Respon
   }
 });
 
-// ─── POST /api/pathology-logs/delete ──────────────────────
-// Delete pathology_logs by range (Admin only)
-router.post('/api/pathology-logs/delete', adminAuth, async (req: Request, res: Response) => {
-  try {
-    const { startDate, endDate } = req.body;
-    const result = await deletePathologyLogs({ startDate, endDate });
-    return res.json(result);
-  } catch (err: any) {
-    return res.status(500).json({ success: false, error: err?.message });
-  }
+// The legacy deletion path is disabled for pilot. Use the DEL_PASSWORD-protected Admin flow.
+router.post('/api/pathology-logs/delete', adminAuth, (_req: Request, res: Response) => {
+  return res.status(410).json({ success: false, error: 'LEGACY_DELETE_DISABLED' });
 });
 
 export default router;

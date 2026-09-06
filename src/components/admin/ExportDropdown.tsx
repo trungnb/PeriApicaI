@@ -6,12 +6,18 @@ import { exportDataToGoogleSheets } from '../../services/googleSheetsService';
 interface ExportDropdownProps {
   disabled?: boolean;
   language: 'VI' | 'EN';
-  onExportCsv: () => void;
-  getDataForGoogleSheets: () => {
+  onExportCsv?: () => void;
+  getDataForGoogleSheets?: () => {
     title: string;
     headers: string[];
     rows: (string | number)[][];
   };
+  fetchExportData?: () => Promise<{
+    title: string;
+    headers: string[];
+    rows: (string | number)[][];
+    totalCount: number;
+  }>;
   headerColor?: { red: number; green: number; blue: number };
 }
 
@@ -20,12 +26,15 @@ export const ExportDropdown: React.FC<ExportDropdownProps> = ({
   language,
   onExportCsv,
   getDataForGoogleSheets,
+  fetchExportData,
   headerColor,
 }) => {
   const { t } = useTranslation(['admin', 'common']);
   const [isOpen, setIsOpen] = useState(false);
-  const [isExportingSheets, setIsExportingSheets] = useState(false);
+  const [isExporting, setIsExporting] = useState(false);
+  const [exportType, setExportType] = useState<'sheets' | 'csv' | null>(null);
   const [successSheetUrl, setSuccessSheetUrl] = useState<string | null>(null);
+  const [exportedCount, setExportedCount] = useState<number | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const dropdownRef = useRef<HTMLDivElement>(null);
 
@@ -40,21 +49,35 @@ export const ExportDropdown: React.FC<ExportDropdownProps> = ({
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
 
+  const getExportData = async () => {
+    if (fetchExportData) {
+      return await fetchExportData();
+    }
+    if (getDataForGoogleSheets) {
+      const res = getDataForGoogleSheets();
+      return { ...res, totalCount: res.rows?.length || 0 };
+    }
+    throw new Error('No export data source available');
+  };
+
   const handleExportGoogleSheets = async () => {
     setIsOpen(false);
     setErrorMessage(null);
     setSuccessSheetUrl(null);
-    setIsExportingSheets(true);
+    setExportedCount(null);
+    setIsExporting(true);
+    setExportType('sheets');
 
     try {
-      const { title, headers, rows } = getDataForGoogleSheets();
+      const { title, headers, rows, totalCount } = await getExportData();
       if (!rows || rows.length === 0) {
-        throw new Error(t('noDataAvailableTo'));
+        throw new Error(t('noDataAvailableTo', 'Không có dữ liệu phù hợp để xuất.'));
       }
 
       const { spreadsheetUrl } = await exportDataToGoogleSheets(title, headers, rows, headerColor);
       setSuccessSheetUrl(spreadsheetUrl);
-      
+      setExportedCount(totalCount);
+
       // Safely attempt to open spreadsheet in a new tab
       try {
         const win = window.open(spreadsheetUrl, '_blank');
@@ -63,7 +86,7 @@ export const ExportDropdown: React.FC<ExportDropdownProps> = ({
         console.warn('[ExportDropdown] window.open caught:', winErr);
       }
     } catch (unknownError: unknown) {
-    const err = unknownError instanceof Error ? unknownError : new Error(String(unknownError));
+      const err = unknownError instanceof Error ? unknownError : new Error(String(unknownError));
       console.warn('[ExportDropdown] Google Sheets Export Handled:', err?.message || err);
       const rawMsg = err?.message || '';
       if (rawMsg.includes('popup_closed') || rawMsg.includes('Popup window closed') || rawMsg.includes('đóng')) {
@@ -72,7 +95,53 @@ export const ExportDropdown: React.FC<ExportDropdownProps> = ({
         setErrorMessage(rawMsg || (t('exportToGoogleSheets')));
       }
     } finally {
-      setIsExportingSheets(false);
+      setIsExporting(false);
+      setExportType(null);
+    }
+  };
+
+  const handleExportCsv = async () => {
+    setIsOpen(false);
+    setErrorMessage(null);
+    setSuccessSheetUrl(null);
+    setExportedCount(null);
+    setIsExporting(true);
+    setExportType('csv');
+
+    try {
+      if (!fetchExportData && onExportCsv) {
+        onExportCsv();
+        return;
+      }
+
+      const { title, headers, rows, totalCount } = await getExportData();
+      if (!rows || rows.length === 0) {
+        throw new Error(t('noDataAvailableTo', 'Không có dữ liệu phù hợp để xuất.'));
+      }
+
+      // Convert to CSV with UTF-8 BOM
+      const csvContent = '\uFEFF' + [
+        headers.map(h => `"${String(h).replace(/"/g, '""')}"`).join(','),
+        ...rows.map(row => row.map(cell => `"${String(cell ?? '').replace(/"/g, '""')}"`).join(','))
+      ].join('\n');
+
+      const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.setAttribute('href', url);
+      link.setAttribute('download', `${title}.csv`);
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+
+      setExportedCount(totalCount);
+    } catch (unknownError: unknown) {
+      const err = unknownError instanceof Error ? unknownError : new Error(String(unknownError));
+      setErrorMessage(err.message || 'Lỗi khi xuất CSV');
+    } finally {
+      setIsExporting(false);
+      setExportType(null);
     }
   };
 
@@ -81,19 +150,19 @@ export const ExportDropdown: React.FC<ExportDropdownProps> = ({
       {/* Action button */}
       <button
         type="button"
-        disabled={disabled || isExportingSheets}
+        disabled={disabled || isExporting}
         onClick={() => setIsOpen(!isOpen)}
         className="flex items-center space-x-1.5 px-3 py-1.5 bg-blue-600 hover:bg-blue-700 active:bg-blue-800 disabled:bg-slate-300 text-white font-bold text-xs rounded-lg transition-all cursor-pointer shadow-xs disabled:cursor-not-allowed"
       >
-        {isExportingSheets ? (
+        {isExporting ? (
           <Loader2 className="w-3.5 h-3.5 animate-spin text-white" />
         ) : (
           <Download className="w-3.5 h-3.5" />
         )}
         <span>
-          {isExportingSheets
-            ? (t('creatingSheet'))
-            : (t('exportData'))}
+          {isExporting
+            ? (exportType === 'sheets' ? t('creatingSheet') : 'Đang xuất CSV...')
+            : t('exportData')}
         </span>
         <ChevronDown className={`w-3.5 h-3.5 transition-transform duration-200 ${isOpen ? 'rotate-180' : ''}`} />
       </button>
@@ -131,10 +200,7 @@ export const ExportDropdown: React.FC<ExportDropdownProps> = ({
             {/* Offline CSV Option */}
             <button
               type="button"
-              onClick={() => {
-                setIsOpen(false);
-                onExportCsv();
-              }}
+              onClick={handleExportCsv}
               className="w-full text-left px-3 py-2.5 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-700/60 transition-colors flex items-start space-x-2.5 group cursor-pointer"
             >
               <div className="p-1.5 bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-300 rounded-md shrink-0 group-hover:bg-slate-700 group-hover:text-white transition-colors">
@@ -153,23 +219,27 @@ export const ExportDropdown: React.FC<ExportDropdownProps> = ({
         </div>
       )}
 
-      {/* Floating Success Toast when Sheet is generated */}
-      {successSheetUrl && (
+      {/* Floating Success Toast when Sheet or CSV is generated */}
+      {(successSheetUrl || exportedCount !== null) && (
         <div className="fixed bottom-6 right-6 z-[110] bg-slate-900 text-white px-4 py-3 rounded-xl shadow-2xl border border-emerald-500/50 flex items-center space-x-3 animate-in fade-in slide-in-from-bottom-4 duration-200">
           <CheckCircle2 className="w-5 h-5 text-emerald-400 shrink-0" />
           <div className="text-xs">
             <p className="font-bold text-white">
-              {t('googleSheetCreatedSuccessfully')}
+              {exportedCount !== null
+                ? (language === 'VI' ? `Đã xuất thành công ${exportedCount} bản ghi` : `Successfully exported ${exportedCount} records`)
+                : t('googleSheetCreatedSuccessfully')}
             </p>
-            <a
-              href={successSheetUrl}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="text-emerald-300 hover:text-emerald-200 underline font-semibold flex items-center gap-1 mt-0.5"
-            >
-              <span>{t('openInGoogleDrive')}</span>
-              <ExternalLink className="w-3 h-3" />
-            </a>
+            {successSheetUrl && (
+              <a
+                href={successSheetUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-emerald-300 hover:text-emerald-200 underline font-semibold flex items-center gap-1 mt-0.5"
+              >
+                <span>{t('openInGoogleDrive')}</span>
+                <ExternalLink className="w-3 h-3" />
+              </a>
+            )}
           </div>
         </div>
       )}

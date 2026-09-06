@@ -51,3 +51,54 @@ export function getDateKeyFromLog(log: any): string {
   const day = String(date.getDate()).padStart(2, '0');
   return `${year}-${month}-${day}`;
 }
+
+export function filterRecordsByDateRange<T = any>(
+  records: T[],
+  options?: {
+    preset?: string;
+    startDate?: string;
+    endDate?: string;
+  }
+): T[] {
+  if (!records || !Array.isArray(records)) return [];
+  const preset = options?.preset || 'all';
+  const startDate = options?.startDate;
+  const endDate = options?.endDate;
+
+  if (preset === 'all' && !startDate && !endDate) {
+    return records;
+  }
+
+  const today = new Date();
+  const formatYmd = (d: Date) => {
+    const y = d.getFullYear();
+    const m = String(d.getMonth() + 1).padStart(2, '0');
+    const day = String(d.getDate()).padStart(2, '0');
+    return `${y}-${m}-${day}`;
+  };
+
+  let startKey = startDate || '';
+  let endKey = endDate || '';
+
+  if (preset === 'today') {
+    startKey = formatYmd(today);
+    endKey = formatYmd(today);
+  } else if (preset === '7days') {
+    const d = new Date(today);
+    d.setDate(d.getDate() - 6);
+    startKey = formatYmd(d);
+    endKey = formatYmd(today);
+  } else if (preset === '30days') {
+    const d = new Date(today);
+    d.setDate(d.getDate() - 29);
+    startKey = formatYmd(d);
+    endKey = formatYmd(today);
+  }
+
+  return records.filter((r) => {
+    const itemDate = getDateKeyFromLog(r);
+    if (startKey && itemDate < startKey) return false;
+    if (endKey && itemDate > endKey) return false;
+    return true;
+  });
+}

@@ -146,11 +146,11 @@ export const DeleteDataModal: React.FC<DeleteDataModalProps> = ({
       }}
     >
       <div
-        className="bg-white dark:bg-slate-900 rounded-2xl max-w-xl w-full border border-slate-200 dark:border-slate-800 shadow-2xl overflow-hidden my-auto flex flex-col"
+        className="bg-white dark:bg-slate-900 rounded-2xl max-w-xl w-full border border-slate-200 dark:border-slate-800 shadow-2xl overflow-hidden my-auto flex flex-col max-h-[calc(100dvh-16px)] sm:max-h-[90vh]"
         onClick={(e) => e.stopPropagation()}
       >
         {/* Header */}
-        <div className="bg-rose-950 dark:bg-rose-950 text-white p-4 sm:p-5 flex items-center justify-between border-b border-rose-900">
+        <div className="bg-rose-950 dark:bg-rose-950 text-white p-3 sm:p-5 flex items-center justify-between border-b border-rose-900 shrink-0">
           <div className="flex items-center space-x-3">
             <div className="p-2.5 bg-rose-600/30 rounded-xl border border-rose-500/40 text-rose-300">
               <Trash2 className="w-5 h-5" />
@@ -173,7 +173,7 @@ export const DeleteDataModal: React.FC<DeleteDataModalProps> = ({
         </div>
 
         {/* Content */}
-        <div className="p-5 sm:p-6 space-y-6 max-h-[70vh] overflow-y-auto bg-slate-50 dark:bg-slate-950">
+        <div className="p-4 sm:p-6 space-y-4 sm:space-y-6 overflow-y-auto flex-1 bg-slate-50 dark:bg-slate-950">
           
           {/* Step 1: Time Selection */}
           <div className="space-y-4">
@@ -346,7 +346,7 @@ export const DeleteDataModal: React.FC<DeleteDataModalProps> = ({
         </div>
 
         {/* Footer */}
-        <div className="p-4 bg-slate-100 dark:bg-slate-900 border-t border-slate-200 dark:border-slate-800 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+        <div className="p-3 sm:p-4 bg-slate-100 dark:bg-slate-900 border-t border-slate-200 dark:border-slate-800 flex flex-col sm:flex-row sm:items-center justify-between gap-3 shrink-0">
           <div className="flex-1 max-w-xs">
             <input
               type="password"

@@ -1,8 +1,9 @@
 import { useTranslation } from 'react-i18next';
-import React, { useState, useEffect, useMemo, useRef } from 'react';
+import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import {
   AlertTriangle,
   FileCode,
+  Lock,
   ShieldCheck,
   Star,
   Eye,
@@ -25,7 +26,6 @@ import { ReportsFiltersBar } from './ReportsFiltersBar';
 import { usePagination } from '../../hooks/usePagination';
 import { PaginationControls } from '../common/PaginationControls';
 import { ExportDropdown } from './ExportDropdown';
-import { DatasetNoticeModal } from './modals/DatasetNoticeModal';
 import { PathologyReviewModal } from './modals/PathologyReviewModal';
 import { PathologyStatsCards } from './PathologyStatsCards';
 import { UserDirectoryModal, UniqueUserItem } from './modals/UserDirectoryModal';
@@ -34,6 +34,8 @@ import {
   safeGetAdminSessionItem,
   safeSetAdminSessionItem,
 } from '../../utils/adminSessionCache';
+import { createEvaluationExportBundle } from '../../utils/evaluationExport';
+import { isResearchImageStorageAvailable, getTrainingExportLockedMessage } from '../../utils/researchStorageCapability';
 
 interface PathologyLogsPanelProps {
   pathologyLogs?: PathologyAssessmentLog[];
@@ -44,17 +46,18 @@ interface PathologyLogsPanelProps {
   onRequestDelete?: (target: { docId: string; collection: 'seg_reports'; title?: string; timestamp?: string; meta?: string }) => void;
   onDateRangeChange?: (filter: { preset: 'all' | 'today' | '7days' | '30days' | 'custom'; startDate?: string; endDate?: string }) => void;
   onLoadMore?: (collection: 'reports' | 'pathology' | 'bugs', currentLength: number) => void;
+  hasMore?: boolean;
 }
 
 export const PathologyLogsPanel: React.FC<PathologyLogsPanelProps> = ({
   pathologyLogs,
   systemMetrics: propSystemMetrics,
-  onUnauthorized,
   getAuthHeader: parentGetAuthHeader,
   totalPathologyCount,
   onRequestDelete,
   onDateRangeChange,
   onLoadMore,
+  hasMore = false,
 }) => {
   const { t } = useTranslation(['admin', 'common']);
   const storeSystemMetrics = useMetadataStore((state) => state.systemMetrics);
@@ -65,9 +68,8 @@ export const PathologyLogsPanel: React.FC<PathologyLogsPanelProps> = ({
     if (pathologyLogs && pathologyLogs.length > 0) return pathologyLogs;
     return safeGetAdminSessionItem<PathologyAssessmentLog>(ADMIN_CACHE_KEYS.PATHOLOGY_LOGS);
   });
-  const [isLoading, setIsLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [isDatasetNoticeOpen, setIsDatasetNoticeOpen] = useState(false);
+  const [isLoading] = useState(false);
+  const [error] = useState<string | null>(null);
   const [reviewModalLog, setReviewModalLog] = useState<PathologyAssessmentLog | null>(null);
   const [isUserDirectoryOpen, setIsUserDirectoryOpen] = useState(false);
   const [toastMsg, setToastMsg] = useState<string | null>(null);
@@ -78,6 +80,31 @@ export const PathologyLogsPanel: React.FC<PathologyLogsPanelProps> = ({
     }
     const token = localStorage.getItem('admin_persistent_token');
     return token ? { Authorization: `Bearer ${token}` } : {};
+  };
+
+  const exportEvaluationJson = () => {
+    if (!isResearchImageStorageAvailable()) {
+      setToastMsg(getTrainingExportLockedMessage(language));
+      return;
+    }
+    const isPartial = filterType !== 'all' || statusFilter !== 'ALL' || (totalPathologyCount !== undefined && filteredLogs.length !== totalPathologyCount);
+    const bundle = createEvaluationExportBundle({
+      pathology: filteredLogs,
+      scope: {
+        modality: 'pathology',
+        filters: { timeFilter: filterType, statusFilter, startDate: filterType === 'day' ? startDate : undefined, endDate: filterType === 'day' ? endDate : undefined },
+        isPartial,
+      },
+    });
+    const blob = new Blob([JSON.stringify(bundle, null, 2)], { type: 'application/json;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `periapical_pathology_evaluation_${new Date().toISOString().slice(0, 10)}.json`;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    URL.revokeObjectURL(url);
   };
 
   const handleLogVerified = (updatedLog: PathologyAssessmentLog) => {
@@ -134,44 +161,8 @@ export const PathologyLogsPanel: React.FC<PathologyLogsPanelProps> = ({
     }
   }, [filterType, startDate, endDate]);
 
-  const fetchLogs = async () => {
-    setIsLoading(true);
-    setError(null);
-    try {
-      const authHeaders = getAuthHeader();
-      const res = await fetch('/api/pathology-logs?limit=500', { headers: authHeaders });
-
-      if (res.status === 401) {
-        if (onUnauthorized) {
-          onUnauthorized();
-        } else {
-          setError(t('sessionExpiredPleaseLog'));
-        }
-        return;
-      }
-
-      const data = await res.json();
-      if (data && data.logs) {
-        setLogs(data.logs || []);
-        try {
-          sessionStorage.setItem('admin_cached_pathology_logs', JSON.stringify(data.logs || []));
-        } catch {}
-      } else {
-        setError(data?.error || (t('failedToLoadPathology')));
-      }
-    } catch (unknownError: unknown) {
-    const err = unknownError instanceof Error ? unknownError : new Error(String(unknownError));
-      setError(err?.message || (t('networkConnectionError')));
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
-  useEffect(() => {
-    if (!pathologyLogs || pathologyLogs.length === 0) {
-      fetchLogs();
-    }
-  }, []);
+  // Pathology records are loaded exclusively through the scoped parent reader.
+  // This component never issues its own competing bulk request.
 
   const getLogStatus = (l: PathologyAssessmentLog) => {
     if (l.sessionStatus) return l.sessionStatus;
@@ -231,12 +222,12 @@ export const PathologyLogsPanel: React.FC<PathologyLogsPanelProps> = ({
   const { currentPage, setCurrentPage, totalPages } = usePagination(filteredLogs, PAGE_SIZE, totalPathologyCount);
 
   useEffect(() => {
-    if (currentPage * PAGE_SIZE >= logs.length && logs.length < (totalPathologyCount || 0)) {
+    if (currentPage > 1 && logs.length > 0 && currentPage * PAGE_SIZE >= logs.length && hasMore) {
       if (onLoadMore) {
         onLoadMore('pathology', logs.length);
       }
     }
-  }, [currentPage, logs.length, totalPathologyCount, onLoadMore]);
+  }, [currentPage, logs.length, hasMore, onLoadMore]);
 
   useEffect(() => {
     setCurrentPage(1);
@@ -258,7 +249,7 @@ export const PathologyLogsPanel: React.FC<PathologyLogsPanelProps> = ({
     totalPathologyOccurrences,
     invalidImageCount,
   } = useMemo(() => {
-    if (!hasStatusFilter && systemMetrics?.pathology) {
+    if (systemMetrics?.pathology) {
       const p = systemMetrics.pathology;
       const totalSessions = p.totalPathologyLogs;
       const completedCount = p.completedCount;
@@ -284,8 +275,8 @@ export const PathologyLogsPanel: React.FC<PathologyLogsPanelProps> = ({
           adminVerifiedCount,
           completionRate,
         },
-        uniqueUsersCount: p.uniqueUsersCount,
-        todayUsersCount: p.todayUsersCount,
+        uniqueUsersCount: systemMetrics?.users?.uniqueUsersCount ?? p.uniqueUsersCount,
+        todayUsersCount: systemMetrics?.users?.activeUsersCount ?? p.todayUsersCount,
         uniqueUsersList,
         sortedPathologyCounts,
         totalPathologyOccurrences,
@@ -293,7 +284,7 @@ export const PathologyLogsPanel: React.FC<PathologyLogsPanelProps> = ({
       };
     }
 
-    const totalSessions = (!hasStatusFilter && totalPathologyCount) ? totalPathologyCount : logs.length;
+    const totalSessions = totalPathologyCount ? totalPathologyCount : logs.length;
     const completedCount = logs.filter((l) => getLogStatus(l) === 'COMPLETED').length;
     const incompleteCount = logs.filter((l) => getLogStatus(l) === 'INCOMPLETE').length;
     const invalidImageCount = logs.filter((l) => getLogStatus(l) === 'FAILED_NON_DENTAL').length;
@@ -393,7 +384,7 @@ export const PathologyLogsPanel: React.FC<PathologyLogsPanelProps> = ({
       const statusStr = getLogStatus(log) === 'COMPLETED' ? 'COMPLETED' : (getLogStatus(log) === 'FAILED_NON_DENTAL' ? 'FAILED_NON_DENTAL' : 'INCOMPLETE');
       
       const pathList = (log.confirmedPathologies || [])
-        .map((p) => `${getPathologyLabel(p.pathologyKey, language)} (${p.confidence}%)`)
+        .map((p) => `${getPathologyLabel(p.pathologyKey, language)}${typeof p.confidence === 'number' ? ` (${p.confidence}%)` : ''}`)
         .join('; ');
       const treatList = (log.confirmedPathologies || [])
         .map((p) => `${getPathologyLabel(p.pathologyKey, language)}: ${getTreatmentText(p.pathologyKey, language)}`)
@@ -455,7 +446,7 @@ export const PathologyLogsPanel: React.FC<PathologyLogsPanelProps> = ({
       const statusStr = getLogStatus(log) === 'COMPLETED' ? 'COMPLETED' : (getLogStatus(log) === 'FAILED_NON_DENTAL' ? 'FAILED_NON_DENTAL' : 'INCOMPLETE');
       
       const pathList = (log.confirmedPathologies || [])
-        .map((p) => `${getPathologyLabel(p.pathologyKey, language)} (${p.confidence}%)`)
+        .map((p) => `${getPathologyLabel(p.pathologyKey, language)}${typeof p.confidence === 'number' ? ` (${p.confidence}%)` : ''}`)
         .join('; ');
       const treatList = (log.confirmedPathologies || [])
         .map((p) => `${getPathologyLabel(p.pathologyKey, language)}: ${getTreatmentText(p.pathologyKey, language)}`)
@@ -490,6 +481,41 @@ export const PathologyLogsPanel: React.FC<PathologyLogsPanelProps> = ({
       rows,
     };
   };
+
+  const fetchExportData = useCallback(async () => {
+    const preset = filterType === 'all' ? 'all' : filterType === 'today' ? 'today' : 'custom';
+    const sDate = filterType === 'day' ? startDate : undefined;
+    const eDate = filterType === 'day' ? endDate : undefined;
+
+    const authHeaders = getAuthHeader ? getAuthHeader() : {};
+    const response = await fetch('/api/admin/export', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        ...authHeaders,
+      },
+      body: JSON.stringify({
+        scope: 'pathology',
+        preset,
+        startDate: sDate,
+        endDate: eDate,
+        status: statusFilter,
+        language: language.toUpperCase(),
+      }),
+    });
+
+    const data = await response.json();
+    if (!response.ok || !data.success) {
+      throw new Error(data.error || 'Lỗi khi lấy dữ liệu xuất');
+    }
+
+    return {
+      title: data.title,
+      headers: data.headers,
+      rows: data.rows,
+      totalCount: data.totalCount,
+    };
+  }, [filterType, startDate, endDate, statusFilter, language, getAuthHeader]);
 
   return (
     <div className="space-y-4 text-xs text-slate-800 dark:text-slate-200">
@@ -532,28 +558,51 @@ export const PathologyLogsPanel: React.FC<PathologyLogsPanelProps> = ({
       {/* ── Assessment Record Table (Identical Layout & Buttons to Luồng A) ── */}
       <div className="bg-white dark:bg-blue-950/80 rounded-xl border border-slate-200 dark:border-blue-800/70 shadow-xs overflow-hidden flex flex-col flex-1 min-h-[400px]">
         {/* Header Bar */}
-        <div className="p-3 border-b border-slate-200 dark:border-blue-800/70 flex items-center justify-between bg-slate-50 dark:bg-blue-900/40 shrink-0">
+        <div className="p-3 border-b border-slate-200 dark:border-blue-800/70 flex flex-col sm:flex-row sm:items-center justify-between gap-2 bg-slate-50 dark:bg-blue-900/40 shrink-0">
           <div className="flex items-center space-x-2 text-slate-700 dark:text-slate-200 text-xs font-bold">
             <Filter className="w-3.5 h-3.5 text-blue-500 dark:text-blue-400" />
             <span>
               {t('recordList')} ({filteredLogs.length} {t('results')})
             </span>
           </div>
-          <div className="flex items-center space-x-2">
-            <button
-              onClick={() => setIsDatasetNoticeOpen(true)}
-              className="flex items-center space-x-1.5 px-3 py-1.5 bg-amber-500 hover:bg-amber-600 text-white font-bold text-xs rounded-lg transition-all cursor-pointer shadow-xs border border-amber-400/30"
-              title={t('exportAnomaliesLabelledJson')}
+          <div className="flex flex-wrap items-center gap-2">
+            <div
+              className="relative inline-flex group cursor-not-allowed"
+              title={!isResearchImageStorageAvailable() ? getTrainingExportLockedMessage(language) : undefined}
             >
-              <FileCode className="w-3.5 h-3.5" />
-              <span>{t('exportAiTrainingDataset')}</span>
-            </button>
+              <button
+                type="button"
+                disabled={!isResearchImageStorageAvailable()}
+                onClick={exportEvaluationJson}
+                className={`flex items-center space-x-1.5 px-3 py-1.5 text-xs font-bold rounded-lg transition-all shadow-xs border ${
+                  isResearchImageStorageAvailable()
+                    ? 'bg-amber-500 hover:bg-amber-600 text-white cursor-pointer border-amber-400/30'
+                    : 'bg-slate-200 dark:bg-slate-800 text-slate-400 dark:text-slate-500 border-slate-300 dark:border-slate-700 cursor-not-allowed opacity-75'
+                }`}
+                title={!isResearchImageStorageAvailable() ? getTrainingExportLockedMessage(language) : t('exportAnomaliesLabelledJson')}
+              >
+                {!isResearchImageStorageAvailable() ? <Lock className="w-3.5 h-3.5" /> : <FileCode className="w-3.5 h-3.5" />}
+                <span>{t('exportAiTrainingDataset')}</span>
+              </button>
+              {!isResearchImageStorageAvailable() && (
+                <div
+                  role="tooltip"
+                  className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 hidden group-hover:flex flex-col items-center z-50 pointer-events-none"
+                >
+                  <div className="bg-slate-900 text-white text-[11px] font-normal px-2.5 py-1.5 rounded-lg shadow-lg whitespace-nowrap border border-slate-700 max-w-xs text-center">
+                    {getTrainingExportLockedMessage(language)}
+                  </div>
+                  <div className="w-2 h-2 bg-slate-900 rotate-45 -mt-1 border-r border-b border-slate-700" />
+                </div>
+              )}
+            </div>
 
             <ExportDropdown
               disabled={filteredLogs.length === 0}
               language={language}
               onExportCsv={exportCsv}
               getDataForGoogleSheets={getReportsDataForGoogleSheets}
+              fetchExportData={fetchExportData}
               headerColor={{ red: 0.08, green: 0.45, blue: 0.45 }}
             />
           </div>
@@ -742,12 +791,6 @@ export const PathologyLogsPanel: React.FC<PathologyLogsPanelProps> = ({
         />
       </div>
 
-      <DatasetNoticeModal
-        isOpen={isDatasetNoticeOpen}
-        onClose={() => setIsDatasetNoticeOpen(false)}
-        language={language}
-      />
-
       <PathologyReviewModal
         selectedLog={reviewModalLog}
         onClose={() => setReviewModalLog(null)}
@@ -763,6 +806,8 @@ export const PathologyLogsPanel: React.FC<PathologyLogsPanelProps> = ({
         onClose={() => setIsUserDirectoryOpen(false)}
         language={language}
         uniqueUsersList={uniqueUsersList}
+        totalUsersCount={uniqueUsersCount}
+        getAuthHeader={getAuthHeader}
       />
 
       {toastMsg && (

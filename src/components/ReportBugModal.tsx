@@ -64,14 +64,14 @@ export const ReportBugModal: React.FC = () => {
     <>
       {isOpen && (
         <div 
-          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/70 backdrop-blur-md animate-in fade-in duration-200"
+          className="fixed inset-0 z-50 flex items-center justify-center p-2 sm:p-4 overflow-y-auto bg-slate-950/70 backdrop-blur-md animate-in fade-in duration-200"
           role="dialog"
           aria-modal="true"
           aria-labelledby="bug-modal-title"
         >
-          <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-2xl w-full max-w-md overflow-hidden flex flex-col border border-slate-200/90 dark:border-slate-800 animate-in zoom-in-95 duration-200">
+          <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-2xl w-full max-w-md overflow-hidden flex flex-col border border-slate-200/90 dark:border-slate-800 animate-in zoom-in-95 duration-200 my-auto max-h-[calc(100dvh-16px)]">
             
-            <div className="flex items-center justify-between p-4 border-b border-slate-100 dark:border-slate-800">
+            <div className="flex items-center justify-between p-3 sm:p-4 border-b border-slate-100 dark:border-slate-800 shrink-0">
               <div className="flex items-center space-x-2 text-rose-600 dark:text-rose-400">
                 <Bug className="w-5 h-5" aria-hidden="true" />
                 <h3 id="bug-modal-title" className="font-bold text-slate-900 dark:text-slate-100">{t('bugModal_title')}</h3>
@@ -87,7 +87,7 @@ export const ReportBugModal: React.FC = () => {
               </button>
             </div>
 
-            <form onSubmit={handleSubmit} className="p-4 space-y-4">
+            <form onSubmit={handleSubmit} className="p-3 sm:p-4 space-y-3 sm:space-y-4 overflow-y-auto flex-1">
               <div className="space-y-2">
                 <label htmlFor="bug-description-input" className="block text-sm font-semibold text-slate-700 dark:text-slate-300">
                   {t('label')}
@@ -97,7 +97,7 @@ export const ReportBugModal: React.FC = () => {
                   value={description}
                   onChange={(e) => setDescription(e.target.value)}
                   placeholder={t('placeholder')}
-                  className="w-full min-h-[120px] p-3 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 focus:bg-white dark:focus:bg-slate-800 focus:border-rose-400 focus:ring-2 focus:ring-rose-400/20 outline-none transition-all resize-none text-sm text-slate-800 dark:text-slate-100 placeholder:text-slate-400 dark:placeholder:text-slate-500"
+                  className="w-full min-h-[90px] sm:min-h-[120px] p-3 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 focus:bg-white dark:focus:bg-slate-800 focus:border-rose-400 focus:ring-2 focus:ring-rose-400/20 outline-none transition-all resize-none text-sm text-slate-800 dark:text-slate-100 placeholder:text-slate-400 dark:placeholder:text-slate-500"
                   disabled={isSubmitting || submitStatus === 'success'}
                   autoFocus
                 />

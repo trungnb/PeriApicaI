@@ -28,27 +28,6 @@ export const apiRequest = async <T = any>(endpoint: string, options?: RequestIni
   return response.json() as Promise<T>;
 };
 
-async function postJSON<T>(url: string, payload: unknown): Promise<T> {
-  const response = await fetch(url, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(payload),
-  });
-
-  if (!response.ok) {
-    let errorMsg = `HTTP error! status: ${response.status}`;
-    try {
-      const data = await response.json();
-      if (data.error || data.userMessage) errorMsg = data.error || data.userMessage;
-    } catch {
-      // ignore non-json errors
-    }
-    throw new Error(errorMsg);
-  }
-
-  return response.json() as Promise<T>;
-}
-
 export const reportAutoSystemError = async (description: string, errorDetails?: any) => {
   try {
     await fetch('/api/report-bug', {
@@ -163,6 +142,16 @@ function safelySaveQueue(key: string, queue: any[]): void {
   }
 }
 
+// Re-read after network awaits; acknowledge only unchanged successful snapshot entries.
+function acknowledgeQueuedEntries(key: string, sent: Set<string>): void {
+  if (!sent.size) return;
+  const current = JSON.parse(localStorage.getItem(key) || '[]');
+  if (!Array.isArray(current)) return;
+  const remaining = current.filter((item) => !sent.has(JSON.stringify(item)));
+  if (remaining.length) localStorage.setItem(key, JSON.stringify(remaining));
+  else localStorage.removeItem(key);
+}
+
 let isFlushingClassic = false;
 let isFlushingPathology = false;
 
@@ -186,7 +175,7 @@ export const flushPendingLogs = async () => {
     }
     if (!Array.isArray(queue) || queue.length === 0) return;
 
-    const remaining: any[] = [];
+    const sent = new Set<string>();
     // Process sequentially or concurrency = 2 to avoid hammering server
     for (let i = 0; i < queue.length; i += 2) {
       const batch = queue.slice(i, i + 2);
@@ -217,8 +206,8 @@ export const flushPendingLogs = async () => {
       let shouldStopFlushing = false;
       for (const res of results) {
         if (res.status === 'fulfilled') {
-          if (!res.value.success) {
-            remaining.push(res.value.item);
+          if (res.value.success) {
+            sent.add(JSON.stringify(res.value.item));
           }
           if ((res.value as any).shouldStop) {
             shouldStopFlushing = true;
@@ -227,20 +216,11 @@ export const flushPendingLogs = async () => {
       }
 
       if (shouldStopFlushing) {
-        // Collect whatever was unattempted
-        const unattempted = queue.slice(i + 2);
-        remaining.push(...unattempted);
         break;
       }
     }
 
-    if (remaining.length === 0) {
-      try {
-        localStorage.removeItem(PENDING_LOGS_QUEUE_KEY);
-      } catch {}
-    } else {
-      safelySaveQueue(PENDING_LOGS_QUEUE_KEY, remaining);
-    }
+    acknowledgeQueuedEntries(PENDING_LOGS_QUEUE_KEY, sent);
   } catch (err) {
     console.debug('[apiService] Error flushing pending logs:', err);
   } finally {
@@ -268,7 +248,7 @@ export const flushPendingPathologyLogs = async () => {
     }
     if (!Array.isArray(queue) || queue.length === 0) return;
 
-    const remaining: any[] = [];
+    const sent = new Set<string>();
     // Process max 2 at a time
     for (let i = 0; i < queue.length; i += 2) {
       const batch = queue.slice(i, i + 2);
@@ -298,8 +278,8 @@ export const flushPendingPathologyLogs = async () => {
       let shouldStopFlushing = false;
       for (const res of results) {
         if (res.status === 'fulfilled') {
-          if (!res.value.success) {
-            remaining.push(res.value.item);
+          if (res.value.success) {
+            sent.add(JSON.stringify(res.value.item));
           }
           if ((res.value as any).shouldStop) {
             shouldStopFlushing = true;
@@ -308,19 +288,11 @@ export const flushPendingPathologyLogs = async () => {
       }
 
       if (shouldStopFlushing) {
-        const unattempted = queue.slice(i + 2);
-        remaining.push(...unattempted);
         break;
       }
     }
 
-    if (remaining.length === 0) {
-      try {
-        localStorage.removeItem(PENDING_PATHOLOGY_LOGS_QUEUE_KEY);
-      } catch {}
-    } else {
-      safelySaveQueue(PENDING_PATHOLOGY_LOGS_QUEUE_KEY, remaining);
-    }
+    acknowledgeQueuedEntries(PENDING_PATHOLOGY_LOGS_QUEUE_KEY, sent);
   } catch (err) {
     console.debug('[apiService] Error flushing pending pathology logs:', err);
   } finally {
@@ -426,7 +398,7 @@ export const verifyAssessmentLog = async (payload: {
   verifiedErrors: string[];
   verifiedNotes?: string;
   accuracyScore?: string;
-}, authHeaders: Record<string, string> = {}) => {
+}, authHeaders: Record<string, string> = {}): Promise<{ success: boolean; log: AssessmentLogPayload }> => {
   const response = await fetch('/api/verify-assessment', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', ...authHeaders },
@@ -435,7 +407,7 @@ export const verifyAssessmentLog = async (payload: {
   if (!response.ok) {
     throw new Error(`HTTP error! status: ${response.status}`);
   }
-  return response.json();
+  return response.json() as Promise<{ success: boolean; log: AssessmentLogPayload }>;
 };
 
 export const verifyPathologyAssessmentLog = async (payload: {

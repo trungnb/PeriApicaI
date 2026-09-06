@@ -1,11 +1,12 @@
 import fs from 'fs';
-import path from 'path';
-import { uploadsDir, serverLog } from '../config/env';
-import { getOrInitServerCache, saveServerCacheToDisk } from '../services/storageAdapter';
+import { serverLog } from '../config/env';
+import { getUploadsDirectory, resolveUploadFilePath } from '../config/storagePaths';
+import { getOrInitServerCache, markServerCacheDirty, saveServerCacheToDisk } from '../services/storageAdapter';
 import { deduplicateMasterCache } from './deduplicateMasterData';
 
 export function runDailyUploadsCleanup() {
   try {
+    const uploadsDir = getUploadsDirectory();
     if (!fs.existsSync(uploadsDir)) return;
     const files = fs.readdirSync(uploadsDir);
     const now = Date.now();
@@ -13,7 +14,7 @@ export function runDailyUploadsCleanup() {
     let deletedCount = 0;
 
     for (const file of files) {
-      const filePath = path.join(uploadsDir, file);
+      const filePath = resolveUploadFilePath(file);
       try {
         const stats = fs.statSync(filePath);
         if (now - stats.mtimeMs > maxAgeMs) {
@@ -49,7 +50,7 @@ export function runDailyUploadsCleanup() {
     }).slice(0, 2000); // Cap at 2000 items
 
     if (cache.reports.length !== initialReportCount || cache.seg_reports.length !== initialSegCount) {
-      cache.isCacheDirty = true;
+      markServerCacheDirty(cache);
       saveServerCacheToDisk(true);
       serverLog('INFO', 'StorageCleanup', `Đã dọn dẹp các bản ghi cache cục bộ cũ hơn 30 ngày.`);
     }

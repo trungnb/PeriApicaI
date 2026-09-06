@@ -1,18 +1,28 @@
 import { isLogIncompleteHelper as isLogIncomplete, isLogErrorHelper as isLogError, parseTimestampToMsHelper } from '../utils/metadataHelpers';
-import path from 'path';
 import fs from 'fs';
-import { saveAndOptimizeImageFile, deleteImageFile, serverLog, generateSignedImageUrl } from '../config/env';
-import { restorePathologyDocFromFirestore } from './firestorePathologyService';
+import crypto from 'crypto';
+import { saveAndOptimizeImageFile, deleteImageFile, serverLog } from '../config/env';
+import {
+  assertStoragePathSafe,
+  getCacheFilePath,
+  getStorageRoot,
+  isStorageTestOfflineMode,
+} from '../config/storagePaths';
 import { getFirestoreInstance } from './firebaseService';
 import {
   executeAtomicReportWrite,
   executeAtomicReportDelete,
   executeAtomicBugWrite,
   executeAtomicBugDelete,
-  executeAtomicPathologyWrite,
   executeAtomicPathologyDelete,
   executeAtomicBulkDelete,
 } from './atomicUpdateService';
+import { preserveImmutableInferenceLineage } from './inferenceLineage';
+import {
+  appendTechnicalReview,
+  mergeTechnicalEvaluation,
+  readTechnicalEvaluation,
+} from '../../utils/technicalEvaluation';
 
 export interface IStorageAdapter {
   type: string;
@@ -21,7 +31,13 @@ export interface IStorageAdapter {
   getLogById(assessmentId: string): Promise<any | null>;
   saveBug(bugData: any): Promise<{ success: boolean }>;
   getBugs(limitCount?: number): Promise<any[]>;
-  verifyAssessment(assessmentId: string, verifiedErrors: any, verifiedNotes?: string): Promise<{ success: boolean; log: any }>;
+  verifyAssessment(
+    assessmentId: string,
+    verifiedErrors: any,
+    verifiedNotes?: string,
+    reviewerId?: string,
+    reviewedAt?: string,
+  ): Promise<{ success: boolean; log: any }>;
   deleteData(options: {
     timeConfig?: string | { isAllTime?: boolean; startDate?: string; endDate?: string };
     startDate?: string;
@@ -117,6 +133,41 @@ export function isLogTest(log: any): boolean {
   return false;
 }
 
+function isLogComplete(log: any): boolean {
+  if (!log) return false;
+  return log.sessionStatus === 'COMPLETED' ||
+    log.lastCompletedStep === 5 ||
+    Boolean(log.stage && (log.stage.includes('Bước 5') || log.stage.includes('Step 5')));
+}
+
+function isPathologyLogIncomplete(log: any): boolean {
+  if (!log) return false;
+  return log.sessionStatus === 'INCOMPLETE' ||
+    (log.lastCompletedStep !== undefined && log.lastCompletedStep < 5);
+}
+
+function matchesDeleteTime(
+  item: any,
+  timeConfig: string,
+  startDate: string | undefined,
+  endDate: string | undefined,
+  now: number,
+): boolean {
+  if (timeConfig === 'all') return true;
+  if (timeConfig === 'custom') {
+    return isTimestampInDateRange(item.timestamp, item.updatedAt, item.createdAt, startDate, endDate);
+  }
+
+  const itemMs = parseTimestampToMsHelper(item.timestamp, item.updatedAt, item.createdAt);
+  if (timeConfig === '24h') return now - itemMs < 24 * 60 * 60 * 1000;
+  if (timeConfig === '7d') return now - itemMs < 7 * 24 * 60 * 60 * 1000;
+  if (timeConfig === '30d') return now - itemMs < 30 * 24 * 60 * 60 * 1000;
+
+  // These legacy timeConfig values encode a type-only request, so the time
+  // dimension is inactive and must not narrow the matching status category.
+  return timeConfig === 'incomplete' || timeConfig === 'errors' || timeConfig === 'tests';
+}
+
 import { SystemMetrics } from '../../types/dental';
 
 // ===================================================
@@ -128,40 +179,135 @@ export interface ServerCacheStructure {
   bugs: any[];
   systemMetrics?: SystemMetrics;
   lastUpdated: string;
-  isCacheDirty: boolean; // Flag to eliminate unnecessary disk/network I/O
+  // Disk persistence state only. Firestore retry eligibility is derived from
+  // each record's firestoreSynced flag and must never use this field.
+  isCacheDirty: boolean;
+  diskMutationGeneration: number;
+  diskPersistedGeneration: number;
 }
 
 import {
-  computeSystemMetadata,
-  recalculateAndPersistSystemMetadata,
-  recordReportWrite,
-  recordReportDelete,
-  recordBugWrite,
-  recordBugDelete,
-  recordPathologyWrite,
-  recordPathologyDelete,
-  getSystemMetadata,
-} from './systemMetadataService';
+  createEmptyStats,
+  reportContributions,
+  pathologyContributions,
+  bugContributions,
+  SystemStatsDoc,
+  rebuildSystemStats,
+  getDateKeyFromLog,
+} from './systemStatsService';
 
-export const computeSystemMetrics = computeSystemMetadata;
+export function computeSystemMetrics(
+  reports: any[] = [],
+  segReports: any[] = [],
+  bugs: any[] = []
+): SystemStatsDoc {
+  const stats = createEmptyStats();
+  const applyContrib = (contribs: Record<string, number>) => {
+    for (const [k, v] of Object.entries(contribs)) {
+      if (k.startsWith('reports.')) {
+        const sub = k.replace('reports.', '');
+        if (sub.startsWith('accuracyCounts.')) {
+          const accKey = sub.replace('accuracyCounts.', '');
+          (stats.reports.accuracyCounts as any)[accKey] = ((stats.reports.accuracyCounts as any)[accKey] || 0) + v;
+        } else if (sub.startsWith('errorDistribution.')) {
+          const errKey = sub.replace('errorDistribution.', '');
+          stats.reports.errorDistribution[errKey] = (stats.reports.errorDistribution[errKey] || 0) + v;
+        } else {
+          (stats.reports as any)[sub] = ((stats.reports as any)[sub] || 0) + v;
+        }
+      } else if (k.startsWith('pathology.')) {
+        const sub = k.replace('pathology.', '');
+        if (sub.startsWith('pathologyDistribution.')) {
+          const pathKey = sub.replace('pathologyDistribution.', '');
+          stats.pathology.pathologyDistribution[pathKey] = (stats.pathology.pathologyDistribution[pathKey] || 0) + v;
+        } else if (sub.startsWith('toothDistribution.')) {
+          const toothKey = sub.replace('toothDistribution.', '');
+          stats.pathology.toothDistribution[toothKey] = (stats.pathology.toothDistribution[toothKey] || 0) + v;
+        } else {
+          (stats.pathology as any)[sub] = ((stats.pathology as any)[sub] || 0) + v;
+        }
+      } else if (k.startsWith('bugs.')) {
+        const sub = k.replace('bugs.', '');
+        if (sub.startsWith('severityDistribution.')) {
+          const sevKey = sub.replace('severityDistribution.', '');
+          (stats.bugs.severityDistribution as any)[sevKey] = ((stats.bugs.severityDistribution as any)[sevKey] || 0) + v;
+        } else if (sub.startsWith('statusDistribution.')) {
+          const stKey = sub.replace('statusDistribution.', '');
+          (stats.bugs.statusDistribution as any)[stKey] = ((stats.bugs.statusDistribution as any)[stKey] || 0) + v;
+        } else if (sub.startsWith('sourceDistribution.')) {
+          const srcKey = sub.replace('sourceDistribution.', '');
+          (stats.bugs.sourceDistribution as any)[srcKey] = ((stats.bugs.sourceDistribution as any)[srcKey] || 0) + v;
+        } else {
+          (stats.bugs as any)[sub] = ((stats.bugs as any)[sub] || 0) + v;
+        }
+      }
+    }
+  };
 
-export async function recalculateAndPersistMetrics(db?: any): Promise<SystemMetrics> {
+  reports.forEach(r => applyContrib(reportContributions(r)));
+  segReports.forEach(p => applyContrib(pathologyContributions(p)));
+  bugs.forEach(b => applyContrib(bugContributions(b)));
+
+  const allTimeUsers = new Set<string>();
+  const todayUsers = new Set<string>();
+  const today = new Date();
+  const todayStr = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
+
+  const trackUser = (r: any) => {
+    const uid = r.userId || r.deviceId || r.user_id || r.device_id;
+    if (uid && typeof uid === 'string' && uid.trim()) {
+      const cleanUid = uid.trim();
+      allTimeUsers.add(cleanUid);
+      const itemDate = getDateKeyFromLog(r);
+      if (itemDate === todayStr) {
+        todayUsers.add(cleanUid);
+      }
+    }
+  };
+
+  reports.forEach(trackUser);
+  segReports.forEach(trackUser);
+
+  stats.users.uniqueUsersCount = allTimeUsers.size;
+  stats.users.activeUsersCount = todayUsers.size;
+
+  return stats;
+}
+
+export async function recalculateAndPersistMetrics(db?: any): Promise<SystemStatsDoc> {
   const cache = getOrInitServerCache();
-  const metrics = await recalculateAndPersistSystemMetadata(db, cache);
+  let metrics: SystemStatsDoc;
+  if (db) {
+    metrics = await rebuildSystemStats(db);
+  } else {
+    metrics = computeSystemMetrics(cache.reports || [], cache.seg_reports || [], cache.bugs || []);
+  }
   cache.systemMetrics = metrics;
+  markServerCacheDirty(cache);
   saveServerCacheToDisk();
   return metrics;
 }
 
-const TEMP_CACHE_FILE = path.join(process.cwd(), 'temp_cache.json');
 let serverTempCache: ServerCacheStructure | null = null;
+let serverTempCacheRoot: string | null = null;
 
 export function getOrInitServerCache(): ServerCacheStructure {
-  if (!serverTempCache) {
-    serverTempCache = { reports: [], seg_reports: [], bugs: [], lastUpdated: new Date().toISOString(), isCacheDirty: false };
-    if (fs.existsSync(TEMP_CACHE_FILE)) {
+  const storageRoot = getStorageRoot();
+  const tempCacheFile = assertStoragePathSafe(getCacheFilePath());
+  if (!serverTempCache || serverTempCacheRoot !== storageRoot) {
+    serverTempCacheRoot = storageRoot;
+    serverTempCache = {
+      reports: [],
+      seg_reports: [],
+      bugs: [],
+      lastUpdated: new Date().toISOString(),
+      isCacheDirty: false,
+      diskMutationGeneration: 0,
+      diskPersistedGeneration: 0,
+    };
+    if (fs.existsSync(tempCacheFile)) {
       try {
-        const raw = fs.readFileSync(TEMP_CACHE_FILE, 'utf8');
+        const raw = fs.readFileSync(tempCacheFile, 'utf8');
         const parsed = JSON.parse(raw);
         serverTempCache.reports = Array.isArray(parsed.reports) ? parsed.reports : [];
         serverTempCache.seg_reports = Array.isArray(parsed.seg_reports)
@@ -173,6 +319,8 @@ export function getOrInitServerCache(): ServerCacheStructure {
         serverTempCache.systemMetrics = parsed.systemMetrics || undefined;
         serverTempCache.lastUpdated = parsed.lastUpdated || new Date().toISOString();
         serverTempCache.isCacheDirty = false;
+        serverTempCache.diskMutationGeneration = 0;
+        serverTempCache.diskPersistedGeneration = 0;
       } catch (e) {
         console.warn('[Cache Init Warning]: Unable to read temp_cache.json', e);
       }
@@ -183,13 +331,63 @@ export function getOrInitServerCache(): ServerCacheStructure {
 
 
 let isSavingCache = false;
+let activeCacheWrite: Promise<void> | null = null;
+let storageTestWriteFile: ((filePath: string, data: string) => Promise<void>) | null = null;
+
+/** Marks a local cache mutation for disk persistence. Remote sync state is separate. */
+export function markServerCacheDirty(cache = getOrInitServerCache()): void {
+  cache.diskMutationGeneration += 1;
+  cache.isCacheDirty = true;
+}
+
+export function configureCacheWriteForStorageTests(writer: (filePath: string, data: string) => Promise<void>): void {
+  if (!isStorageTestOfflineMode()) {
+    throw new Error('Controlled cache writes are available only inside an R17 offline sandbox.');
+  }
+  storageTestWriteFile = writer;
+}
+
+export function resetCacheWriteForStorageTests(): void {
+  if (!isStorageTestOfflineMode()) {
+    throw new Error('Controlled cache writes are available only inside an R17 offline sandbox.');
+  }
+  storageTestWriteFile = null;
+}
+
+export function getDiskPersistenceStateForTests(): { dirty: boolean; mutationGeneration: number; persistedGeneration: number } {
+  if (!isStorageTestOfflineMode()) {
+    throw new Error('Disk persistence state is available only inside an R17 offline sandbox.');
+  }
+  const cache = getOrInitServerCache();
+  return {
+    dirty: cache.isCacheDirty,
+    mutationGeneration: cache.diskMutationGeneration,
+    persistedGeneration: cache.diskPersistedGeneration,
+  };
+}
+
+function isTestExecutionActive(): boolean {
+  return (
+    process.env.NODE_ENV === "test" ||
+    process.execArgv.includes("--test") ||
+    process.argv.some((a) => a === "--test" || a.includes(".test.") || a.includes("test/"))
+  );
+}
 
 export function saveServerCacheToDisk(force = false, sync = false) {
+  // CRITICAL: Prevent unisolated test execution from mutating production workspace temp_cache.json
+  if (isTestExecutionActive() && !isStorageTestOfflineMode()) {
+    return;
+  }
+
   const cache = getOrInitServerCache();
   if (!force && !cache.isCacheDirty) return; // Skip disk I/O if cache is clean
-  if (isSavingCache && !sync) return; // Skip if already saving
+  if (isSavingCache) return; // The active owner drains newer generations, including sync triggers.
 
+  const tempCacheFile = assertStoragePathSafe(getCacheFilePath());
+  const temporaryFile = assertStoragePathSafe(`${tempCacheFile}.tmp.${process.pid}.${crypto.randomUUID()}`);
   try {
+    const writeGeneration = cache.diskMutationGeneration;
     cache.lastUpdated = new Date().toISOString();
     const data = JSON.stringify({
       reports: cache.reports,
@@ -200,34 +398,79 @@ export function saveServerCacheToDisk(force = false, sync = false) {
     });
 
     if (sync) {
-      fs.writeFileSync(TEMP_CACHE_FILE, data, 'utf8');
-      cache.isCacheDirty = false;
+      fs.writeFileSync(temporaryFile, data, { encoding: 'utf8', flag: 'wx' });
+      fs.renameSync(temporaryFile, tempCacheFile);
+      if (cache.diskMutationGeneration === writeGeneration) {
+        cache.diskPersistedGeneration = writeGeneration;
+        cache.isCacheDirty = false;
+      }
     } else {
       isSavingCache = true;
-      fs.promises.writeFile(TEMP_CACHE_FILE, data, 'utf8')
+      let committed = false;
+      const write = storageTestWriteFile
+        ? storageTestWriteFile(temporaryFile, data)
+        : fs.promises.writeFile(temporaryFile, data, { encoding: 'utf8', flag: 'wx' });
+      activeCacheWrite = write
+        .then(() => fs.promises.rename(temporaryFile, tempCacheFile))
         .then(() => {
-          cache.isCacheDirty = false;
+          committed = true;
+          // A completed write owns only the generation captured above. A
+          // later mutation remains dirty and schedules its own persistence.
+          if (cache.diskMutationGeneration === writeGeneration) {
+            cache.diskPersistedGeneration = writeGeneration;
+            cache.isCacheDirty = false;
+          }
         })
-        .catch((e) => {
-          console.warn('[Cache Flush Error]: Unable to save temp_cache.json asynchronously', e);
+        .catch(async (e) => {
+          await fs.promises.unlink(temporaryFile).catch(() => {});
+          console.warn('[Cache Flush Error]: Unable to save temp_cache.json asynchronously; dirty state retained for the next save trigger', e);
         })
         .finally(() => {
           isSavingCache = false;
-          if (cache.isCacheDirty) saveServerCacheToDisk();
+          activeCacheWrite = null;
+          if (committed && cache.isCacheDirty) saveServerCacheToDisk();
         });
     }
   } catch (e) {
-    console.warn('[Cache Flush Error]: Unable to serialize temp_cache.json', e);
+    try { fs.unlinkSync(temporaryFile); } catch {}
+    console.warn('[Cache Flush Error]: Unable to persist temp_cache.json; dirty state retained for the next save trigger', e);
     isSavingCache = false;
   }
 }
 
+export async function waitForStorageIdleForTests(): Promise<void> {
+  if (!isStorageTestOfflineMode()) {
+    throw new Error('Storage-idle test helper is available only inside an R17 offline sandbox.');
+  }
+  while (activeCacheWrite) {
+    await activeCacheWrite;
+  }
+}
+
+export function resetStorageStateForTests(): void {
+  if (!isStorageTestOfflineMode()) {
+    throw new Error('Storage reset is available only inside an R17 offline sandbox.');
+  }
+  if (activeCacheWrite) {
+    throw new Error('Wait for sandbox storage to become idle before resetting test state.');
+  }
+  serverTempCache = null;
+  serverTempCacheRoot = null;
+  isSavingCache = false;
+  storageTestWriteFile = null;
+  currentStorageAdapter = null;
+  currentStorageAdapterKey = null;
+}
+
 // Flush RAM cache to disk on graceful server shutdown
-export function flushCacheOnShutdown() {
+export async function flushCacheOnShutdown() {
+  // Do not race a synchronous replacement against an in-flight async writer.
+  while (activeCacheWrite) await activeCacheWrite;
   const cache = getOrInitServerCache();
   if (cache.isCacheDirty) {
     saveServerCacheToDisk(true, true);
-    serverLog('INFO', 'GracefulShutdown', 'Đã lưu toàn bộ RAM Cache xuống đĩa trước khi dừng Server.');
+    if (!cache.isCacheDirty) serverLog('INFO', 'GracefulShutdown', 'Đã lưu toàn bộ RAM Cache xuống đĩa trước khi dừng Server.');
+    else serverLog('ERROR', 'GracefulShutdown', 'Cache remains dirty after shutdown write failure.');
   }
 }
 
@@ -237,7 +480,6 @@ export class InMemoryStorageAdapter implements IStorageAdapter {
 
   async saveLog(payload: any, imageDataUrl?: string) {
     if (!payload.assessmentId) {
-      const crypto = require('crypto');
       payload.assessmentId = `perio_${Date.now()}_${crypto.randomUUID()}`;
     }
     payload.timestamp = payload.timestamp || new Date().toISOString();
@@ -302,8 +544,25 @@ export class InMemoryStorageAdapter implements IStorageAdapter {
 
     const cache = getOrInitServerCache();
     const existingIndex = cache.reports.findIndex((l) => l.assessmentId === payload.assessmentId);
+    const previousLineage = existingIndex >= 0
+      ? cache.reports[existingIndex]?.aiAnalysis?.inferenceLineage
+      : undefined;
+    const immutableLineage = preserveImmutableInferenceLineage(previousLineage, payload.aiAnalysis?.inferenceLineage);
+    const previousRecord = existingIndex >= 0 ? cache.reports[existingIndex] : undefined;
+    const technicalEvaluation = mergeTechnicalEvaluation(previousRecord, payload.technicalEvaluation);
+    const immutableAiAnalysis = technicalEvaluation?.aiPredictionSnapshot || payload.aiAnalysis;
     const logEntry = {
       ...payload,
+      ...(technicalEvaluation ? { technicalEvaluation } : {}),
+      ...(technicalEvaluation?.reviewState === 'reviewed' && technicalEvaluation.currentReview
+        ? { finalConfirmedErrors: structuredClone(technicalEvaluation.currentReview.finalClassKeys) }
+        : {}),
+      ...(immutableAiAnalysis ? {
+        aiAnalysis: {
+          ...immutableAiAnalysis,
+          ...(immutableLineage ? { inferenceLineage: immutableLineage } : {}),
+        },
+      } : {}),
       updatedAt: new Date().toISOString(),
       firestoreSynced: false,
     };
@@ -314,7 +573,7 @@ export class InMemoryStorageAdapter implements IStorageAdapter {
       cache.reports.unshift(logEntry);
     }
 
-    cache.isCacheDirty = true; // Mark dirty for I/O sync
+    markServerCacheDirty(cache);
     saveServerCacheToDisk();
 
     return {
@@ -342,19 +601,28 @@ export class InMemoryStorageAdapter implements IStorageAdapter {
 
   async saveBug(bugData: any) {
     const cache = getOrInitServerCache();
-    const crypto = require('crypto');
+    const bugId = typeof bugData.bugId === 'string' && bugData.bugId.trim()
+      ? bugData.bugId.trim()
+      : `bug_${Date.now()}_${crypto.randomUUID()}`;
+    bugData.bugId = bugId;
     const bugEntry = {
-      bugId: `bug_${Date.now()}_${crypto.randomUUID()}`,
+      bugId,
       timestamp: bugData.timestamp || new Date().toISOString(),
       description: bugData.description || 'Không có mô tả',
       path: bugData.path || 'N/A',
       source: bugData.source || 'USER_SUBMITTED',
       severity: bugData.severity || 'ERROR',
+      status: bugData.status || 'OPEN',
       errorDetails: bugData.errorDetails || null,
       firestoreSynced: false,
     };
-    cache.bugs.unshift(bugEntry);
-    cache.isCacheDirty = true;
+    const existingIndex = cache.bugs.findIndex((bug) => bug.bugId === bugId);
+    if (existingIndex >= 0) {
+      cache.bugs[existingIndex] = { ...cache.bugs[existingIndex], ...bugEntry };
+    } else {
+      cache.bugs.unshift(bugEntry);
+    }
+    markServerCacheDirty(cache);
     saveServerCacheToDisk();
     return { success: true };
   }
@@ -368,7 +636,16 @@ export class InMemoryStorageAdapter implements IStorageAdapter {
     return bugs;
   }
 
-  async verifyAssessment(assessmentId: string, verifiedErrors: any, verifiedNotes?: string) {
+  async verifyAssessment(
+    assessmentId: string,
+    verifiedErrors: any,
+    verifiedNotes?: string,
+    reviewerId?: string,
+    reviewedAt = new Date().toISOString(),
+  ) {
+    if (!reviewerId || reviewerId.startsWith('reviewer-unavailable:')) {
+      throw new Error('A person-level reviewer ID is required.');
+    }
     const cache = getOrInitServerCache();
     const index = cache.reports.findIndex(l => l.assessmentId === assessmentId);
     if (index === -1) {
@@ -377,9 +654,19 @@ export class InMemoryStorageAdapter implements IStorageAdapter {
 
     const targetLog = cache.reports[index];
     const finalErrors = Array.isArray(verifiedErrors) ? verifiedErrors : [];
-    targetLog.finalConfirmedErrors = finalErrors;
+    const evaluation = appendTechnicalReview(readTechnicalEvaluation(targetLog), {
+      reviewerId,
+      reviewedAt,
+      finalClassKeys: finalErrors,
+      ...(verifiedNotes === undefined ? {} : { notes: verifiedNotes }),
+    });
+    targetLog.technicalEvaluation = evaluation;
+    targetLog.aiAnalysis = structuredClone(evaluation.aiPredictionSnapshot);
+    targetLog.finalConfirmedErrors = structuredClone(finalErrors);
+    targetLog.verifiedErrors = structuredClone(finalErrors);
     targetLog.verifiedNotes = verifiedNotes || targetLog.verifiedNotes || '';
-    targetLog.verifiedAt = new Date().toISOString();
+    targetLog.verifiedAt = reviewedAt;
+    targetLog.verifiedBy = reviewerId;
     targetLog.firestoreSynced = false;
 
     if (targetLog.aiAnalysis) {
@@ -389,7 +676,7 @@ export class InMemoryStorageAdapter implements IStorageAdapter {
       targetLog.finalConfirmedErrorsSummary = calcResult.finalSummary;
     }
 
-    cache.isCacheDirty = true;
+    markServerCacheDirty(cache);
     saveServerCacheToDisk();
     return { success: true, log: targetLog };
   }
@@ -403,74 +690,60 @@ export class InMemoryStorageAdapter implements IStorageAdapter {
     const cache = getOrInitServerCache();
     const { timeConfig, deleteTypes = [] } = options;
     
-    let effectiveTimeConfig = typeof timeConfig === 'string' ? timeConfig : (timeConfig?.isAllTime ? 'all' : 'custom');
-    let effectiveStartDate = typeof timeConfig === 'object' ? timeConfig?.startDate || options.startDate : options.startDate;
-    let effectiveEndDate = typeof timeConfig === 'object' ? timeConfig?.endDate || options.endDate : options.endDate;
+    const effectiveTimeConfig = typeof timeConfig === 'string' ? timeConfig : (timeConfig?.isAllTime ? 'all' : 'custom');
+    const effectiveStartDate = typeof timeConfig === 'object' ? timeConfig?.startDate || options.startDate : options.startDate;
+    const effectiveEndDate = typeof timeConfig === 'object' ? timeConfig?.endDate || options.endDate : options.endDate;
 
     const now = Date.now();
-    let initialCount = cache.reports.length + (cache.seg_reports?.length || 0) + cache.bugs.length;
+    const initialCount = cache.reports.length + (cache.seg_reports?.length || 0) + cache.bugs.length;
 
     const hasAllType = deleteTypes.includes('all');
-    const hasReports = hasAllType || deleteTypes.includes('reports') || deleteTypes.includes('incomplete') || deleteTypes.includes('errors') || deleteTypes.includes('test');
-    const hasSegReports = hasAllType || deleteTypes.includes('seg_reports') || deleteTypes.includes('pathology_reports') || deleteTypes.includes('incomplete') || deleteTypes.includes('errors') || deleteTypes.includes('test');
+    const hasReports = hasAllType || deleteTypes.includes('reports') || deleteTypes.includes('complete') || deleteTypes.includes('incomplete') || deleteTypes.includes('errors') || deleteTypes.includes('test') || effectiveTimeConfig === 'incomplete' || effectiveTimeConfig === 'errors' || effectiveTimeConfig === 'tests';
+    const hasSegReports = hasAllType || deleteTypes.includes('seg_reports') || deleteTypes.includes('pathology_reports') || deleteTypes.includes('complete') || deleteTypes.includes('incomplete') || deleteTypes.includes('errors') || deleteTypes.includes('test') || effectiveTimeConfig === 'incomplete' || effectiveTimeConfig === 'errors' || effectiveTimeConfig === 'tests';
     const hasBugs = hasAllType || deleteTypes.includes('bugs');
 
     if (hasReports) {
       cache.reports = cache.reports.filter(item => {
-        const itemMs = parseTimestampToMsHelper(item.timestamp, item.updatedAt, item.createdAt);
-        if (effectiveTimeConfig === 'all' && (hasAllType || deleteTypes.includes('reports'))) return false;
-        if (effectiveTimeConfig === '24h' && now - itemMs < 24 * 60 * 60 * 1000) return false;
-        if (effectiveTimeConfig === '7d' && now - itemMs < 7 * 24 * 60 * 60 * 1000) return false;
-        if (effectiveTimeConfig === '30d' && now - itemMs < 30 * 24 * 60 * 60 * 1000) return false;
-        if ((effectiveTimeConfig === 'incomplete' || deleteTypes.includes('incomplete')) && isLogIncomplete(item)) return false;
-        if ((effectiveTimeConfig === 'errors' || deleteTypes.includes('errors')) && isLogError(item)) return false;
-        if ((effectiveTimeConfig === 'tests' || deleteTypes.includes('test')) && isLogTest(item)) return false;
-        if (effectiveTimeConfig === 'custom' && isTimestampInDateRange(item.timestamp, item.updatedAt, item.createdAt, effectiveStartDate, effectiveEndDate)) {
-          if (hasAllType || deleteTypes.includes('reports')) return false;
-          if (deleteTypes.includes('incomplete') && isLogIncomplete(item)) return false;
-          if (deleteTypes.includes('errors') && isLogError(item)) return false;
-          if (deleteTypes.includes('test') && isLogTest(item)) return false;
-        }
-        return true;
+        const matchesTime = matchesDeleteTime(item, effectiveTimeConfig, effectiveStartDate, effectiveEndDate, now);
+        const matchesType = hasAllType ||
+          deleteTypes.includes('reports') ||
+          (deleteTypes.includes('complete') && isLogComplete(item)) ||
+          ((effectiveTimeConfig === 'incomplete' || deleteTypes.includes('incomplete')) && isLogIncomplete(item)) ||
+          ((effectiveTimeConfig === 'errors' || deleteTypes.includes('errors')) && isLogError(item)) ||
+          ((effectiveTimeConfig === 'tests' || deleteTypes.includes('test')) && isLogTest(item));
+        const shouldDelete = matchesTime && matchesType;
+        return !shouldDelete;
       });
     }
 
     if (hasSegReports) {
       cache.seg_reports = (cache.seg_reports || []).filter(item => {
-        const itemMs = parseTimestampToMsHelper(item.timestamp, item.updatedAt, item.createdAt);
-        if (effectiveTimeConfig === 'all' && (hasAllType || deleteTypes.includes('seg_reports') || deleteTypes.includes('pathology_reports'))) return false;
-        if (effectiveTimeConfig === '24h' && now - itemMs < 24 * 60 * 60 * 1000) return false;
-        if (effectiveTimeConfig === '7d' && now - itemMs < 7 * 24 * 60 * 60 * 1000) return false;
-        if (effectiveTimeConfig === '30d' && now - itemMs < 30 * 24 * 60 * 60 * 1000) return false;
-        if ((effectiveTimeConfig === 'incomplete' || deleteTypes.includes('incomplete')) && (item.sessionStatus === 'INCOMPLETE' || (item.lastCompletedStep !== undefined && item.lastCompletedStep < 5))) return false;
-        if ((effectiveTimeConfig === 'errors' || deleteTypes.includes('errors')) && item.sessionStatus === 'FAILED_NON_DENTAL') return false;
-        if ((effectiveTimeConfig === 'tests' || deleteTypes.includes('test')) && isLogTest(item)) return false;
-        if (effectiveTimeConfig === 'custom' && isTimestampInDateRange(item.timestamp, item.updatedAt, item.createdAt, effectiveStartDate, effectiveEndDate)) {
-          if (hasAllType || deleteTypes.includes('seg_reports') || deleteTypes.includes('pathology_reports')) return false;
-          if (deleteTypes.includes('incomplete') && (item.sessionStatus === 'INCOMPLETE' || (item.lastCompletedStep !== undefined && item.lastCompletedStep < 5))) return false;
-          if (deleteTypes.includes('errors') && item.sessionStatus === 'FAILED_NON_DENTAL') return false;
-          if (deleteTypes.includes('test') && isLogTest(item)) return false;
-        }
-        return true;
+        const matchesTime = matchesDeleteTime(item, effectiveTimeConfig, effectiveStartDate, effectiveEndDate, now);
+        const matchesType = hasAllType ||
+          deleteTypes.includes('seg_reports') ||
+          deleteTypes.includes('pathology_reports') ||
+          (deleteTypes.includes('complete') && isLogComplete(item)) ||
+          ((effectiveTimeConfig === 'incomplete' || deleteTypes.includes('incomplete')) && isPathologyLogIncomplete(item)) ||
+          ((effectiveTimeConfig === 'errors' || deleteTypes.includes('errors')) && item.sessionStatus === 'FAILED_NON_DENTAL') ||
+          ((effectiveTimeConfig === 'tests' || deleteTypes.includes('test')) && isLogTest(item));
+        const shouldDelete = matchesTime && matchesType;
+        return !shouldDelete;
       });
     }
 
     if (hasBugs) {
       cache.bugs = cache.bugs.filter(item => {
-        const itemMs = parseTimestampToMsHelper(item.timestamp, item.updatedAt, item.createdAt);
-        if (effectiveTimeConfig === 'all') return false;
-        if (effectiveTimeConfig === '24h' && now - itemMs < 24 * 60 * 60 * 1000) return false;
-        if (effectiveTimeConfig === '7d' && now - itemMs < 7 * 24 * 60 * 60 * 1000) return false;
-        if (effectiveTimeConfig === '30d' && now - itemMs < 30 * 24 * 60 * 60 * 1000) return false;
-        if (effectiveTimeConfig === 'custom' && isTimestampInDateRange(item.timestamp, item.updatedAt, item.createdAt, effectiveStartDate, effectiveEndDate)) return false;
-        return true;
+        const matchesTime = matchesDeleteTime(item, effectiveTimeConfig, effectiveStartDate, effectiveEndDate, now);
+        const matchesType = hasAllType || deleteTypes.includes('bugs');
+        const shouldDelete = matchesTime && matchesType;
+        return !shouldDelete;
       });
     }
 
     const remainingCount = cache.reports.length + (cache.seg_reports?.length || 0) + cache.bugs.length;
     const deletedCount = initialCount - remainingCount;
 
-    cache.isCacheDirty = true;
+    markServerCacheDirty(cache);
     saveServerCacheToDisk(true);
 
     return {
@@ -512,7 +785,7 @@ export class InMemoryStorageAdapter implements IStorageAdapter {
       deletedCount = initial - (cache.seg_reports || []).length;
     }
 
-    cache.isCacheDirty = true;
+    markServerCacheDirty(cache);
     saveServerCacheToDisk(true);
 
     return {
@@ -546,9 +819,11 @@ export class FirebaseStorageAdapter extends InMemoryStorageAdapter {
             lastSyncedAt: new Date().toISOString(),
           };
 
-          const atomicResult = await executeAtomicReportWrite(db, inMemoryResult.assessmentId, payloadToSync, true);
+          const atomicResult = await executeAtomicReportWrite(db, inMemoryResult.assessmentId, payloadToSync);
           if (atomicResult.success) {
             logEntry.firestoreSynced = true;
+            markServerCacheDirty(cache);
+            saveServerCacheToDisk();
           }
 
           return {
@@ -571,17 +846,19 @@ export class FirebaseStorageAdapter extends InMemoryStorageAdapter {
     if (db) {
       try {
         const cache = getOrInitServerCache();
-        const lastBug = cache.bugs[0];
-        if (lastBug) {
+        const savedBug = cache.bugs.find((bug) => bug.bugId === bugData.bugId);
+        if (savedBug) {
           const payloadToSync = {
-            ...lastBug,
+            ...savedBug,
             firestoreSynced: true,
             lastSyncedAt: new Date().toISOString(),
           };
 
-          const atomicResult = await executeAtomicBugWrite(db, lastBug.bugId, payloadToSync, true);
+          const atomicResult = await executeAtomicBugWrite(db, savedBug.bugId, payloadToSync);
           if (atomicResult.success) {
-            lastBug.firestoreSynced = true;
+            savedBug.firestoreSynced = true;
+            markServerCacheDirty(cache);
+            saveServerCacheToDisk();
           }
         }
       } catch (err: any) {
@@ -640,10 +917,20 @@ export class FirebaseStorageAdapter extends InMemoryStorageAdapter {
     return (cache.bugs || []).slice(0, limitCount);
   }
 
-  async verifyAssessment(assessmentId: string, verifiedErrors: any, verifiedNotes?: string) {
-    const cache = getOrInitServerCache();
-    const oldLog = cache.reports.find(r => r.assessmentId === assessmentId) ? { ...cache.reports.find(r => r.assessmentId === assessmentId) } : undefined;
-    const inMemoryResult = await super.verifyAssessment(assessmentId, verifiedErrors, verifiedNotes);
+  async verifyAssessment(
+    assessmentId: string,
+    verifiedErrors: any,
+    verifiedNotes?: string,
+    reviewerId?: string,
+    reviewedAt?: string,
+  ) {
+    const inMemoryResult = await super.verifyAssessment(
+      assessmentId,
+      verifiedErrors,
+      verifiedNotes,
+      reviewerId,
+      reviewedAt,
+    );
     const db = getFirestoreInstance();
 
     if (db) {
@@ -654,9 +941,11 @@ export class FirebaseStorageAdapter extends InMemoryStorageAdapter {
           lastSyncedAt: new Date().toISOString(),
         };
 
-        const atomicResult = await executeAtomicReportWrite(db, assessmentId, payloadToSync, false, oldLog);
+        const atomicResult = await executeAtomicReportWrite(db, assessmentId, payloadToSync);
         if (atomicResult.success) {
           inMemoryResult.log.firestoreSynced = true;
+          markServerCacheDirty(getOrInitServerCache());
+          saveServerCacheToDisk();
         }
       } catch (err: any) {
         // eslint-disable-next-line no-console
@@ -761,9 +1050,18 @@ export class FirebaseStorageAdapter extends InMemoryStorageAdapter {
 
 // Pluggable Storage Adapter singleton initialization
 let currentStorageAdapter: IStorageAdapter | null = null;
+let currentStorageAdapterKey: string | null = null;
 
 export function getStorageAdapter(): IStorageAdapter {
-  if (!currentStorageAdapter) {
+  const offline = isStorageTestOfflineMode();
+  const adapterKey = `${getStorageRoot()}::${offline ? 'offline' : 'normal'}`;
+  if (!currentStorageAdapter || currentStorageAdapterKey !== adapterKey) {
+    currentStorageAdapterKey = adapterKey;
+    if (offline) {
+      currentStorageAdapter = new InMemoryStorageAdapter();
+      serverLog('INFO', 'StorageAdapter', 'Kích hoạt R17 Offline Test Storage Adapter');
+      return currentStorageAdapter;
+    }
     const firestore = getFirestoreInstance();
     if (firestore) {
       currentStorageAdapter = new FirebaseStorageAdapter();
@@ -775,5 +1073,3 @@ export function getStorageAdapter(): IStorageAdapter {
   }
   return currentStorageAdapter;
 }
-
-

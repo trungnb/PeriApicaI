@@ -3,7 +3,7 @@ import {
   BilingualTaxonomyErrorItem,
 } from '../types/dental';
 import { PATHOLOGY_TAXONOMY } from '../data/pathologyTaxonomyData';
-import { TAXONOMY_ERRORS } from '../data/taxonomyData';
+import { ALL_TAXONOMY_ERRORS } from '../data/taxonomyData';
 
 /**
  * ─────────────────────────────────────────────────────────────
@@ -19,7 +19,7 @@ export const PATHOLOGY_DICT: Record<string, PathologyTaxonomyItem> = Object.from
  * TECHNICAL FAILURE DICTIONARY (Quality & Artifact Findings)
  * ─────────────────────────────────────────────────────────────
  */
-export const TECH_FAILURE_DICT: Record<string, BilingualTaxonomyErrorItem> = TAXONOMY_ERRORS.reduce(
+export const TECH_FAILURE_DICT: Record<string, BilingualTaxonomyErrorItem> = ALL_TAXONOMY_ERRORS.reduce(
   (acc, curr) => {
     acc[curr.key] = curr;
     return acc;

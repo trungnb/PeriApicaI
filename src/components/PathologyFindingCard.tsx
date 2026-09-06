@@ -40,12 +40,17 @@ export const PathologyFindingCard: React.FC<Props> = React.memo(({
   const label = getPathologyLabel(detection.pathologyKey, language);
   const description = getPathologyDescription(detection.pathologyKey, language);
 
+  const hasGeometry = detection.geometryStatus === 'valid' ||
+    (!detection.geometryStatus && Array.isArray(detection.polygonPoints) && detection.polygonPoints.length >= 3);
+
   return (
     <div
       className={`relative rounded-xl border transition-all cursor-pointer select-none ${
         isSelected
           ? 'border-teal-500 bg-teal-50/60 dark:bg-teal-950/30 shadow-md ring-1 ring-teal-500/20'
-          : 'border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800/60 hover:border-slate-300 dark:hover:border-slate-600'
+          : hasGeometry
+          ? 'border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800/60 hover:border-slate-300 dark:hover:border-slate-600'
+          : 'border-dashed border-slate-300 dark:border-slate-700 bg-slate-50/60 dark:bg-slate-800/40 hover:border-slate-400 dark:hover:border-slate-600'
       }`}
       onClick={onSelect}
     >
@@ -68,6 +73,11 @@ export const PathologyFindingCard: React.FC<Props> = React.memo(({
               >
                 {language === 'EN' ? urgencyBadge.labelEn : urgencyBadge.label}
               </span>
+              {!hasGeometry && (
+                <span className="text-[10px] bg-slate-100 text-slate-600 dark:bg-slate-700/60 dark:text-slate-300 font-semibold px-2 py-0.5 rounded-full border border-slate-200 dark:border-slate-600">
+                  {language === 'EN' ? 'Localisation unavailable' : 'Không có toạ độ định vị'}
+                </span>
+              )}
               {geminiVerified && (
                 <span className="flex items-center gap-1 text-[10px] text-emerald-600 dark:text-emerald-400 font-medium">
                   <CheckCircle2 className="w-3 h-3" />
@@ -75,18 +85,31 @@ export const PathologyFindingCard: React.FC<Props> = React.memo(({
                 </span>
               )}
               {detection.provenance === 'matched_consensus' && (
-                <span className="text-[10px] bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-300 font-semibold px-2 py-0.5 rounded-full border border-purple-200 dark:border-purple-800">
-                  {language === 'EN' ? 'Consensus' : 'Hội chẩn'}
+                <span
+                  title={detection.modelAScore !== undefined && detection.modelBScore !== undefined ? `Flash: ${detection.modelAScore}% | Pro: ${detection.modelBScore}%` : undefined}
+                  className="text-[10px] bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-300 font-semibold px-2 py-0.5 rounded-full border border-purple-200 dark:border-purple-800"
+                >
+                  {language === 'EN' ? 'Both Models Agreed' : '2 Mô hình nhất quán'}
+                  {detection.modelAScore !== undefined && detection.modelBScore !== undefined && (
+                    <span className="ml-1 opacity-75 font-mono text-[9px]">
+                      ({detection.modelAScore}% / {detection.modelBScore}%)
+                    </span>
+                  )}
                 </span>
               )}
-              {(detection.provenance === 'model_a_only' || detection.provenance === 'model_b_only') && !detection.humanReviewed && (
+              {detection.provenance === 'model_a_only' && !detection.humanReviewed && (
                 <span className="text-[10px] bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300 font-semibold px-2 py-0.5 rounded-full border border-amber-200 dark:border-amber-800">
-                  {language === 'EN' ? 'Single-model/Review Required' : 'Cần rà soát (1 Model)'}
+                  {language === 'EN' ? 'Model A Only (Review Needed)' : '1 Mô hình (A) - Cần rà soát'}
+                </span>
+              )}
+              {detection.provenance === 'model_b_only' && !detection.humanReviewed && (
+                <span className="text-[10px] bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300 font-semibold px-2 py-0.5 rounded-full border border-amber-200 dark:border-amber-800">
+                  {language === 'EN' ? 'Model B Only (Review Needed)' : '1 Mô hình (B) - Cần rà soát'}
                 </span>
               )}
               {detection.humanReviewed && (
                 <span className="text-[10px] bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300 font-semibold px-2 py-0.5 rounded-full border border-blue-200 dark:border-blue-800">
-                  {language === 'EN' ? 'Human Reviewed' : 'Đã xác nhận'}
+                  {language === 'EN' ? 'Human Confirmed' : 'Bác sĩ đã xác nhận'}
                 </span>
               )}
             </div>
@@ -97,27 +120,42 @@ export const PathologyFindingCard: React.FC<Props> = React.memo(({
 
           {/* Visibility toggle button */}
           <div className="flex items-center gap-1 shrink-0" onClick={(e) => e.stopPropagation()}>
-            <button
-              onClick={onToggleVisibility}
-              className="p-1.5 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-400 dark:text-slate-500 transition-colors cursor-pointer"
-              title={isVisible ? 'Ẩn viền trên ảnh' : 'Hiện viền trên ảnh'}
-            >
-              {isVisible ? <Eye className="w-4 h-4 text-teal-600 dark:text-teal-400" /> : <EyeOff className="w-4 h-4" />}
-            </button>
+            {hasGeometry ? (
+              <button
+                onClick={onToggleVisibility}
+                className="p-1.5 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-400 dark:text-slate-500 transition-colors cursor-pointer"
+                title={isVisible ? (language === 'EN' ? 'Hide contour on image' : 'Ẩn viền trên ảnh') : (language === 'EN' ? 'Show contour on image' : 'Hiện viền trên ảnh')}
+              >
+                {isVisible ? <Eye className="w-4 h-4 text-teal-600 dark:text-teal-400" /> : <EyeOff className="w-4 h-4" />}
+              </button>
+            ) : (
+              <span
+                className="p-1.5 text-slate-300 dark:text-slate-600 cursor-not-allowed"
+                title={language === 'EN' ? 'No contour available on image' : 'Không có toạ độ viền trên ảnh'}
+              >
+                <EyeOff className="w-4 h-4" />
+              </span>
+            )}
           </div>
         </div>
 
         {/* Confidence & Details */}
         <div className="flex gap-3 text-[11px] text-slate-500 dark:text-slate-400 font-mono">
-          <span>
+          <span
+            title={language === 'EN' ? 'Model confidence score (heuristic, requires clinical verification)' : 'Điểm ước lượng mô hình AI (cần xác minh chuyên môn)'}
+          >
             {t('confidence')}:{' '}
             <strong className="text-slate-700 dark:text-slate-300">
-              {detection.confidence}%
+              {typeof detection.confidence === 'number' ? `${detection.confidence}%` : '—'}
             </strong>
           </span>
-          {detection.polygonPoints && (
+          {hasGeometry && detection.polygonPoints && detection.polygonPoints.length >= 3 ? (
             <span>
-              · <strong className="text-teal-600 dark:text-teal-400">{detection.polygonPoints.length}</strong> điểm neo
+              · <strong className="text-teal-600 dark:text-teal-400">{detection.polygonPoints.length}</strong> {language === 'EN' ? 'vertices' : 'điểm neo'}
+            </span>
+          ) : (
+            <span className="text-slate-400 dark:text-slate-500 italic">
+              · {language === 'EN' ? 'No contour' : 'Không có viền'}
             </span>
           )}
           {detection.isUserEdited && (

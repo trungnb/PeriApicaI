@@ -8,7 +8,6 @@ import {
 import { useAppStore } from '../store/appStore';
 import { PathologyOverlayCanvas } from './PathologyOverlayCanvas';
 import {
-  PATHOLOGY_DICT,
   getPathologyLabel,
   getPathologyDescription,
   getTreatmentText,
@@ -117,7 +116,7 @@ export const TreatmentRecommendationScreen: React.FC = React.memo(() => {
                       >
                         <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ background: item.color }} />
                         <span className="truncate">{item.label}</span>
-                        <span className="ml-auto text-[10px] opacity-70">{item.confidence}%</span>
+                        <span className="ml-auto text-[10px] opacity-70">{typeof item.confidence === 'number' ? `${item.confidence}%` : '—'}</span>
                       </div>
                     ))}
                   </div>

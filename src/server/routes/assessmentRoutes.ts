@@ -1,10 +1,13 @@
+import { providerExecutionConfig, isTerminalExecutionError } from '../services/geminiService';
 import { Router, Request, Response } from 'express';
 import path from 'path';
 import fs from 'fs';
 import crypto from 'crypto';
 import { analyzeLimiter, generalActionLimiter, validateKeyLimiter } from '../config/limiter';
-import { uploadsDir, serverLog, verifySignedImageUrl } from '../config/env';
+import { serverLog, verifySignedImageUrl } from '../config/env';
+import { resolveUploadFilePath } from '../config/storagePaths';
 import { getStorageAdapter } from '../services/storageAdapter';
+import { bindCancellationLifecycle } from '../utils/lifecycle';
 import {
   analysisCache,
   getApiKeySources,
@@ -21,17 +24,35 @@ import {
   isInvalidApiKeyError,
 } from '../services/geminiService';
 import { adminAuth } from './authRoutes';
-import { validateRadiographAnalysis } from '../middleware/validation';
+import { validateRadiographAnalysis, getCanonicalToothByFdi, isValidTechnique, isValidReceptor } from '../middleware/validation';
+import { requireUsableApiKeyMode } from '../middleware/apiKeyMode';
+import { requireValidityReceipt } from '../middleware/validityReceipt';
 import { validateClassicOutput } from '../../utils/semanticValidation';
+import {
+  parsePublicTechnicalSaveDto,
+  PublicPersistenceValidationError,
+} from '../middleware/publicPersistenceDto';
+import { createInferenceLineage } from '../services/inferenceLineage';
+import { getOrCreateAssessmentSnapshot } from '../services/assessmentModelSnapshot';
+import '../services/modelResolverService';
 
 const router = Router();
+
+// Lightweight capability endpoint for checking application credential availability safely
+router.get('/api/system-capabilities', generalActionLimiter, (_req: Request, res: Response) => {
+  return res.json({
+    success: true,
+    systemApiAvailable: getApiKeySources().length > 0,
+  });
+});
 
 // Dynamic Endpoint: Get available models for dropdown selection (System or BYOK)
 router.post('/api/available-models', generalActionLimiter, async (req: Request, res: Response) => {
   try {
     const customApiKey = req.body.customApiKey ? String(req.body.customApiKey).trim() : undefined;
     const models = await getAvailableVisionModels(customApiKey);
-    return res.json({ success: true, models });
+    const systemApiAvailable = getApiKeySources().length > 0;
+    return res.json({ success: true, models, systemApiAvailable });
   } catch (unknownError: unknown) {
     const err = unknownError instanceof Error ? unknownError : new Error(String(unknownError));
     serverLog('ERROR', 'AvailableModels', 'Error fetching available models:', err);
@@ -40,22 +61,21 @@ router.post('/api/available-models', generalActionLimiter, async (req: Request, 
 });
 
 // Primary Endpoint: Radiograph Analysis via Gemini Vision API
-router.post('/api/analyze-radiograph', validateRadiographAnalysis, analyzeLimiter, async (req: Request, res: Response) => {
+router.post('/api/analyze-radiograph', requireUsableApiKeyMode, validateRadiographAnalysis, requireValidityReceipt, analyzeLimiter, async (req: Request, res: Response) => {
   const prepStart = Date.now();
   const controller = new AbortController();
   const deadlineTimer = setTimeout(() => {
     controller.abort();
   }, 60000); // 60s deadline requirement
 
-  req.on('close', () => {
-    clearTimeout(deadlineTimer);
-    controller.abort();
-  });
+  bindCancellationLifecycle(res, controller, deadlineTimer);
 
   try {
-    const tooth = typeof req.body.tooth === 'string' ? JSON.parse(req.body.tooth) : req.body.tooth;
+    const rawTooth = typeof req.body.tooth === 'string' ? JSON.parse(req.body.tooth) : req.body.tooth;
+    const fdiNumber = rawTooth?.fdiNumber !== undefined ? rawTooth.fdiNumber : (typeof rawTooth === 'string' ? rawTooth : undefined);
+    const canonicalTooth = getCanonicalToothByFdi(fdiNumber) || res.locals.canonicalTooth || (rawTooth?.fdiNumber && req.body.tooth?.nameVi ? req.body.tooth : null);
     const technique = req.body.technique;
-    const receptorType = req.body.receptorType;
+    const receptorType = req.body.receptorType !== undefined ? req.body.receptorType : req.body.receptor;
     const rawLang = String(req.body.language || req.body.outputLanguage || '');
     const isEn = rawLang.toUpperCase() === 'EN' || rawLang.toLowerCase() === 'english';
     const outputLanguage = isEn ? 'EN' : 'VI';
@@ -67,13 +87,30 @@ router.post('/api/analyze-radiograph', validateRadiographAnalysis, analyzeLimite
     }
     const apiKeyOption = req.body.apiKeyOption || (customApiKey ? 'custom' : 'system');
 
-    const selectedModelA = req.body.selectedModelA || req.body.selectedModel || 'gemini-flash-latest';
-    const selectedModelB = req.body.selectedModelB || 'gemini-flash-lite-latest';
+    const assessmentId = req.body.assessmentId || res.locals.validityReceipt?.assessmentId;
+    const preferredA = req.body.selectedModelA || req.body.selectedModel;
+    const preferredB = req.body.selectedModelB;
+    const snapshot = getOrCreateAssessmentSnapshot(
+      assessmentId,
+      (preferredA || preferredB)
+        ? {
+            technical_branch_a: preferredA,
+            technical_branch_b: preferredB,
+          }
+        : undefined
+    );
 
-    if (!tooth || !technique || !receptorType) {
+    const roleA = snapshot.roles.technical_branch_a;
+    const roleB = snapshot.roles.technical_branch_b;
+    const selectedModelA = roleA.primaryModel;
+    const selectedModelB = roleB.primaryModel;
+
+    if (!canonicalTooth || !isValidTechnique(technique) || !isValidReceptor(receptorType)) {
       clearTimeout(deadlineTimer);
-      return res.status(400).json({ error: 'Missing required parameters: tooth, technique, receptorType' });
+      return res.status(400).json({ error: 'Missing or invalid parameters: tooth, technique, receptorType' });
     }
+
+    const tooth = canonicalTooth;
 
     let cleanBase64 = '';
     let mimeType = 'image/jpeg';
@@ -118,7 +155,7 @@ router.post('/api/analyze-radiograph', validateRadiographAnalysis, analyzeLimite
       res.setHeader('Cache-Control', 'no-cache');
       res.setHeader('Connection', 'keep-alive');
       res.setHeader('X-Accel-Buffering', 'no');
-      res.write(`data: ${JSON.stringify({ text: JSON.stringify(cached), isCached: true })}\n\n`);
+      res.write(`data: ${JSON.stringify({ text: JSON.stringify({ ...cached, validityAudit: res.locals.validityAudit }), isCached: true })}\n\n`);
       res.write('data: [DONE]\n\n');
       return res.end();
     }
@@ -186,46 +223,86 @@ router.post('/api/analyze-radiograph', validateRadiographAnalysis, analyzeLimite
     const prepEnd = Date.now();
     const preparationTimeMs = prepEnd - prepStart;
 
-    // Execution Budget: max 3 calls for Single Mode, 4 calls for Dual Consensus Mode
-    const budget = new ExecutionBudget(analysisMode === 'consensus' ? 4 : 3, controller.signal);
+    // Execution Budget: max 4 calls for Single Mode (allows ladder fallback across keys), 4 calls for Dual Consensus Mode
+    const budget = new ExecutionBudget(
+      4, 
+      controller.signal,
+      analysisMode === 'consensus' ? 2 : 4,
+      prepStart + 60000
+    );
     const apiStart = Date.now();
 
     if (analysisMode === 'consensus') {
       updateStatus(isEn ? '👥 Initializing Dual-Model Consensus...' : '👥 Đang khởi tạo Hội chẩn Song song...');
 
       const [resA, resB] = await Promise.allSettled([
-        executeWithFailover(async (aiClient, modelName) => {
+        executeWithFailover(
+          async (aiClient, modelName) => {
             updateStatus(isEn ? `🔬 Querying AI Model 1 (${modelName})...` : `🔬 Đang phân tích Mô hình AI 1 (${modelName})...`);
             const response = await aiClient.models.generateContent({
               model: modelName,
               contents: { parts: [imagePart, { text: promptText }] },
               config: {
+                ...providerExecutionConfig(budget),
                 systemInstruction,
                 temperature: 0.0,
                 responseMimeType: 'application/json',
                 responseSchema: DENTAL_ANALYSIS_SCHEMA,
               },
             });
+            budget.checkSignal();
             if (!response.text) throw new Error('Empty response from AI Model 1');
             return validateClassicOutput(JSON.parse(response.text));
-          }, selectedModelA, isUsingCustomKey ? customApiKey : undefined, updateStatus, budget),
-        executeWithFailover(async (aiClient, modelName) => {
+          },
+          selectedModelA,
+          isUsingCustomKey ? customApiKey : undefined,
+          updateStatus,
+          budget,
+          'branchA',
+          roleA.credentialPreference,
+          {
+            role: 'technical_branch_a',
+            modelLadder: roleA.modelLadder,
+            configRevision: roleA.compatibilityConfigIdentity,
+            credentialAffinity: roleA.credentialPreference,
+            assessmentId,
+          }
+        ),
+        executeWithFailover(
+          async (aiClient, modelName) => {
             updateStatus(isEn ? `🔬 Querying AI Model 2 (${modelName})...` : `🔬 Đang phân tích Mô hình AI 2 (${modelName})...`);
             const response = await aiClient.models.generateContent({
               model: modelName,
               contents: { parts: [imagePart, { text: promptText }] },
               config: {
+                ...providerExecutionConfig(budget),
                 systemInstruction,
                 temperature: 0.0,
                 responseMimeType: 'application/json',
                 responseSchema: DENTAL_ANALYSIS_SCHEMA,
               },
             });
+            budget.checkSignal();
             if (!response.text) throw new Error('Empty response from AI Model 2');
             return validateClassicOutput(JSON.parse(response.text));
-          }, selectedModelB, isUsingCustomKey ? customApiKey : undefined, updateStatus, budget)
+          },
+          selectedModelB,
+          isUsingCustomKey ? customApiKey : undefined,
+          updateStatus,
+          budget,
+          'branchB',
+          roleB.credentialPreference,
+          {
+            role: 'technical_branch_b',
+            modelLadder: roleB.modelLadder,
+            configRevision: roleB.compatibilityConfigIdentity,
+            credentialAffinity: roleB.credentialPreference,
+            assessmentId,
+          }
+        ),
       ]);
 
+      budget.checkSignal();
       const rawResultA = resA.status === 'fulfilled' ? resA.value.result : null;
       const rawResultB = resB.status === 'fulfilled' ? resB.value.result : null;
 
@@ -235,6 +312,8 @@ router.post('/api/analyze-radiograph', validateRadiographAnalysis, analyzeLimite
       if (!resultA && !resultB) {
         const errA: any = resA.status === 'rejected' ? resA.reason : null;
         const errB: any = resB.status === 'rejected' ? resB.reason : null;
+        if (isTerminalExecutionError(errA)) throw errA;
+        if (isTerminalExecutionError(errB)) throw errB;
         const rejectionErr: any = new Error(errA?.message || errB?.message || 'Dual models failed');
         rejectionErr.isCustomKeyFailed = Boolean(errA?.isCustomKeyFailed || errB?.isCustomKeyFailed);
         rejectionErr.isQuotaExhausted = Boolean(errA?.isQuotaExhausted || errB?.isQuotaExhausted);
@@ -243,16 +322,50 @@ router.post('/api/analyze-radiograph', validateRadiographAnalysis, analyzeLimite
         throw rejectionErr;
       }
 
+      const modelAUsed = resA.status === 'fulfilled' ? resA.value.usedModel : selectedModelA;
+      const modelBUsed = resB.status === 'fulfilled' ? resB.value.usedModel : selectedModelB;
+      const diversityStatus = (resA.status === 'fulfilled' && resB.status === 'fulfilled' && modelAUsed === modelBUsed)
+        ? 'DEGRADED_DIVERSITY'
+        : 'DIVERSE';
+
       updateStatus(isEn ? '✅ Synthesizing clinical consensus findings...' : '✅ Đang tổng hợp kết quả hội chẩn lâm sàng...');
       const finalResult = (resultA && resultB)
         ? synthesizeConsensusResults(
             resultA,
             resultB,
             outputLanguage,
-            resA.status === 'fulfilled' ? resA.value.usedModel : selectedModelA,
-            resB.status === 'fulfilled' ? resB.value.usedModel : selectedModelB
+            modelAUsed,
+            modelBUsed
           )
         : (resultA || resultB);
+      const inferenceLineage = createInferenceLineage({
+        modality: 'technical',
+        executionMode: 'dual',
+        branches: [
+          ...(resultA && resA.status === 'fulfilled' ? [{
+            branch: 'model_a' as const,
+            requestedModel: selectedModelA,
+            actualModel: resA.value.usedModel,
+            usedKeyType: resA.value.usedKeyType,
+          }] : []),
+          ...(resultB && resB.status === 'fulfilled' ? [{
+            branch: 'model_b' as const,
+            requestedModel: selectedModelB,
+            actualModel: resB.value.usedModel,
+            usedKeyType: resB.value.usedKeyType,
+          }] : []),
+        ],
+        consensusStatus: resultA && resultB ? 'consensus_synthesized' : 'partial_fallback',
+      });
+      const finalResultWithLineage = {
+        ...finalResult,
+        matrixRevision: snapshot.matrixRevision,
+        ladderRevision: snapshot.ladderRevision,
+      resolverPlanType: snapshot.resolverPlanType,
+        diversityStatus,
+        inferenceLineage,
+      };
+      const finalResultWithAudit = { ...finalResultWithLineage, validityAudit: res.locals.validityAudit };
 
       const apiDurationMs = Date.now() - apiStart;
       clearTimeout(deadlineTimer);
@@ -263,8 +376,8 @@ router.post('/api/analyze-radiograph', validateRadiographAnalysis, analyzeLimite
         mode: 'consensus',
       });
 
-      analysisCache.set(cacheKey, finalResult);
-      res.write(`data: ${JSON.stringify({ text: JSON.stringify(finalResult), telemetry: { preparationTimeMs, apiDurationMs } })}\n\n`);
+      analysisCache.set(cacheKey, finalResultWithLineage);
+      res.write(`data: ${JSON.stringify({ text: JSON.stringify(finalResultWithAudit), telemetry: { preparationTimeMs, apiDurationMs } })}\n\n`);
       res.write('data: [DONE]\n\n');
       return res.end();
     } else {
@@ -277,22 +390,52 @@ router.post('/api/analyze-radiograph', validateRadiographAnalysis, analyzeLimite
             model: modelName,
             contents: { parts: [imagePart, { text: promptText }] },
             config: {
+        ...providerExecutionConfig(budget),
               systemInstruction,
               temperature: 0.0,
               responseMimeType: 'application/json',
               responseSchema: DENTAL_ANALYSIS_SCHEMA,
             },
           });
+    budget.checkSignal();
           if (!response.text) throw new Error('Empty response from AI');
           return validateClassicOutput(JSON.parse(response.text));
         },
         selectedModelA,
         isUsingCustomKey ? customApiKey : undefined,
         updateStatus,
-        budget
+        budget,
+        'branchSingle',
+        roleA.credentialPreference,
+        {
+          role: 'technical_branch_a',
+          modelLadder: roleA.modelLadder,
+          configRevision: roleA.compatibilityConfigIdentity,
+          credentialAffinity: roleA.credentialPreference,
+          assessmentId,
+        }
       );
 
       const mappedResult = mapOptimizedResultToLegacy(singleRes.result, outputLanguage);
+      const inferenceLineage = createInferenceLineage({
+        modality: 'technical',
+        executionMode: 'single',
+        branches: [{
+          branch: 'single',
+          requestedModel: selectedModelA,
+          actualModel: singleRes.usedModel,
+          usedKeyType: singleRes.usedKeyType,
+        }],
+        consensusStatus: 'not_applicable',
+      });
+      const mappedResultWithLineage = {
+        ...mappedResult,
+        matrixRevision: snapshot.matrixRevision,
+        ladderRevision: snapshot.ladderRevision,
+      resolverPlanType: snapshot.resolverPlanType,
+        inferenceLineage,
+      };
+      const mappedResultWithAudit = { ...mappedResultWithLineage, validityAudit: res.locals.validityAudit };
       const apiDurationMs = Date.now() - apiStart;
       clearTimeout(deadlineTimer);
       serverLog('INFO', 'Telemetry', 'Classic Analysis Completed', {
@@ -302,14 +445,22 @@ router.post('/api/analyze-radiograph', validateRadiographAnalysis, analyzeLimite
         mode: 'single',
       });
 
-      analysisCache.set(cacheKey, mappedResult);
-      res.write(`data: ${JSON.stringify({ text: JSON.stringify(mappedResult), telemetry: { preparationTimeMs, apiDurationMs } })}\n\n`);
+      analysisCache.set(cacheKey, mappedResultWithLineage);
+      res.write(`data: ${JSON.stringify({ text: JSON.stringify(mappedResultWithAudit), telemetry: { preparationTimeMs, apiDurationMs } })}\n\n`);
       res.write('data: [DONE]\n\n');
       return res.end();
     }
   } catch (unknownError: unknown) {
     clearTimeout(deadlineTimer);
     const err = unknownError as any;
+    if (isTerminalExecutionError(err)) {
+      if (!res.destroyed) {
+        const payload = { success: false, errorType: err.code || 'CANCELLED', error: err.message };
+        if (res.headersSent) { res.write(`data: ${JSON.stringify(payload)}\n\n`); res.end(); }
+        else res.status(err.code === 'EXECUTION_DEADLINE' ? 504 : 499).json(payload);
+      }
+      return;
+    }
     const rawLang = String(req.body.language || req.body.outputLanguage || '');
     const isEn = rawLang.toUpperCase() === 'EN' || rawLang.toLowerCase() === 'english';
     const storageAdapter = getStorageAdapter();
@@ -374,8 +525,9 @@ router.post('/api/analyze-radiograph', validateRadiographAnalysis, analyzeLimite
       }
     }
 
+    const systemApiAvailable = getApiKeySources().length > 0;
     if (res.headersSent && !res.writableEnded) {
-      res.write(`data: ${JSON.stringify({ errorType, userMessage, isCustomKeyFailed, isQuotaExhausted })}\n\n`);
+      res.write(`data: ${JSON.stringify({ errorType, userMessage, isCustomKeyFailed, isQuotaExhausted, systemApiAvailable })}\n\n`);
       res.write('data: [DONE]\n\n');
       return res.end();
     } else if (!res.writableEnded) {
@@ -385,6 +537,7 @@ router.post('/api/analyze-radiograph', validateRadiographAnalysis, analyzeLimite
         userMessage,
         isCustomKeyFailed,
         isQuotaExhausted,
+        systemApiAvailable,
       });
     }
   }
@@ -393,15 +546,15 @@ router.post('/api/analyze-radiograph', validateRadiographAnalysis, analyzeLimite
 // Endpoint: Save assessment payload via Storage Adapter
 router.post('/api/log-assessment', generalActionLimiter, async (req: Request, res: Response) => {
   try {
-    const { payload, imageDataUrl } = req.body;
-    if (!payload || typeof payload !== 'object') {
-      return res.status(400).json({ success: false, error: 'Thiếu dữ liệu payload đánh giá hợp lệ.' });
-    }
+    const { record, imageDataUrl } = parsePublicTechnicalSaveDto(req.body);
     const storageAdapter = getStorageAdapter();
-    const result = await storageAdapter.saveLog(payload, imageDataUrl);
+    const result = await storageAdapter.saveLog(record, imageDataUrl);
     return res.json(result);
   } catch (unknownError: unknown) {
     const err = unknownError instanceof Error ? unknownError : new Error(String(unknownError));
+    if (err instanceof PublicPersistenceValidationError) {
+      return res.status(400).json({ success: false, error: err.message });
+    }
     if (!res.headersSent) {
       return res.status(500).json({ error: 'Failed to log assessment', details: err?.message });
     }
@@ -417,7 +570,12 @@ router.post('/api/verify-assessment', adminAuth, async (req: Request, res: Respo
       return res.status(400).json({ success: false, error: 'Thiếu assessmentId' });
     }
 
-    const result = await storageAdapter.verifyAssessment(assessmentId, verifiedErrors, verifiedNotes);
+    const result = await storageAdapter.verifyAssessment(
+      assessmentId,
+      verifiedErrors,
+      verifiedNotes,
+      res.locals.adminReviewerId,
+    );
     return res.json({
       success: true,
       message: 'Đã chốt & lưu lỗi xác nhận của Admin thành công ⭐',
@@ -466,7 +624,7 @@ router.get('/api/images/:filename', async (req: Request, res: Response) => {
     return res.status(403).json({ error: 'Forbidden: Invalid or expired signed image URL' });
   }
 
-  const filePath = path.join(uploadsDir, safeFilename);
+  const filePath = resolveUploadFilePath(safeFilename);
 
   if (fs.existsSync(filePath)) {
     let contentType = 'image/jpeg';
@@ -484,6 +642,10 @@ router.get('/api/images/:filename', async (req: Request, res: Response) => {
 
 // Endpoint: Validate custom Gemini API Key
 router.post('/api/validate-key', validateKeyLimiter, async (req: Request, res: Response) => {
+  const controller = new AbortController();
+  const deadlineTimer = setTimeout(() => controller.abort(), 60000);
+  bindCancellationLifecycle(res, controller, deadlineTimer);
+  const budget = new ExecutionBudget(1, controller.signal);
   try {
     let key = req.body.apiKey ? String(req.body.apiKey).trim() : '';
     if ((key.startsWith("'") && key.endsWith("'")) || (key.startsWith('"') && key.endsWith('"'))) {
@@ -497,8 +659,10 @@ router.post('/api/validate-key', validateKeyLimiter, async (req: Request, res: R
     const testResult = await aiClient.models.generateContent({
       model: 'gemini-flash-lite-latest',
       contents: [{ text: 'Ping' }],
+      config: providerExecutionConfig(budget),
     });
 
+    budget.checkSignal();
     if (testResult && testResult.text) {
       return res.json({ valid: true, message: 'API Key hợp lệ.' });
     }

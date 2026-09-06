@@ -1,6 +1,8 @@
 import { create } from 'zustand';
 import { SystemMetadata } from '../types/dental';
 
+const inFlightMetadataReads = new Map<string, Promise<SystemMetadata | null>>();
+
 export interface MetadataStoreState {
   systemMetrics: SystemMetadata | null;
   isLoading: boolean;
@@ -52,27 +54,38 @@ export const useMetadataStore = create<MetadataStoreState>((set, get) => ({
   })),
 
   fetchMetadata: async (getAuthHeader, filter) => {
-    set({ isLoading: true, error: null, lastAuthHeader: getAuthHeader, lastFilter: filter || null });
-    try {
-      const params = new URLSearchParams();
-      if (filter?.preset) params.append('preset', filter.preset);
-      if (filter?.startDate) params.append('startDate', filter.startDate);
-      if (filter?.endDate) params.append('endDate', filter.endDate);
+    const params = new URLSearchParams();
+    if (filter?.preset) params.append('preset', filter.preset);
+    if (filter?.startDate) params.append('startDate', filter.startDate);
+    if (filter?.endDate) params.append('endDate', filter.endDate);
+    const requestKey = params.toString();
+    const pending = inFlightMetadataReads.get(requestKey);
+    if (pending) return pending;
 
-      const res = await fetch(`/api/admin/metadata?${params.toString()}`, {
-        headers: getAuthHeader(),
-      });
-      const data = await res.json();
-      if (data.success && data.systemMetrics) {
-        set({ systemMetrics: data.systemMetrics, isLoading: false });
-        return data.systemMetrics;
-      } else {
+    const read = (async () => {
+      set({ isLoading: true, error: null, lastAuthHeader: getAuthHeader, lastFilter: filter || null });
+      try {
+        const res = await fetch(`/api/admin/metadata?${requestKey}`, {
+          headers: getAuthHeader(),
+        });
+        const data = await res.json();
+        if (data.success && data.systemMetrics) {
+          set({ systemMetrics: data.systemMetrics, isLoading: false });
+          return data.systemMetrics;
+        }
         set({ error: data.error || 'Failed to fetch metadata', isLoading: false });
         return null;
+      } catch (err: any) {
+        set({ error: err?.message || 'Error fetching metadata', isLoading: false });
+        return null;
       }
-    } catch (err: any) {
-      set({ error: err?.message || 'Error fetching metadata', isLoading: false });
-      return null;
+    })();
+
+    inFlightMetadataReads.set(requestKey, read);
+    try {
+      return await read;
+    } finally {
+      inFlightMetadataReads.delete(requestKey);
     }
   },
 

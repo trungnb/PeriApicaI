@@ -11,6 +11,8 @@ import { flushPendingLogs, flushPendingPathologyLogs } from './services/apiServi
 import { usePredictivePrefetch } from './hooks/usePredictivePrefetch';
 import { useRadiographAnalysis } from './hooks/useRadiographAnalysis';
 import { useAssessmentSession } from './hooks/useAssessmentSession';
+import { purgeLegacyApiKeyStorage } from './utils/apiKeySecurity';
+import { canProceedWithValidity } from './utils/imageValidity';
 
 const lazyWithRetry = <T extends React.ComponentType<any>>(
   factory: () => Promise<{ default: T }>
@@ -37,6 +39,7 @@ const ReportBugModal = lazyWithRetry(() => import('./components/ReportBugModal')
 const GlobalAlertModal = lazyWithRetry(() => import('./components/GlobalAlertModal').then(module => ({ default: module.GlobalAlertModal })));
 const SystemNoticeModal = lazyWithRetry(() => import('./components/SystemNoticeModal').then(module => ({ default: module.SystemNoticeModal })));
 const DisclaimerModal = lazyWithRetry(() => import('./components/DisclaimerModal').then(module => ({ default: module.DisclaimerModal })));
+const ImageValidityModal = lazyWithRetry(() => import('./components/ImageValidityModal').then(module => ({ default: module.ImageValidityModal })));
 
 const pageVariants = {
   initial: (direction: 'forward' | 'backward') => ({
@@ -87,21 +90,14 @@ function AppContent() {
   const isBugModalOpen = useAppStore(state => state.isBugModalOpen);
   const globalError = useAppStore(state => state.globalError);
 
-  const [isDisclaimerOpen, setIsDisclaimerOpen] = useState(false);
+  const [isDisclaimerOpen, setIsDisclaimerOpen] = useState(true);
 
   useEffect(() => {
-    try {
-      if (!localStorage.getItem('periapic_disclaimer_seen')) {
-        const timer = setTimeout(() => setIsDisclaimerOpen(true), 400);
-        return () => clearTimeout(timer);
-      }
-    } catch {}
+    // R5 Mandate: Purge any legacy persistent personal API keys on application mount
+    purgeLegacyApiKeyStorage();
   }, []);
 
   const handleCloseDisclaimer = React.useCallback(() => {
-    try {
-      localStorage.setItem('periapic_disclaimer_seen', 'true');
-    } catch {}
     setIsDisclaimerOpen(false);
   }, []);
 
@@ -136,6 +132,18 @@ function AppContent() {
   const quotaResetNotice = useAppStore(state => state.quotaResetNotice);
   const hasImageData = useAppStore(state => Boolean(state.imageDataUrl));
   const appEngineMode = useAppStore(state => state.appEngineMode);
+  const validityGateState = useAppStore(state => state.validityGateState);
+  const canAnalyzeCurrentWorkspace = useAppStore(state => canProceedWithValidity({
+    validityGateState: state.validityGateState,
+    validityReceipt: state.validityReceipt,
+    validityConfirmedSnapshot: state.validityConfirmedSnapshot,
+    imageDataUrl: state.imageDataUrl,
+    toothFdi: state.selectedTooth.fdiNumber,
+    assessmentId: state.currentAssessmentId,
+    technique: state.selectedTechnique,
+    receptor: state.selectedReceptor,
+    mode: state.appEngineMode,
+  }));
 
   // Stable callbacks for Navigation to prevent sub-tree re-rendering
   const handleNavToStep1 = React.useCallback(() => setCurrentStep(1), [setCurrentStep]);
@@ -193,11 +201,13 @@ function AppContent() {
             nextText={
               isAnalyzing
                 ? tUpload('analyzingBtn')
+                : validityGateState === 'checking'
+                  ? tUpload('validityCheckingBtn')
                 : (appEngineMode === 'pathology_segmentation'
                     ? tUpload('analyzePathologyBtn', tCommon('startPathologyAiSegmentation'))
                     : tUpload('analyzeBtn'))
             }
-            isNextDisabled={!hasImageData}
+            isNextDisabled={!hasImageData || !canAnalyzeCurrentWorkspace}
             isAnalyzing={isAnalyzing}
             isQuotaExhausted={isQuotaExhausted}
             quotaResetNotice={tUpload('quotaLockedBtn', { time: quotaResetNotice || (tCommon('1m')) })}
@@ -263,6 +273,8 @@ function AppContent() {
     isQuotaExhausted,
     quotaResetNotice,
     hasImageData,
+    validityGateState,
+    canAnalyzeCurrentWorkspace,
     tConfig,
     tUpload,
     tAnalysis,
@@ -319,6 +331,7 @@ function AppContent() {
         {isBugModalOpen && <ReportBugModal />}
         {globalError && <GlobalAlertModal />}
         {systemNoticeModal?.isOpen && <SystemNoticeModal />}
+        <ImageValidityModal />
         {isDisclaimerOpen && <DisclaimerModal onClose={handleCloseDisclaimer} />}
       </Suspense>
 

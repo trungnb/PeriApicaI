@@ -107,7 +107,7 @@ export const PathologyStatsCards: React.FC<PathologyStatsCardsProps> = ({
       </div>
 
       {/* KPI Stat Cards (5 Column Grid matching Luồng A) */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4 items-stretch">
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2.5 sm:gap-4 items-stretch">
         <div className="bg-white dark:bg-blue-950/80 p-4 rounded-xl border border-slate-200 dark:border-blue-800/70 shadow-xs flex flex-col items-center justify-between text-center">
           <p className="text-slate-500 dark:text-blue-300/80 text-[10px] xl:text-[11px] font-semibold uppercase tracking-tight whitespace-nowrap mb-2 flex items-center justify-center w-full">
             {t('totalUploads')}

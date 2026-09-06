@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { useAppStore } from '../store/appStore';
-import { Activity, Cpu, Wifi, Zap, Database, ChevronDown, ChevronUp } from 'lucide-react';
+import { Activity, Cpu, Zap, Database, ChevronDown, ChevronUp } from 'lucide-react';
 
 export const PerformanceTelemetry: React.FC = React.memo(() => {
   const lastAnalysisMetrics = useAppStore(state => state.lastAnalysisMetrics);
@@ -13,7 +13,6 @@ export const PerformanceTelemetry: React.FC = React.memo(() => {
 
   const {
     clientCompressTimeMs,
-    networkTimeMs,
     geminiTimeMs,
     totalTimeMs,
     wasCached,

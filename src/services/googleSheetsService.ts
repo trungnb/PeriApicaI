@@ -1,6 +1,11 @@
 const CLIENT_ID = ((import.meta as any).env?.VITE_GOOGLE_CLIENT_ID as string) || '';
 
-let cachedToken: string | null = null;
+let testClientIdOverride: string | null = null;
+
+/** Test seam only; production always reads the Vite public client ID. */
+export function configureGoogleSheetsServiceForTests(clientId: string | null = null): void {
+  testClientIdOverride = clientId;
+}
 
 /**
  * Loads the Google Identity Services (GIS) client library dynamically.
@@ -23,16 +28,12 @@ function loadGsiScript(): Promise<void> {
 /**
  * Requests an OAuth 2.0 Access Token with Google Drive / Sheets scope using GIS.
  */
-export async function getGoogleAccessToken(forceRefresh = false): Promise<string> {
-  if (cachedToken && !forceRefresh) {
-    return cachedToken;
-  }
-
+export async function getGoogleAccessToken(): Promise<string> {
   await loadGsiScript();
 
   return new Promise((resolve, reject) => {
     try {
-      const clientId = CLIENT_ID;
+      const clientId = testClientIdOverride ?? CLIENT_ID;
       if (!clientId) {
         return reject(new Error('Chưa cấu hình Google Client ID (VITE_GOOGLE_CLIENT_ID).'));
       }
@@ -42,7 +43,6 @@ export async function getGoogleAccessToken(forceRefresh = false): Promise<string
         scope: 'https://www.googleapis.com/auth/drive.file https://www.googleapis.com/auth/spreadsheets',
         callback: (response: any) => {
           if (response.error) {
-            cachedToken = null;
             if (response.error === 'popup_closed') {
               reject(new Error('Cửa sổ đăng nhập Google đã bị đóng. Vui lòng thử lại và hoàn tất xác thực.'));
             } else if (response.error === 'access_denied') {
@@ -51,14 +51,12 @@ export async function getGoogleAccessToken(forceRefresh = false): Promise<string
               reject(new Error(response.error_description || response.error));
             }
           } else if (response.access_token) {
-            cachedToken = response.access_token;
             resolve(response.access_token);
           } else {
             reject(new Error('Không nhận được Access Token từ Google OAuth.'));
           }
         },
         error_callback: (err: any) => {
-          cachedToken = null;
           const msg = err?.message || err?.type || '';
           if (msg.includes('popup_closed') || msg.includes('Popup window closed')) {
             reject(new Error('Cửa sổ đăng nhập Google đã bị đóng. Vui lòng nhấp lại để đăng nhập.'));
@@ -70,9 +68,10 @@ export async function getGoogleAccessToken(forceRefresh = false): Promise<string
         },
       });
 
-      client.requestAccessToken({ prompt: forceRefresh ? 'select_account' : '' });
+      // Manual export must always be an explicit account decision. Do not
+      // reuse a token or provide account hints that would skip the chooser.
+      client.requestAccessToken({ prompt: 'select_account' });
     } catch (err: any) {
-      cachedToken = null;
       reject(new Error(err?.message || 'Lỗi khởi tạo đăng nhập Google.'));
     }
   });
@@ -137,7 +136,7 @@ export async function exportDataToGoogleSheets(
 
   // If 401 Unauthorized, token might be expired. Retry once with fresh token.
   if (createRes.status === 401) {
-    token = await getGoogleAccessToken(true);
+    token = await getGoogleAccessToken();
     createRes = await fetch('https://sheets.googleapis.com/v4/spreadsheets', {
       method: 'POST',
       headers: {

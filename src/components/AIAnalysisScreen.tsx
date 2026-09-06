@@ -240,18 +240,36 @@ export const AIAnalysisScreen: React.FC = React.memo(() => {
                               </span>
                               <div className="flex items-center gap-1.5">
                                 {err.provenance === 'matched_consensus' && (
-                                  <span className="text-[9px] bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-300 font-semibold px-1.5 py-0.5 rounded border border-purple-200 dark:border-purple-800">
-                                    {language === 'EN' ? 'Consensus' : 'Hội chẩn'}
+                                  <span
+                                    title={err.modelAScore !== undefined && err.modelBScore !== undefined ? `Flash: ${err.modelAScore}% | Pro: ${err.modelBScore}%` : undefined}
+                                    className="text-[9px] bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-300 font-semibold px-1.5 py-0.5 rounded border border-purple-200 dark:border-purple-800"
+                                  >
+                                    {language === 'EN' ? 'Both Models Agreed' : '2 Mô hình nhất quán'}
+                                    {err.modelAScore !== undefined && err.modelBScore !== undefined && (
+                                      <span className="ml-1 opacity-75 font-mono text-[8px]">
+                                        ({err.modelAScore}% / {err.modelBScore}%)
+                                      </span>
+                                    )}
                                   </span>
                                 )}
-                                {(err.provenance === 'model_a_only' || err.provenance === 'model_b_only') && (
+                                {err.provenance === 'model_a_only' && (
                                   <span className="text-[9px] bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300 font-semibold px-1.5 py-0.5 rounded border border-amber-200 dark:border-amber-800">
-                                    {language === 'EN' ? 'Review Needed' : 'Cần rà soát'}
+                                    {language === 'EN' ? 'Model A Only' : '1 Mô hình (A)'}
                                   </span>
                                 )}
-                                <span className="text-[9px] font-mono font-bold px-1.5 py-0.5 rounded bg-amber-100 dark:bg-amber-900/60 text-amber-800 dark:text-amber-300 border border-amber-200 dark:border-amber-700">
-                                  {t('confidence', { val: err.confidence })}
-                                </span>
+                                {err.provenance === 'model_b_only' && (
+                                  <span className="text-[9px] bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300 font-semibold px-1.5 py-0.5 rounded border border-amber-200 dark:border-amber-800">
+                                    {language === 'EN' ? 'Model B Only' : '1 Mô hình (B)'}
+                                  </span>
+                                )}
+                                {typeof err.confidence === 'number' && (
+                                  <span
+                                    title={language === 'EN' ? 'Model confidence score (heuristic, requires clinical verification)' : 'Điểm ước lượng mô hình AI (cần đối chiếu lâm sàng)'}
+                                    className="text-[9px] font-mono font-bold px-1.5 py-0.5 rounded bg-amber-100 dark:bg-amber-900/60 text-amber-800 dark:text-amber-300 border border-amber-200 dark:border-amber-700"
+                                  >
+                                    {t('confidence', { val: err.confidence })}
+                                  </span>
+                                )}
                               </div>
                             </div>
                             <p className="text-amber-900/80 dark:text-amber-200/80 text-[11px] leading-relaxed pl-3">

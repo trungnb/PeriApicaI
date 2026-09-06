@@ -1,14 +1,16 @@
 {
   "name": "periapicai",
   "private": true,
-  "version": "2.8.9",
+  "version": "2.9.0",
   "type": "module",
   "scripts": {
     "dev": "tsx server.ts",
-    "build": "vite build && esbuild server.ts --bundle --platform=node --format=cjs --packages=external --sourcemap --outfile=dist/server.cjs",
+    "build": "vite build && esbuild server.ts --bundle --platform=node --format=cjs --packages=external --outfile=dist/server.cjs",
     "start": "node dist/server.cjs",
     "clean": "rm -rf dist server.js",
-    "lint": "tsc --noEmit"
+    "lint": "tsc --noEmit",
+    "test": "NODE_ENV=test tsx --test --test-concurrency=1 \"test/unit/**/*.test.ts\"",
+    "test:unit": "NODE_ENV=test tsx --test \"test/unit/**/*.test.ts\""
   },
   "dependencies": {
     "@google/genai": "^2.4.0",

@@ -1,4 +1,4 @@
-import { getOrInitServerCache, saveServerCacheToDisk } from '../services/storageAdapter';
+import { getOrInitServerCache, markServerCacheDirty, saveServerCacheToDisk } from '../services/storageAdapter';
 import { serverLog } from '../config/env';
 
 /**
@@ -63,7 +63,7 @@ export function deduplicateMasterCache(): { removedReports: number; removedPatho
 
     const totalRemoved = removedReports + removedPathology + removedBugs;
     if (totalRemoved > 0) {
-      cache.isCacheDirty = true;
+      markServerCacheDirty(cache);
       saveServerCacheToDisk(true);
       serverLog(
         'INFO',

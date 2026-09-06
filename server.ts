@@ -1,9 +1,8 @@
 import express from 'express';
 import path from 'path';
 import compression from 'compression';
-import { createServer as createViteServer } from 'vite';
 
-import { PORT, serverLog } from './src/server/config/env';
+import { PORT, serverLog, assertSigningSecretConfiguration } from './src/server/config/env';
 import { flushCacheOnShutdown } from './src/server/services/storageAdapter';
 import { startCleanupJob } from './src/server/jobs/cleanupJob';
 import { startAutoSyncJob } from './src/server/jobs/syncJob';
@@ -14,9 +13,27 @@ import assessmentRoutes from './src/server/routes/assessmentRoutes';
 import adminRoutes from './src/server/routes/adminRoutes';
 import bugRoutes from './src/server/routes/bugRoutes';
 import pathologyRoutes from './src/server/routes/pathologyRoutes';
+import validityRoutes from './src/server/routes/validityRoutes';
 import { startPathologySnapshot } from './src/server/services/firestorePathologyService';
+import { initializeModelRegistryAsync } from './src/server/services/modelRegistryService';
+
+function serveStaticAssets(app: express.Express, clientDistPath: string): void {
+  app.use(express.static(clientDistPath, {
+    maxAge: '1h',
+    setHeaders: (res, filePath) => {
+      if (filePath.includes('/assets/')) {
+        res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
+      }
+    },
+  }));
+  app.get('*', (_req, res) => {
+    res.setHeader('Cache-Control', 'no-cache');
+    res.sendFile(path.join(clientDistPath, 'index.html'));
+  });
+}
 
 async function startServer() {
+  assertSigningSecretConfiguration();
   const app = express();
   app.set('trust proxy', 1);
 
@@ -39,8 +56,7 @@ async function startServer() {
     res.setHeader('X-Content-Type-Options', 'nosniff');
     res.setHeader('Strict-Transport-Security', 'max-age=31536000; includeSubDomains');
     res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
-    res.setHeader('X-XSS-Protection', '1; mode=block');
-    res.setHeader('Content-Security-Policy', "default-src 'self'; img-src 'self' data: blob: https:; script-src 'self' 'unsafe-inline' 'unsafe-eval' blob:; worker-src 'self' blob:; style-src 'self' 'unsafe-inline'; connect-src 'self' https:; frame-ancestors 'self' *;");
+    res.setHeader('Content-Security-Policy', "default-src 'self'; img-src 'self' data: blob: https:; script-src 'self' 'unsafe-inline' 'unsafe-eval' blob: https://accounts.google.com; frame-src 'self' https://accounts.google.com; worker-src 'self' blob:; style-src 'self' 'unsafe-inline' https://accounts.google.com; connect-src 'self' https: ws: wss:; frame-ancestors 'self' *;");
     next();
   });
 
@@ -64,6 +80,7 @@ async function startServer() {
   app.use(adminRoutes);
   app.use(bugRoutes);
   app.use(pathologyRoutes);
+  app.use(validityRoutes);
 
   // Error handling middleware for API routes (Payload Too Large 413, JSON parsing errors)
   app.use('/api', (err: any, _req: express.Request, res: express.Response, next: express.NextFunction) => {
@@ -95,34 +112,34 @@ async function startServer() {
   startCleanupJob();
   startAutoSyncJob();
   startPathologySnapshot();
+  initializeModelRegistryAsync();
 
   // Vite development middleware or production static asset serving
-  if (process.env.NODE_ENV !== 'production') {
-    const vite = await createViteServer({
-      server: { middlewareMode: true },
-      appType: 'spa',
-    });
-    app.use(vite.middlewares);
+  const isCjsBundle = typeof __filename === 'string' && __filename.endsWith('.cjs');
+  const isProduction = process.env.NODE_ENV === 'production' || isCjsBundle;
+
+  const clientDistPath = path.join(process.cwd(), 'dist', 'client');
+
+  if (!isProduction) {
+    try {
+      const { createServer: createViteServer } = await import('vite');
+      const vite = await createViteServer({
+        server: { middlewareMode: true },
+        appType: 'spa',
+      });
+      app.use(vite.middlewares);
+    } catch (viteErr) {
+      serverLog('WARN', 'Vite', 'Vite dev server is unavailable, falling back to static client serving');
+      serveStaticAssets(app, clientDistPath);
+    }
   } else {
-    const distPath = path.join(process.cwd(), 'dist');
-    app.use(express.static(distPath, {
-      maxAge: '1h',
-      setHeaders: (res, filePath) => {
-        if (filePath.includes('/assets/')) {
-          res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
-        }
-      },
-    }));
-    app.get('*', (_req, res) => {
-      res.setHeader('Cache-Control', 'no-cache');
-      res.sendFile(path.join(distPath, 'index.html'));
-    });
+    serveStaticAssets(app, clientDistPath);
   }
 
   // Graceful shutdown handling (Flush RAM Cache to Disk & Stop Stream on SIGINT/SIGTERM)
-  const shutdownHandler = (signal: string) => {
+  const shutdownHandler = async (signal: string) => {
     serverLog('INFO', 'ServerSignal', `Nhận tín hiệu ${signal}. Tiến hành Graceful Shutdown...`);
-      flushCacheOnShutdown();
+    await flushCacheOnShutdown();
     process.exit(0);
   };
 

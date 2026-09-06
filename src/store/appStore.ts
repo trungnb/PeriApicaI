@@ -11,12 +11,22 @@ import {
   ConfirmedPathology,
   PathologyGeminiVerification,
   PathologyKey,
+  AnalysisWorkspaceSnapshot,
+  ImageValidityResult,
+  ValidityGateState,
+  ValidityReceipt,
+  ValidityAuditMetadata,
+  InferenceLineage,
 } from '../types/dental';
 import { ALL_TEETH } from '../data/taxonomyData';
 import { PATHOLOGY_DICT } from '../constants/dictionaries';
 import { imageBlobCache } from '../utils/imageBlobCache';
 import { CompressionResult } from '../utils/imageCompressor';
+import { purgeLegacyApiKeyStorage } from '../utils/apiKeySecurity';
 import i18next from '../i18n';
+
+// R5 Mandate: Purge any legacy persistent personal API keys immediately on load
+purgeLegacyApiKeyStorage();
 
 
 const getInitialLanguage = (): Language => {
@@ -49,7 +59,12 @@ export interface AppState {
   isBugModalOpen: boolean;
   globalError: string | null;
   systemNoticeModal: { isOpen: boolean; title?: string; message: string; type?: 'warning' | 'info' } | null;
-  customKeyErrorModal: { isOpen: boolean; message: string } | null;
+  customKeyErrorModal: {
+    isOpen: boolean;
+    message: string;
+    reasonCategory?: 'invalid_key' | 'quota_or_rate_limit' | 'provider_unavailable' | 'network_or_timeout' | 'unknown_custom_key_failure';
+    systemApiAvailable?: boolean;
+  } | null;
   isQuotaExhausted: boolean;
   quotaResetNotice: string | null;
   shareConsent: boolean;
@@ -80,6 +95,7 @@ export interface AppState {
   apiKeyOption: 'system' | 'custom';
   customApiKey: string;
   rememberCustomApiKey: boolean;
+  systemApiAvailable: boolean;
   analysisMode: 'single' | 'consensus';
   availableModels: Array<{ id: string; displayName: string }>;
   selectedModelA: string;
@@ -87,10 +103,19 @@ export interface AppState {
   isLoadingModels: boolean;
   appEngineMode: AppEngineMode;
 
+  // ─── Request Identity & Generation Guard (R2) ──────────────
+  analysisGeneration: number;
+  activeAnalysisId: string | null;
+  startAnalysisRequest: (mode: AppEngineMode) => AnalysisWorkspaceSnapshot;
+  isAnalysisCurrent: (snapshot: AnalysisWorkspaceSnapshot | null | undefined) => boolean;
+  invalidateActiveAnalysis: () => void;
+
   // ─── Pathology Pipeline State (Luồng B) ─────────────────────
   aiDetections: AIDetection[];
   confirmedPathologies: ConfirmedPathology[];
   pathologyGeminiResult: PathologyGeminiVerification | null;
+  pathologyInferenceLineage: InferenceLineage | null;
+  pathologyValidityAudit: ValidityAuditMetadata | null;
   hiddenDetectionIds: Set<string>;
   pathologyAnalysisStatus: 'idle' | 'analyzing' | 'complete' | 'error';
   pathologyStatusMessage: string | null;
@@ -115,9 +140,16 @@ export interface AppState {
   setAnalysisResult: (result: AIAnalysisResult | null) => void;
   setGlobalError: (msg: string | null) => void;
   setSystemNoticeModal: (modal: { isOpen: boolean; title?: string; message: string; type?: 'warning' | 'info' } | null) => void;
-  setCustomKeyErrorModal: (modal: { isOpen: boolean; message: string } | null) => void;
+  setCustomKeyErrorModal: (modal: {
+    isOpen: boolean;
+    message: string;
+    reasonCategory?: 'invalid_key' | 'quota_or_rate_limit' | 'provider_unavailable' | 'network_or_timeout' | 'unknown_custom_key_failure';
+    systemApiAvailable?: boolean;
+  } | null) => void;
+  setSystemApiAvailable: (available: boolean) => void;
   setApiKeyOption: (option: 'system' | 'custom') => void;
   setCustomApiKey: (key: string) => void;
+  clearCustomApiKey: () => void;
   setRememberCustomApiKey: (remember: boolean) => void;
   setIsFallbackAnalysis: (isFallback: boolean) => void;
   setConfirmedErrorKeys: (keys: string[]) => void;
@@ -140,35 +172,51 @@ export interface AppState {
   updateDetectionKey: (id: string, newKey: PathologyKey) => void;
   toggleDetectionVisibility: (id: string) => void;
   setPathologyGeminiResult: (result: PathologyGeminiVerification | null) => void;
+  setPathologyInferenceLineage: (lineage: InferenceLineage | null) => void;
+  setPathologyValidityAudit: (audit: ValidityAuditMetadata | null) => void;
   setPathologyAnalysisStatus: (status: 'idle' | 'analyzing' | 'complete' | 'error') => void;
   setPathologyStatusMessage: (msg: string | null) => void;
   resetPathologyState: () => void;
+
+  // ─── R4: Pre-Analysis Image Validity Gate State ────────────
+  validityGateState: ValidityGateState;
+  validityResult: ImageValidityResult | null;
+  validityReceipt: ValidityReceipt | null;
+  validityConfirmationToken: string | null;
+  validityConfirmedSnapshot: AnalysisWorkspaceSnapshot | null;
+  validityModal: {
+    isOpen: boolean;
+    type: 'invalid' | 'warning' | 'unavailable';
+    issue?: 'not_periapical' | 'not_assessable' | 'target_absent' | 'mismatch' | 'uncertain';
+    result?: ImageValidityResult | null;
+    message?: string;
+    onConfirm?: () => void;
+    onRetry?: () => void;
+    onCancel?: () => void;
+  } | null;
+  setValidityGateState: (state: ValidityGateState) => void;
+  setValidityResult: (result: ImageValidityResult | null) => void;
+  setValidityReceipt: (receipt: ValidityReceipt | null, confirmationToken?: string | null) => void;
+  setValidityModal: (modal: AppState['validityModal']) => void;
+  confirmValidityForCurrentSnapshot: (snapshot: AnalysisWorkspaceSnapshot, receipt?: ValidityReceipt) => void;
+  resetValidityState: () => void;
 }
 
 const getInitialApiKeyOption = (): 'system' | 'custom' => {
   if (typeof window !== 'undefined') {
     const saved = localStorage.getItem('periapical_api_key_option');
     if (saved === 'system' || saved === 'custom') return saved;
-    // If a custom key was already saved on device, default to custom option
-    if (localStorage.getItem('periapical_user_api_key')) return 'custom';
   }
   return 'system';
 };
 
 const getInitialCustomApiKey = (): string => {
-  if (typeof window !== 'undefined') {
-    return localStorage.getItem('periapical_user_api_key') || '';
-  }
+  // R5 Mandate: Personal API keys are strictly volatile and memory-only.
   return '';
 };
 
 const getInitialRememberCustomApiKey = (): boolean => {
-  if (typeof window !== 'undefined') {
-    const saved = localStorage.getItem('periapical_remember_custom_api_key');
-    // If explicitly set to false, respect it; otherwise default to true for user convenience
-    if (saved === 'false') return false;
-    return false;
-  }
+  // R5 Mandate: Key persistence disabled.
   return false;
 };
 
@@ -211,10 +259,11 @@ export const useAppStore = create<AppState>((set, get) => ({
   apiKeyOption: getInitialApiKeyOption(),
   customApiKey: getInitialCustomApiKey(),
   rememberCustomApiKey: getInitialRememberCustomApiKey(),
+  systemApiAvailable: true,
   analysisMode: 'single',
   availableModels: [],
-  selectedModelA: 'gemini-flash-latest',
-  selectedModelB: 'gemini-flash-lite-latest',
+  selectedModelA: '',
+  selectedModelB: '',
   isLoadingModels: false,
   appEngineMode: 'classic',
   currentStep: 1,
@@ -246,10 +295,43 @@ export const useAppStore = create<AppState>((set, get) => ({
   lastCompressionMetrics: null,
   lastAnalysisMetrics: null,
 
+  // ─── Request Identity & Generation Guard (R2) ──────────────
+  analysisGeneration: 0,
+  activeAnalysisId: null,
+
+  // ─── R4: Pre-Analysis Image Validity Gate Initial State ─────
+  validityGateState: 'idle',
+  validityResult: null,
+  validityReceipt: null,
+  validityConfirmationToken: null,
+  validityConfirmedSnapshot: null,
+  validityModal: null,
+
+  setValidityGateState: (state) => set({ validityGateState: state }),
+  setValidityResult: (result) => set({ validityResult: result }),
+  setValidityReceipt: (receipt, confirmationToken = null) => set({ validityReceipt: receipt, validityConfirmationToken: confirmationToken }),
+  setValidityModal: (modal) => set({ validityModal: modal }),
+  confirmValidityForCurrentSnapshot: (snapshot, receipt) => set((state) => ({
+    validityGateState: 'user_confirmed',
+    validityConfirmedSnapshot: snapshot,
+    validityReceipt: receipt ?? state.validityReceipt,
+    validityConfirmationToken: null,
+  })),
+  resetValidityState: () => set({
+    validityGateState: 'idle',
+    validityResult: null,
+    validityReceipt: null,
+    validityConfirmationToken: null,
+    validityConfirmedSnapshot: null,
+    validityModal: null,
+  }),
+
   // ─── Pathology Pipeline Initial State ─────────────────────────────
   aiDetections: [],
   confirmedPathologies: [],
   pathologyGeminiResult: null,
+  pathologyInferenceLineage: null,
+  pathologyValidityAudit: null,
   hiddenDetectionIds: new Set<string>(),
   pathologyAnalysisStatus: 'idle',
   pathologyStatusMessage: null,
@@ -259,6 +341,8 @@ export const useAppStore = create<AppState>((set, get) => ({
     // When changing flow at Welcome/Setup stage, immediately assign flow-specific Session ID
     const newId = state.currentStep <= 2 ? generateSessionId(mode) : state.currentAssessmentId;
     return {
+      analysisGeneration: state.analysisGeneration + 1,
+      activeAnalysisId: null,
       appEngineMode: mode,
       currentAssessmentId: newId,
       
@@ -266,10 +350,20 @@ export const useAppStore = create<AppState>((set, get) => ({
       aiDetections: [],
       confirmedPathologies: [],
       pathologyGeminiResult: null,
+      pathologyInferenceLineage: null,
+      pathologyValidityAudit: null,
       hiddenDetectionIds: new Set<string>(),
       pathologyAnalysisStatus: 'idle',
       pathologyStatusMessage: null,
       
+      // Reset Validity Gate
+      validityGateState: 'idle',
+      validityResult: null,
+      validityReceipt: null,
+      validityConfirmationToken: null,
+      validityConfirmedSnapshot: null,
+      validityModal: null,
+
       // Reset Classic state
       analysisResult: null,
       lastAnalyzedRequestHash: null,
@@ -304,51 +398,99 @@ export const useAppStore = create<AppState>((set, get) => ({
     set({ language: nextLang });
   },
 
-  setCurrentStep: (step) => set({ currentStep: step }),
-  setCurrentAssessmentId: (id) => set({ currentAssessmentId: id }),
+  setCurrentStep: (step) => set((state) => {
+    if (state.currentStep === step) return {};
+    const shouldInvalidate = state.isAnalyzing && step < state.currentStep;
+    return {
+      currentStep: step,
+      ...(shouldInvalidate ? {
+        analysisGeneration: state.analysisGeneration + 1,
+        activeAnalysisId: null,
+        isAnalyzing: false,
+        analyzingStatusMessage: null,
+        pathologyAnalysisStatus: 'idle',
+        pathologyStatusMessage: null,
+      } : {}),
+    };
+  }),
+  setCurrentAssessmentId: (id) => set({
+    currentAssessmentId: id,
+    validityReceipt: null,
+    validityConfirmationToken: null,
+    validityConfirmedSnapshot: null,
+    validityGateState: 'idle',
+  }),
   setSelectedTechnique: (technique) => set((state) => {
     if (state.selectedTechnique === technique) return {};
     return {
+      analysisGeneration: state.analysisGeneration + 1,
+      activeAnalysisId: null,
       selectedTechnique: technique,
+      validityReceipt: null,
+      validityConfirmationToken: null,
       analysisResult: null,
       lastAnalyzedRequestHash: null,
       confirmedErrorKeys: [],
       aiDetections: [],
       confirmedPathologies: [],
       pathologyGeminiResult: null,
+      pathologyInferenceLineage: null,
+      pathologyValidityAudit: null,
       hiddenDetectionIds: new Set<string>(),
       pathologyAnalysisStatus: 'idle',
       pathologyStatusMessage: null,
+      isAnalyzing: false,
+      analyzingStatusMessage: null,
     };
   }),
   setSelectedReceptor: (receptor) => set((state) => {
     if (state.selectedReceptor === receptor) return {};
     return {
+      analysisGeneration: state.analysisGeneration + 1,
+      activeAnalysisId: null,
       selectedReceptor: receptor,
+      validityReceipt: null,
+      validityConfirmationToken: null,
       analysisResult: null,
       lastAnalyzedRequestHash: null,
       confirmedErrorKeys: [],
       aiDetections: [],
       confirmedPathologies: [],
       pathologyGeminiResult: null,
+      pathologyInferenceLineage: null,
+      pathologyValidityAudit: null,
       hiddenDetectionIds: new Set<string>(),
       pathologyAnalysisStatus: 'idle',
       pathologyStatusMessage: null,
+      isAnalyzing: false,
+      analyzingStatusMessage: null,
     };
   }),
   setSelectedTooth: (tooth) => set((state) => {
     if (state.selectedTooth.fdiNumber === tooth.fdiNumber) return {};
     return {
+      analysisGeneration: state.analysisGeneration + 1,
+      activeAnalysisId: null,
       selectedTooth: tooth,
+      validityGateState: 'idle',
+      validityResult: null,
+      validityReceipt: null,
+      validityConfirmationToken: null,
+      validityConfirmedSnapshot: null,
+      validityModal: null,
       analysisResult: null,
       lastAnalyzedRequestHash: null,
       confirmedErrorKeys: [],
       aiDetections: [],
       confirmedPathologies: [],
       pathologyGeminiResult: null,
+      pathologyInferenceLineage: null,
+      pathologyValidityAudit: null,
       hiddenDetectionIds: new Set<string>(),
       pathologyAnalysisStatus: 'idle',
       pathologyStatusMessage: null,
+      isAnalyzing: false,
+      analyzingStatusMessage: null,
     };
   }),
   setImageDataUrl: (url, file?: File | null) => set((state) => {
@@ -360,11 +502,19 @@ export const useAppStore = create<AppState>((set, get) => ({
       imageBlobCache.set(state.currentAssessmentId, { blob: file || undefined, dataUrl: url });
     }
     return {
+      analysisGeneration: state.analysisGeneration + 1,
+      activeAnalysisId: null,
       imageDataUrl: url,
       imageFile: file || null,
       compressedImageBase64: null,
       lastCompressionMetrics: null,
       lastAnalysisMetrics: null,
+      validityGateState: 'idle',
+      validityResult: null,
+      validityReceipt: null,
+      validityConfirmationToken: null,
+      validityConfirmedSnapshot: null,
+      validityModal: null,
       analysisResult: null,
       lastAnalyzedRequestHash: null,
       confirmedErrorKeys: [],
@@ -374,9 +524,13 @@ export const useAppStore = create<AppState>((set, get) => ({
       aiDetections: [],
       confirmedPathologies: [],
       pathologyGeminiResult: null,
+      pathologyInferenceLineage: null,
+      pathologyValidityAudit: null,
       hiddenDetectionIds: new Set<string>(),
       pathologyAnalysisStatus: 'idle',
       pathologyStatusMessage: null,
+      isAnalyzing: false,
+      analyzingStatusMessage: null,
     };
   }),
   setIsAnalyzing: (isAnalyzing) => set({ isAnalyzing }),
@@ -387,34 +541,25 @@ export const useAppStore = create<AppState>((set, get) => ({
   setGlobalError: (msg) => set({ globalError: msg }),
   setSystemNoticeModal: (modal) => set({ systemNoticeModal: modal }),
   setCustomKeyErrorModal: (modal) => set({ customKeyErrorModal: modal }),
+  setSystemApiAvailable: (available) => set({ systemApiAvailable: available }),
   setApiKeyOption: (option) => {
     if (typeof window !== 'undefined') {
       localStorage.setItem('periapical_api_key_option', option);
     }
+    // Mode switch: Active mode is updated. In-memory custom key is retained in volatile memory for later switch-back.
     set({ apiKeyOption: option });
   },
   setCustomApiKey: (key) => {
-    const trimmed = key.trim();
-    if (typeof window !== 'undefined') {
-      if (get().rememberCustomApiKey && trimmed) {
-        localStorage.setItem('periapical_user_api_key', trimmed);
-      } else if (!get().rememberCustomApiKey || !trimmed) {
-        localStorage.removeItem('periapical_user_api_key');
-      }
-    }
+    // Volatile memory-only update. NEVER write to persistent storage.
     set({ customApiKey: key });
   },
-  setRememberCustomApiKey: (remember) => {
-    if (typeof window !== 'undefined') {
-      localStorage.setItem('periapical_remember_custom_api_key', remember ? 'true' : 'false');
-      const currentKey = get().customApiKey.trim();
-      if (remember && currentKey) {
-        localStorage.setItem('periapical_user_api_key', currentKey);
-      } else if (!remember) {
-        localStorage.removeItem('periapical_user_api_key');
-      }
-    }
-    set({ rememberCustomApiKey: remember });
+  clearCustomApiKey: () => {
+    // Explicit user action: clears volatile custom key from memory
+    set({ customApiKey: '' });
+  },
+  setRememberCustomApiKey: (_remember) => {
+    // R5 Mandate: Persistent storage of personal keys is deprecated and permanently disabled.
+    set({ rememberCustomApiKey: false });
   },
   setIsFallbackAnalysis: (isFallback) => set({ isFallbackAnalysis: isFallback }),
   setConfirmedErrorKeys: (keys) => set({ confirmedErrorKeys: keys }),
@@ -447,6 +592,8 @@ export const useAppStore = create<AppState>((set, get) => ({
       imageBlobCache.evictSessionImage(state.currentAssessmentId);
     }
     return {
+      analysisGeneration: state.analysisGeneration + 1,
+      activeAnalysisId: null,
       currentAssessmentId: generateSessionId(state.appEngineMode),
       imageDataUrl: null,
       imageFile: null,
@@ -456,13 +603,22 @@ export const useAppStore = create<AppState>((set, get) => ({
       analysisResult: null,
       lastAnalyzedRequestHash: null,
       confirmedErrorKeys: [],
+      validityGateState: 'idle',
+      validityResult: null,
+      validityReceipt: null,
+      validityConfirmationToken: null,
+      validityConfirmedSnapshot: null,
+      validityModal: null,
       currentStep: 1,
       shareConsent: false,
+      apiKeyOption: 'system',
+      customApiKey: '',
       selectedTechnique: 'Paralleling',
       selectedReceptor: 'Digital Sensor',
       selectedTooth: ALL_TEETH[7], // R11 default
       globalError: null,
       isAnalyzing: false,
+      analyzingStatusMessage: null,
       userConcurred: null,
       selectedOverrideKeys: [],
       userNotes: '',
@@ -470,24 +626,88 @@ export const useAppStore = create<AppState>((set, get) => ({
       aiDetections: [],
       confirmedPathologies: [],
       pathologyGeminiResult: null,
+      pathologyInferenceLineage: null,
+      pathologyValidityAudit: null,
       hiddenDetectionIds: new Set<string>(),
       pathologyAnalysisStatus: 'idle',
       pathologyStatusMessage: null,
     };
   }),
 
+  // ─── Request Identity & Generation Guard (R2) ──────────────
+  startAnalysisRequest: (mode) => {
+    const nextGen = get().analysisGeneration + 1;
+    const reqId = `${mode}-${Date.now()}-${nextGen}`;
+    set({
+      analysisGeneration: nextGen,
+      activeAnalysisId: reqId,
+      isAnalyzing: true,
+    });
+    return {
+      generation: nextGen,
+      requestId: reqId,
+      mode: get().appEngineMode,
+      assessmentId: get().currentAssessmentId,
+      toothFdi: get().selectedTooth.fdiNumber,
+      technique: get().selectedTechnique,
+      receptor: get().selectedReceptor,
+      imageDataUrl: get().imageDataUrl,
+    };
+  },
+
+  isAnalysisCurrent: (snapshot) => {
+    if (!snapshot) return false;
+    const state = get();
+    if (state.analysisGeneration !== snapshot.generation) return false;
+    if (state.activeAnalysisId !== snapshot.requestId) return false;
+    if (state.currentAssessmentId !== snapshot.assessmentId) return false;
+    if (state.appEngineMode !== snapshot.mode) return false;
+    if (state.imageDataUrl !== snapshot.imageDataUrl) return false;
+    if (state.selectedTooth.fdiNumber !== snapshot.toothFdi) return false;
+    if (snapshot.mode === 'classic') {
+      if (state.selectedTechnique !== snapshot.technique) return false;
+      if (state.selectedReceptor !== snapshot.receptor) return false;
+    }
+    return true;
+  },
+
+  invalidateActiveAnalysis: () => {
+    const nextGen = get().analysisGeneration + 1;
+    const wasAnalyzing = get().isAnalyzing;
+    set({
+      analysisGeneration: nextGen,
+      activeAnalysisId: null,
+      ...(wasAnalyzing
+        ? {
+            isAnalyzing: false,
+            analyzingStatusMessage: null,
+            pathologyAnalysisStatus: 'idle',
+            pathologyStatusMessage: null,
+          }
+        : {}),
+    });
+  },
+
   // ─── Pathology Pipeline Actions ──────────────────────────────
   setAiDetections: (detections) => set({ aiDetections: detections }),
   setConfirmedPathologies: (pathologies) => set({ confirmedPathologies: pathologies }),
 
   updateDetectionBbox: (id, bbox) => set((state) => ({
-    aiDetections: state.aiDetections.map((d) => d.id === id ? { ...d, bbox, polygonPoints: undefined } : d),
+    // AI detections are the immutable prediction snapshot. Human geometry edits
+    // belong only to the separately confirmed/reviewed lesion instance.
+    aiDetections: state.aiDetections,
     confirmedPathologies: state.confirmedPathologies.map((d) => d.id === id ? { ...d, bbox, polygonPoints: undefined, isUserEdited: true, humanReviewed: true } : d),
   })),
 
   updateDetectionPolygon: (id, polygonPoints) => set((state) => ({
-    aiDetections: state.aiDetections.map((d) => d.id === id ? { ...d, polygonPoints } : d),
-    confirmedPathologies: state.confirmedPathologies.map((d) => d.id === id ? { ...d, polygonPoints, isUserEdited: true, humanReviewed: true } : d),
+    aiDetections: state.aiDetections,
+    confirmedPathologies: state.confirmedPathologies.map((d) => d.id === id ? {
+      ...d,
+      polygonPoints,
+      geometryStatus: polygonPoints.length >= 3 ? 'valid' : d.geometryStatus,
+      isUserEdited: true,
+      humanReviewed: true,
+    } : d),
   })),
 
   updateDetectionKey: (id, newKey) => {
@@ -516,16 +736,23 @@ export const useAppStore = create<AppState>((set, get) => ({
   }),
 
   setPathologyGeminiResult: (result) => set({ pathologyGeminiResult: result }),
+  setPathologyInferenceLineage: (lineage) => set({ pathologyInferenceLineage: lineage }),
+  setPathologyValidityAudit: (audit) => set({ pathologyValidityAudit: audit }),
   setPathologyAnalysisStatus: (status) => set({ pathologyAnalysisStatus: status }),
   setPathologyStatusMessage: (msg) => set({ pathologyStatusMessage: msg }),
 
-  resetPathologyState: () => set({
+  resetPathologyState: () => set((state) => ({
+    analysisGeneration: state.analysisGeneration + 1,
+    activeAnalysisId: null,
     aiDetections: [],
     confirmedPathologies: [],
     pathologyGeminiResult: null,
+    pathologyInferenceLineage: null,
+    pathologyValidityAudit: null,
     hiddenDetectionIds: new Set<string>(),
     pathologyAnalysisStatus: 'idle',
     pathologyStatusMessage: null,
-  }),
+    isAnalyzing: false,
+    analyzingStatusMessage: null,
+  })),
 }));
-

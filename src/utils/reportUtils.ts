@@ -54,9 +54,14 @@ export const ACCURACY_CATEGORY_CONFIG: Record<AccuracyCategory, {
 
 export const isLogAdminVerified = (log: AssessmentLogPayload) => {
   return Boolean(
+    log.technicalEvaluation?.reviewState === 'reviewed' ||
     log.userValidation?.userNotes?.includes('Admin') || 
     log.verifiedNotes?.includes('Admin') || 
     log.verifiedBy === 'Admin' ||
     (log.accuracyScore && log.accuracyScore.includes('Admin ⭐'))
   );
+};
+
+export const getCleanConfirmedErrors = (log: AssessmentLogPayload): string[] => {
+  return (log.finalConfirmedErrors || []).filter((k) => k !== 'not_periapical');
 };

@@ -16,8 +16,10 @@ export interface ToothInfo {
   universalNumber: string; // e.g. "#8", "#30"
   name: string; // e.g. "Upper Right Central Incisor"
   arch: DentalArch;
-  quadrant: 1 | 2 | 3 | 4;
+  quadrant: 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | number;
   type: DentalToothType;
+  nameVi?: string;
+  nameEn?: string;
 }
 
 export type ErrorDomainId = 'domain_1' | 'domain_2' | 'domain_3';
@@ -36,12 +38,70 @@ export interface BilingualTaxonomyErrorItem extends TaxonomyErrorItem {
   remediationEn?: string;
 }
 
+export type TechnicalFindingProvenance =
+  | 'matched_consensus'
+  | 'model_a_only'
+  | 'model_b_only'
+  | 'single_mode';
+
+export type InferenceModality = 'technical' | 'pathology';
+export type InferenceExecutionMode = 'single' | 'dual';
+export type InferenceKeySource = 'custom_byok' | 'system_primary' | 'system_backup';
+
+export interface InferenceBranchLineage {
+  branch: 'single' | 'model_a' | 'model_b';
+  requestedModel: string;
+  actualModel: string;
+  keySource: InferenceKeySource;
+}
+
+/**
+ * Server-derived description of the exact provider execution which produced
+ * an AI result. `attestation` is transport-only and is removed before storage.
+ */
+export interface InferenceLineage {
+  schemaVersion: 1;
+  status: 'available';
+  lineageId: string;
+  modality: InferenceModality;
+  workflow: 'technical_quality_assessment' | 'pathology_segmentation';
+  provider: 'google_gemini';
+  executionMode: InferenceExecutionMode;
+  branches: InferenceBranchLineage[];
+  consensus: {
+    mode: 'none' | 'dual_consensus';
+    status: 'not_applicable' | 'consensus_synthesized' | 'partial_fallback';
+  };
+  promptVersion: string;
+  responseSchemaVersion: string;
+  analysisConfigVersion: string;
+  generatedAt: string;
+  attestation?: string;
+}
+
+export interface LegacyInferenceLineage {
+  schemaVersion: 1;
+  status: 'unavailable';
+  reason: 'legacy_record';
+}
+
+export type EvaluationInferenceLineage = InferenceLineage | LegacyInferenceLineage;
+
+/** Server-generated provenance for a synthesized Technical dual-model result. */
+export interface TechnicalConsensusMeta {
+  mode?: 'dual_consensus';
+  models?: string[];
+  status?: 'consensus_synthesized';
+}
+
 export interface AIDetectedError {
   errorKey: string;
   errorName: string;
-  confidence: number; // 0 - 100
+  confidence: number; // 0 - 100: Model-generated confidence or derived consensus score (not a calibrated clinical probability)
+  modelAScore?: number;
+  modelBScore?: number;
   clinicalObservation: string;
-  provenance?: 'matched_consensus' | 'model_a_only' | 'model_b_only' | 'single_mode';
+  provenance?: TechnicalFindingProvenance;
 }
 
 export interface AIDomainFinding {
@@ -57,6 +117,67 @@ export interface AIAnalysisResult {
   overallQuality: 'Diagnostic' | 'Needs Retake' | 'Unsatisfactory';
   findings: AIDomainFinding[];
   observationChain?: string[];
+  consensusMeta?: TechnicalConsensusMeta;
+  inferenceLineage?: InferenceLineage;
+  validityAudit?: ValidityAuditMetadata;
+}
+
+/** One immutable human-truth decision for a Technical assessment. */
+export interface TechnicalReviewVersion {
+  version: number;
+  reviewed: true;
+  reviewerId: string;
+  reviewedAt: string;
+  finalClassKeys: string[];
+  notes?: string;
+}
+
+/** Immutable model output and append-only human-review truth for a Technical assessment. */
+export interface TechnicalEvaluationData {
+  schemaVersion: 1;
+  aiPredictionSnapshot: AIAnalysisResult;
+  reviewState: 'unreviewed' | 'reviewed';
+  currentReview?: TechnicalReviewVersion;
+  reviewHistory: TechnicalReviewVersion[];
+}
+
+// ─── R4: Pre-Analysis Image Validity Gate Types ─────────────────────────
+export type TargetToothMatchStatus = 'match' | 'mismatch' | 'uncertain' | 'not_assessable';
+export type RadiographOrientationStatus = 'plausible' | 'possibly_incorrect' | 'uncertain' | 'not_assessable';
+
+export interface ImageValidityResult {
+  isPeriapicalRadiograph: boolean;
+  isAssessable: boolean;
+  targetToothVisible: boolean;
+  targetToothMatch: TargetToothMatchStatus;
+  detectedToothCandidates: number[];
+  orientation: RadiographOrientationStatus;
+  reason?: string;
+}
+
+export type ValidityGateState = 'idle' | 'checking' | 'valid' | 'warning' | 'invalid' | 'unavailable' | 'user_confirmed';
+
+export type ValidityGateIssue = 'not_periapical' | 'not_assessable' | 'target_absent' | 'mismatch' | 'uncertain';
+
+export interface ValidityGateDecision {
+  state: ValidityGateState;
+  issue?: ValidityGateIssue;
+}
+
+/** Opaque, short-lived server proof required before an analysis request may run. */
+export type ValidityReceipt = string;
+
+/** Safe metadata derived from a verified receipt; it never contains the receipt or a secret. */
+export interface ValidityAuditMetadata {
+  schemaVersion: 1;
+  sourceImageDigest: string;
+  validityDecision: 'valid' | 'user_confirmed' | 'prototype_override';
+  targetFdi: string;
+  technique: TechniqueType;
+  receptorType: ReceptorType;
+  validatedAt: string;
+  enforcementVersion: 'r29-v1';
+  attestation?: string;
 }
 
 export interface StepCompletionStatus {
@@ -80,6 +201,8 @@ export interface AssessmentLogPayload {
   lastCompletedStep?: number;
   stepStatus?: StepCompletionStatus;
   aiAnalysis: AIAnalysisResult;
+  validityAudit?: ValidityAuditMetadata;
+  technicalEvaluation?: TechnicalEvaluationData;
   userValidation: {
     concurred: boolean;
     overriddenErrors: string[]; // taxonomy keys
@@ -125,6 +248,17 @@ export interface BugReport {
 }
 export type AppEngineMode = 'classic' | 'pathology_segmentation';
 
+export interface AnalysisWorkspaceSnapshot {
+  generation: number;
+  requestId: string;
+  mode: AppEngineMode;
+  assessmentId: string;
+  toothFdi: string;
+  technique: TechniqueType;
+  receptor: ReceptorType;
+  imageDataUrl: string | null;
+}
+
 export type PathologyType = 'periapical_lesion' | 'bone_loss' | 'caries' | 'pulp_anatomy';
 
 // ============================================================
@@ -148,13 +282,20 @@ export type PathologyKey =
 
 export type PathologySeverity = 'info' | 'mild' | 'moderate' | 'severe' | 'urgent';
 
+export type GeometryStatus = 'valid' | 'unavailable' | 'malformed';
+
 export interface AIDetection {
   id: string;
+  /** The source of this lesion instance. Legacy records may omit this field. */
+  origin?: 'ai' | 'human';
   pathologyKey: PathologyKey;
   domainId: PathologyDomainId;
-  confidence: number; // 0-100
+  confidence: number; // 0-100: Model-generated confidence or derived consensus score (not a calibrated clinical probability)
+  modelAScore?: number;
+  modelBScore?: number;
   bbox: [number, number, number, number]; // [x1, y1, x2, y2] in pixels relative to canvas
   polygonPoints?: [number, number][]; // pixel coords for smooth boundary contour
+  geometryStatus?: GeometryStatus;
   pixelArea?: number;
   color: string;
   fillColor: string;
@@ -198,6 +339,24 @@ export interface ConfirmedPathology extends AIDetection {
   isUserEdited: boolean;
 }
 
+/** Immutable model output and append-only human-review truth for a pathology assessment. */
+export interface PathologyReviewVersion {
+  version: number;
+  reviewed: true;
+  reviewerId: string;
+  reviewedAt: string;
+  finalFindings: ConfirmedPathology[];
+  notes?: string;
+}
+
+export interface PathologyEvaluationData {
+  schemaVersion: 1;
+  aiPredictionSnapshot: AIDetection[];
+  reviewState: 'unreviewed' | 'reviewed';
+  currentReview?: PathologyReviewVersion;
+  reviewHistory: PathologyReviewVersion[];
+}
+
 export interface PathologyGeminiVerification {
   confirmedIds: string[];
   rejectedIds: string[];
@@ -214,8 +373,11 @@ export interface PathologyAssessmentLog {
   receptorType: ReceptorType;
   aiModel?: string;
   analysisMode?: string;
+  inferenceLineage?: InferenceLineage;
+  validityAudit?: ValidityAuditMetadata;
   detectedPathologies?: AIDetection[];
   confirmedPathologies?: ConfirmedPathology[];
+  pathologyEvaluation?: PathologyEvaluationData;
   geminiVerification?: PathologyGeminiVerification | null;
   treatmentPlan?: Array<{ pathologyKey: PathologyKey; protocol: TreatmentProtocol }>;
   treatmentItems?: Array<{
@@ -261,8 +423,8 @@ export interface SystemMetrics {
       INACCURATE: number;
     };
     errorDistribution: Record<string, number>;
-    uniqueUsersCount: number;
-    todayUsersCount: number;
+    uniqueUsersCount?: number;
+    todayUsersCount?: number;
     userList?: Array<{
       userId: string;
       totalSessions: number;
@@ -281,14 +443,18 @@ export interface SystemMetrics {
     unverifiedCount: number;
     pathologyDistribution: Record<string, number>;
     toothDistribution: Record<string, number>;
-    uniqueUsersCount: number;
-    todayUsersCount: number;
+    uniqueUsersCount?: number;
+    todayUsersCount?: number;
     userList?: Array<{
       deviceId: string;
       totalUploads: number;
       lastActive: string;
       firstActive: string;
     }>;
+  };
+  users?: {
+    uniqueUsersCount: number;
+    activeUsersCount: number;
   };
   bugs: {
     totalBugs: number;
@@ -343,7 +509,9 @@ export interface SystemMetrics {
       statusDistribution?: Record<string, number>;
     };
   }>;
-  lastRecalculatedAt: string;
+  lastRecalculatedAt?: string;
+  updatedAt?: string;
+  schemaVersion?: number;
   lastUpdatedAt?: any;
 }
 
@@ -354,5 +522,3 @@ export interface DateRangeFilter {
   startDate?: string;
   endDate?: string;
 }
-
-

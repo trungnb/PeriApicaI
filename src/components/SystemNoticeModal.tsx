@@ -27,16 +27,16 @@ export const SystemNoticeModal: React.FC = () => {
   return (
     <div
       id="system-notice-modal-backdrop"
-      className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/70 backdrop-blur-xs animate-in fade-in duration-200"
+      className="fixed inset-0 z-50 flex items-center justify-center p-2 sm:p-4 overflow-y-auto bg-slate-950/70 backdrop-blur-xs animate-in fade-in duration-200"
       role="dialog"
       aria-modal="true"
       aria-labelledby="system-notice-modal-title"
     >
       <div
         id="system-notice-modal-card"
-        className="bg-white dark:bg-slate-900 rounded-2xl shadow-2xl w-full max-w-md overflow-hidden border border-amber-200 dark:border-amber-900/60 animate-in zoom-in-95 duration-200"
+        className="bg-white dark:bg-slate-900 rounded-2xl shadow-2xl w-full max-w-md overflow-hidden border border-amber-200 dark:border-amber-900/60 animate-in zoom-in-95 duration-200 my-auto max-h-[calc(100dvh-16px)] flex flex-col"
       >
-        <div className="bg-amber-50/90 dark:bg-amber-950/40 px-6 py-5 flex items-start gap-4 border-b border-amber-100 dark:border-amber-900/40">
+        <div className="bg-amber-50/90 dark:bg-amber-950/40 px-4 sm:px-6 py-4 sm:py-5 flex items-start gap-3 sm:gap-4 border-b border-amber-100 dark:border-amber-900/40 overflow-y-auto flex-1">
           <div className="shrink-0 bg-amber-100/90 dark:bg-amber-900/60 p-2.5 rounded-2xl mt-0.5 border border-amber-200 dark:border-amber-800/80 shadow-2xs">
             <AlertTriangle className="w-6 h-6 text-amber-600 dark:text-amber-400" />
           </div>
@@ -50,7 +50,7 @@ export const SystemNoticeModal: React.FC = () => {
           </div>
         </div>
 
-        <div className="bg-slate-50 dark:bg-slate-900 px-6 py-3.5 flex justify-end border-t border-slate-100 dark:border-slate-800">
+        <div className="bg-slate-50 dark:bg-slate-900 px-4 sm:px-6 py-3 sm:py-3.5 flex justify-end border-t border-slate-100 dark:border-slate-800 shrink-0">
           <button
             id="system-notice-modal-close-btn"
             onClick={() => setSystemNoticeModal(null)}

@@ -12,11 +12,11 @@ import {
   Trash2,
 } from 'lucide-react';
 import { PathologyAssessmentLog, Language, ConfirmedPathology } from '../../../types/dental';
-import { PATHOLOGY_TAXONOMY } from '../../../data/pathologyTaxonomyData';
 import { formatDisplayTimestamp } from '../../../utils/dateUtils';
 import { verifyPathologyAssessmentLog } from '../../../services/apiService';
 import { imageBlobCache } from '../../../utils/imageBlobCache';
 import { useMetadataStore } from '../../../store/useMetadataStore';
+import { mergeReviewCandidates, selectReviewFindingsById } from '../../../utils/pathologyReviewWorkflow';
 
 interface PathologyReviewModalProps {
   selectedLog: PathologyAssessmentLog | null;
@@ -40,7 +40,7 @@ export const PathologyReviewModal: React.FC<PathologyReviewModalProps> = ({
   const { t } = useTranslation(['admin', 'common']);
 
   const [modalLog, setModalLog] = useState<PathologyAssessmentLog | null>(selectedLog);
-  const [selectedKeys, setSelectedKeys] = useState<string[]>([]);
+  const [selectedLesionIds, setSelectedLesionIds] = useState<string[]>([]);
   const [adminNotes, setAdminNotes] = useState<string>('');
   const [isSavingVerification, setIsSavingVerification] = useState<boolean>(false);
   const [imageError, setImageError] = useState<boolean>(false);
@@ -62,16 +62,13 @@ export const PathologyReviewModal: React.FC<PathologyReviewModalProps> = ({
     });
     setImageError(false);
 
-    // Initial selected keys: if finalConfirmedPathologies exist, use those; else if confirmedPathologies exist, use those; else detected
-    let initialList: string[] = [];
-    if (selectedLog.finalConfirmedPathologies && selectedLog.finalConfirmedPathologies.length > 0) {
-      initialList = selectedLog.finalConfirmedPathologies.map(p => p.pathologyKey || (p as any).key);
-    } else if (selectedLog.confirmedPathologies && selectedLog.confirmedPathologies.length > 0) {
-      initialList = selectedLog.confirmedPathologies.map(p => p.pathologyKey || (p as any).key);
-    } else if (selectedLog.detectedPathologies && selectedLog.detectedPathologies.length > 0) {
-      initialList = selectedLog.detectedPathologies.map(p => p.pathologyKey || (p as any).key);
-    }
-    setSelectedKeys([...new Set(initialList.filter(Boolean))]);
+    // An explicit reviewed-negative has an empty currentReview final list. Do
+    // not fall back to AI classes in that case.
+    const review = selectedLog.pathologyEvaluation?.currentReview;
+    const initialFindings = review
+      ? review.finalFindings
+      : selectedLog.finalConfirmedPathologies ?? selectedLog.confirmedPathologies ?? selectedLog.detectedPathologies ?? [];
+    setSelectedLesionIds(initialFindings.map((finding) => finding.id).filter(Boolean));
     setAdminNotes(selectedLog.verifiedNotes || selectedLog.userNotes || '');
   }, [selectedLog]);
 
@@ -93,38 +90,25 @@ export const PathologyReviewModal: React.FC<PathologyReviewModalProps> = ({
     modalLog.verifiedNotes?.includes('Admin')
   );
 
-  const handleToggleKey = (key: string) => {
-    setSelectedKeys((prev) =>
-      prev.includes(key) ? prev.filter((k) => k !== key) : [...prev, key]
+  const handleToggleLesion = (id: string) => {
+    setSelectedLesionIds((prev) =>
+      prev.includes(id) ? prev.filter((existingId) => existingId !== id) : [...prev, id]
     );
   };
 
-  const handleSaveAdminVerification = async (keysToSave?: string[], customNotes?: string) => {
+  const reviewCandidates = mergeReviewCandidates(
+    modalLog.pathologyEvaluation?.aiPredictionSnapshot ?? modalLog.detectedPathologies ?? [],
+    modalLog.confirmedPathologies ?? modalLog.finalConfirmedPathologies ?? [],
+  );
+
+  const handleSaveAdminVerification = async (lesionIdsToSave?: string[], customNotes?: string) => {
     setIsSavingVerification(true);
     try {
-      const keys = keysToSave || selectedKeys;
-      // Build final confirmed pathologies objects from selected keys
-      const finalPathologies: ConfirmedPathology[] = keys.map((key, idx) => {
-        const itemInfo = PATHOLOGY_TAXONOMY.find(t => t.key === key);
-        const existing = (modalLog.confirmedPathologies || modalLog.detectedPathologies || []).find(
-          p => p.pathologyKey === key || (p as any).key === key
-        );
-        return {
-          id: existing?.id || `admin-pathology-${key}-${idx}`,
-          pathologyKey: key as any,
-          domainId: existing?.domainId || 'domain_p1',
-          confidence: existing?.confidence || 100,
-          bbox: existing?.bbox || [0, 0, 100, 100],
-          polygonPoints: existing?.polygonPoints || [],
-          color: itemInfo?.color || '#3b82f6',
-          fillColor: `${itemInfo?.color || '#3b82f6'}33`,
-          label: itemInfo?.label || key,
-          labelEn: itemInfo?.labelEn || key,
-          description: '',
-          descriptionEn: '',
-          geminiVerified: true,
-          isUserEdited: true,
-        };
+      const lesionIds = lesionIdsToSave || selectedLesionIds;
+      const finalPathologies: ConfirmedPathology[] = selectReviewFindingsById(reviewCandidates, lesionIds, {
+        geminiVerified: true,
+        isUserEdited: true,
+        humanReviewed: true,
       });
 
       const rawNotes = customNotes !== undefined ? customNotes : adminNotes;
@@ -165,9 +149,6 @@ export const PathologyReviewModal: React.FC<PathologyReviewModalProps> = ({
     }
   };
 
-  const detectedKeys = (modalLog.detectedPathologies || []).map(p => p.pathologyKey || (p as any).key);
-  const doctorConfirmedKeys = (modalLog.confirmedPathologies || []).map(p => p.pathologyKey || (p as any).key);
-
   return (
     <div
       className="fixed inset-0 z-[100] bg-slate-950/80 backdrop-blur-sm flex items-center justify-center p-2 sm:p-4 overflow-y-auto animate-in fade-in duration-150"
@@ -176,11 +157,11 @@ export const PathologyReviewModal: React.FC<PathologyReviewModalProps> = ({
       }}
     >
       <div
-        className="bg-white dark:bg-slate-950 w-full max-w-5xl rounded-2xl shadow-2xl border border-slate-200 dark:border-blue-900/60 overflow-hidden my-auto max-h-[90vh] flex flex-col"
+        className="bg-white dark:bg-slate-950 w-full max-w-5xl rounded-2xl shadow-2xl border border-slate-200 dark:border-blue-900/60 overflow-hidden my-auto max-h-[calc(100dvh-16px)] sm:max-h-[90vh] flex flex-col"
         onClick={(e) => e.stopPropagation()}
       >
         {/* Modal Header */}
-        <div className="p-4 sm:p-5 border-b border-slate-200 dark:border-blue-900/60 bg-slate-900 text-white flex items-center justify-between shrink-0">
+        <div className="p-3 sm:p-5 border-b border-slate-200 dark:border-blue-900/60 bg-slate-900 text-white flex items-center justify-between shrink-0">
           <div className="flex items-center space-x-3">
             <div className="w-10 h-10 rounded-xl bg-amber-500/20 border border-amber-500/40 flex items-center justify-center text-amber-400">
               <Star className="w-5 h-5 fill-amber-400" />
@@ -235,10 +216,10 @@ export const PathologyReviewModal: React.FC<PathologyReviewModalProps> = ({
         </div>
 
         {/* Modal Body */}
-        <div className="p-4 sm:p-6 overflow-y-auto space-y-6 flex-1 bg-slate-50 dark:bg-slate-900/50">
-          <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+        <div className="p-3 sm:p-6 overflow-y-auto space-y-4 sm:space-y-6 flex-1 bg-slate-50 dark:bg-slate-900/50">
+          <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 sm:gap-6">
             {/* Left Column: Image Preview & Case Meta (4/10 ratio) */}
-            <div className="lg:col-span-5 space-y-4 flex flex-col">
+            <div className="lg:col-span-5 space-y-3 sm:space-y-4 flex flex-col">
               <div className="bg-slate-900 rounded-xl p-3 border border-slate-800 flex flex-col space-y-2">
                 <div className="flex items-center justify-between text-xs text-slate-300 font-semibold border-b border-slate-800 pb-2">
                   <span>{t('periapicalRadiograph')}</span>
@@ -252,7 +233,7 @@ export const PathologyReviewModal: React.FC<PathologyReviewModalProps> = ({
                     </span>
                   )}
                 </div>
-                <div className="min-h-[260px] max-h-[45vh] bg-slate-950 rounded-lg flex items-center justify-center p-2 relative overflow-hidden border border-slate-800/80">
+                <div className="min-h-[160px] sm:min-h-[260px] max-h-[40vh] bg-slate-950 rounded-lg flex items-center justify-center p-2 relative overflow-hidden border border-slate-800/80">
                   {modalLog.shareConsent === false ? (
                     <div className="text-center p-4 space-y-2 text-slate-400">
                       <EyeOff className="w-8 h-8 mx-auto text-amber-500/80" />
@@ -265,7 +246,7 @@ export const PathologyReviewModal: React.FC<PathologyReviewModalProps> = ({
                       src={modalLog.imageUrl || modalLog.imageDataUrl}
                       alt="Dental Radiograph"
                       referrerPolicy="no-referrer"
-                      className="max-h-[40vh] w-auto object-contain rounded-md"
+                      className="max-h-[35vh] sm:max-h-[40vh] w-auto object-contain rounded-md"
                       onError={() => setImageError(true)}
                     />
                   ) : (
@@ -332,11 +313,11 @@ export const PathologyReviewModal: React.FC<PathologyReviewModalProps> = ({
                     <button
                       onClick={async () => {
                         setAdminConcurred(true);
-                        // Doctor's selection (if any), otherwise fallback to AI detected
-                        const doctorKeys: string[] = modalLog.confirmedPathologies?.map(p => String(p.pathologyKey || (p as any).key || '')) || [];
-                        const aiKeys: string[] = modalLog.detectedPathologies?.map(p => String(p.pathologyKey || (p as any).key || '')) || [];
-                        const keysToConfirm: string[] = Array.from(new Set((doctorKeys.length > 0 ? doctorKeys : aiKeys).filter(Boolean)));
-                        await handleSaveAdminVerification(keysToConfirm, '');
+                        // Retain each existing lesion instance, including same-class siblings.
+                        const findingsToConfirm = modalLog.confirmedPathologies?.length
+                          ? modalLog.confirmedPathologies
+                          : reviewCandidates;
+                        await handleSaveAdminVerification(findingsToConfirm.map((finding) => finding.id), '');
                         onClose();
                       }}
                       className={`px-2.5 py-1.5 rounded-lg font-bold text-[11px] flex items-center space-x-1 transition-all cursor-pointer ${
@@ -367,35 +348,19 @@ export const PathologyReviewModal: React.FC<PathologyReviewModalProps> = ({
                 <div className="p-4 flex-1 flex flex-col min-h-0">
                   {adminConcurred !== false ? (
                     <div className="space-y-3 overflow-y-auto flex-1 pr-1 custom-scrollbar">
-                      {(() => {
-                        // Display Read-only list
-                        const doctorKeys = modalLog.confirmedPathologies?.map(p => p.pathologyKey || (p as any).key) || [];
-                        const aiKeys = modalLog.detectedPathologies?.map(p => p.pathologyKey || (p as any).key) || [];
-                        const keysToShow = [...new Set(doctorKeys.length > 0 ? doctorKeys : aiKeys)];
-                        
-                        if (keysToShow.length === 0) {
-                          return (
-                            <div className="p-4 text-center text-emerald-600 dark:text-emerald-400 font-bold text-xs bg-emerald-50 dark:bg-emerald-950/40 rounded-xl border border-emerald-200 dark:border-emerald-800/60">
-                              {t('standardRadiographNoPathology')}
-                            </div>
-                          );
-                        }
-
-                        return keysToShow.map((key) => {
-                          const itemInfo = PATHOLOGY_TAXONOMY.find(t => t.key === key);
-                          if (!itemInfo) return null;
-                          return (
-                            <div key={key} className="bg-white dark:bg-slate-800/80 rounded-xl p-3 border shadow-sm transition-all border-amber-300 dark:border-amber-700/60 bg-amber-50/20 dark:bg-amber-950/20">
-                              <div className="flex items-center space-x-2">
-                                <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ backgroundColor: itemInfo.color }} />
-                                <span className="font-bold text-slate-800 dark:text-slate-200 text-xs">
-                                  {language === 'EN' ? itemInfo.labelEn : (itemInfo.label || (itemInfo as any).labelVi)}
-                                </span>
-                              </div>
-                            </div>
-                          );
-                        });
-                      })()}
+                      {reviewCandidates.length === 0 ? (
+                        <div className="p-4 text-center text-emerald-600 dark:text-emerald-400 font-bold text-xs bg-emerald-50 dark:bg-emerald-950/40 rounded-xl border border-emerald-200 dark:border-emerald-800/60">
+                          {t('standardRadiographNoPathology')}
+                        </div>
+                      ) : reviewCandidates.map((finding) => (
+                        <div key={finding.id} className="bg-white dark:bg-slate-800/80 rounded-xl p-3 border shadow-sm border-amber-300 dark:border-amber-700/60 bg-amber-50/20 dark:bg-amber-950/20">
+                          <div className="flex items-center space-x-2">
+                            <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ backgroundColor: finding.color }} />
+                            <span className="font-bold text-slate-800 dark:text-slate-200 text-xs">{language === 'EN' ? finding.labelEn : finding.label}</span>
+                            <span className="text-[10px] font-mono text-slate-400">{finding.id}</span>
+                          </div>
+                        </div>
+                      ))}
                       {adminConcurred === null && (
                         <div className="mt-4 p-3 bg-blue-50 dark:bg-blue-950/40 text-blue-800 dark:text-blue-300 text-xs rounded-xl border border-blue-200 dark:border-blue-800/60 text-center">
                           {t('pleaseSelectYesOr')}
@@ -413,69 +378,19 @@ export const PathologyReviewModal: React.FC<PathologyReviewModalProps> = ({
                         </span>
                       </div>
                       
-                      <div className="border border-slate-200 dark:border-slate-700/60 rounded-xl overflow-hidden flex-1 flex flex-col">
-                        <div className="p-2 bg-slate-100 dark:bg-slate-900 border-b border-slate-200 dark:border-slate-700 font-bold text-[10px] text-slate-700 dark:text-slate-300 grid grid-cols-12 gap-1 text-center shrink-0">
-                          <span className="col-span-5 text-left">{t('pathologyCategory')}</span>
-                          <span className="col-span-2">{t('ai')}</span>
-                          <span className="col-span-2">{t('doc')}</span>
-                          <span className="col-span-3 text-amber-600 dark:text-amber-400 font-extrabold">{t('final')}</span>
-                        </div>
-
-                        <div className="divide-y divide-slate-100 dark:divide-slate-800/60 overflow-y-auto flex-1 custom-scrollbar">
-                          {PATHOLOGY_TAXONOMY.map((item) => {
-                            const aiHas = detectedKeys.includes(item.key);
-                            const docHas = doctorConfirmedKeys.includes(item.key);
-                            const isChecked = selectedKeys.includes(item.key);
-
-                            return (
-                              <div
-                                key={item.key}
-                                onClick={() => handleToggleKey(item.key)}
-                                className={`p-2 grid grid-cols-12 gap-1 items-center cursor-pointer transition-colors text-xs ${
-                                  isChecked
-                                    ? 'bg-amber-50/60 dark:bg-amber-900/20'
-                                    : 'hover:bg-slate-50 dark:hover:bg-slate-800/40'
-                                }`}
-                              >
-                                <div className="col-span-5 flex items-center space-x-1.5">
-                                  <span className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: item.color }} />
-                                  <span className="font-medium text-slate-800 dark:text-slate-200 text-[10px] leading-tight">
-                                    {language === 'EN' ? item.labelEn : (item.label || (item as any).labelVi)}
-                                  </span>
-                                </div>
-
-                                <div className="col-span-2 flex justify-center">
-                                  {aiHas ? (
-                                    <span className="px-1 py-0.5 rounded text-[9px] font-bold bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300">
-                                      Có
-                                    </span>
-                                  ) : (
-                                    <span className="text-slate-300 dark:text-slate-600">-</span>
-                                  )}
-                                </div>
-
-                                <div className="col-span-2 flex justify-center">
-                                  {docHas ? (
-                                    <span className="px-1 py-0.5 rounded text-[9px] font-bold bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300">
-                                      Có
-                                    </span>
-                                  ) : (
-                                    <span className="text-slate-300 dark:text-slate-600">-</span>
-                                  )}
-                                </div>
-
-                                <div className="col-span-3 flex justify-center" onClick={(e) => e.stopPropagation()}>
-                                  <input
-                                    type="checkbox"
-                                    checked={isChecked}
-                                    onChange={() => handleToggleKey(item.key)}
-                                    className="w-3.5 h-3.5 rounded text-amber-600 focus:ring-amber-500 accent-amber-600 cursor-pointer"
-                                  />
-                                </div>
-                              </div>
-                            );
-                          })}
-                        </div>
+                      <div className="border border-slate-200 dark:border-slate-700/60 rounded-xl overflow-y-auto flex-1 divide-y divide-slate-100 dark:divide-slate-800/60 custom-scrollbar">
+                        {reviewCandidates.map((finding) => {
+                          const isChecked = selectedLesionIds.includes(finding.id);
+                          return (
+                            <label key={finding.id} className={`p-3 flex items-center gap-2.5 cursor-pointer text-xs ${isChecked ? 'bg-amber-50/60 dark:bg-amber-900/20' : 'hover:bg-slate-50 dark:hover:bg-slate-800/40'}`}>
+                              <input type="checkbox" checked={isChecked} onChange={() => handleToggleLesion(finding.id)} className="w-3.5 h-3.5 rounded text-amber-600 focus:ring-amber-500 accent-amber-600 cursor-pointer" />
+                              <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ backgroundColor: finding.color }} />
+                              <span className="font-medium text-slate-800 dark:text-slate-200">{language === 'EN' ? finding.labelEn : finding.label}</span>
+                              <span className="ml-auto text-[10px] font-mono text-slate-400">{finding.id}</span>
+                              {finding.origin === 'human' && <span className="text-[9px] font-bold text-blue-600">Human</span>}
+                            </label>
+                          );
+                        })}
                       </div>
 
                       {/* Admin Notes */}

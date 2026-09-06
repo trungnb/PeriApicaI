@@ -1,5 +1,5 @@
 import { getFirestoreInstance } from '../services/firebaseService';
-import { getOrInitServerCache, saveServerCacheToDisk } from '../services/storageAdapter';
+import { getOrInitServerCache, markServerCacheDirty, saveServerCacheToDisk } from '../services/storageAdapter';
 import { formatPathologyDocForFirestore } from '../services/firestorePathologyService';
 import {
   executeAtomicReportWrite,
@@ -14,8 +14,12 @@ export async function runAutoSyncJob() {
   if (isAutoSyncRunning) return;
 
   const cache = getOrInitServerCache();
-  // Phase 1 I/O Bottleneck Optimization: Skip sync if cache is clean
-  if (!cache.isCacheDirty) {
+  // Disk cleanliness is unrelated to remote eligibility. A locally persisted
+  // record may still need Firestore retry after an earlier remote failure.
+  const hasUnsyncedRecords = cache.reports.some((report) => report?.assessmentId && report.firestoreSynced !== true)
+    || (Array.isArray(cache.seg_reports) && cache.seg_reports.some((report) => report?.assessmentId && report.firestoreSynced !== true))
+    || cache.bugs.some((bug) => bug?.bugId && bug.firestoreSynced !== true);
+  if (!hasUnsyncedRecords) {
     return;
   }
 
@@ -42,7 +46,7 @@ export async function runAutoSyncJob() {
             firestoreSynced: true,
             lastSyncedAt: nowIso,
           };
-          const res = await executeAtomicReportWrite(db, report.assessmentId, payloadToSync, true);
+          const res = await executeAtomicReportWrite(db, report.assessmentId, payloadToSync);
           if (res.success) {
             report.firestoreSynced = true;
             report.lastSyncedAt = nowIso;
@@ -66,7 +70,7 @@ export async function runAutoSyncJob() {
               lastSyncedAt: nowIso,
             };
             const firestorePayload = formatPathologyDocForFirestore(payloadToSync);
-            const res = await executeAtomicPathologyWrite(db, segReport.assessmentId, firestorePayload, true);
+            const res = await executeAtomicPathologyWrite(db, segReport.assessmentId, firestorePayload);
             if (res.success) {
               segReport.firestoreSynced = true;
               segReport.lastSyncedAt = nowIso;
@@ -89,7 +93,7 @@ export async function runAutoSyncJob() {
             firestoreSynced: true,
             lastSyncedAt: nowIso,
           };
-          const res = await executeAtomicBugWrite(db, bug.bugId, bugToSync, true);
+          const res = await executeAtomicBugWrite(db, bug.bugId, bugToSync);
           if (res.success) {
             bug.firestoreSynced = true;
             bug.lastSyncedAt = nowIso;
@@ -105,8 +109,12 @@ export async function runAutoSyncJob() {
       serverLog('INFO', 'AutoSyncJob', `Đồng bộ thành công: ${syncedReportsCount} Classic reports, ${syncedSegReportsCount} Pathology reports, ${syncedBugsCount} bugs lên Firestore.`);
     }
 
-    cache.isCacheDirty = false;
-    saveServerCacheToDisk(true);
+    // Sync outcomes mutate only the affected records. Persist those state
+    // changes without using disk dirtiness as a future sync gate.
+    if (syncedReportsCount > 0 || syncedSegReportsCount > 0 || syncedBugsCount > 0) {
+      markServerCacheDirty(cache);
+      saveServerCacheToDisk(true, true);
+    }
   } catch (err: any) {
     serverLog('ERROR', 'AutoSyncJob', 'Lỗi trong quá trình chạy AutoSyncJob', err?.message || err);
   } finally {

@@ -1,4 +1,4 @@
-import React, { useMemo, useEffect } from 'react';
+import React, { useMemo } from 'react';
 import {
   Microscope,
   Loader2,
@@ -16,9 +16,6 @@ import { PolygonContourEditor } from './PolygonContourEditor';
 import { PathologyFindingCard } from './PathologyFindingCard';
 import { PerformanceTelemetry } from './PerformanceTelemetry';
 import {
-  PATHOLOGY_DICT,
-} from '../constants/dictionaries';
-import {
   PATHOLOGY_DOMAIN_META,
   PATHOLOGY_TAXONOMY,
 } from '../data/pathologyTaxonomyData';
@@ -29,6 +26,7 @@ import {
   getReceptorDisplayName,
 } from '../data/taxonomyData';
 import { ConfirmedPathology, AIDetection, PathologyKey, PathologyDomainId } from '../types/dental';
+import { createHumanPathology, makeConfirmedPathology, toggleReviewedLesion } from '../utils/pathologyReviewWorkflow';
 
 export const PathologyAnalysisScreen: React.FC = React.memo(() => {
   const language = useAppStore((s) => s.language);
@@ -38,6 +36,7 @@ export const PathologyAnalysisScreen: React.FC = React.memo(() => {
   const selectedReceptor = useAppStore((s) => s.selectedReceptor);
   const confirmedPathologies = useAppStore((s) => s.confirmedPathologies);
   const setConfirmedPathologies = useAppStore((s) => s.setConfirmedPathologies);
+  const aiDetections = useAppStore((s) => s.aiDetections);
   const hiddenDetectionIds = useAppStore((s) => s.hiddenDetectionIds);
   const pathologyGeminiResult = useAppStore((s) => s.pathologyGeminiResult);
   const pathologyAnalysisStatus = useAppStore((s) => s.pathologyAnalysisStatus);
@@ -46,9 +45,6 @@ export const PathologyAnalysisScreen: React.FC = React.memo(() => {
 
   const userConcurred = useAppStore((s) => s.userConcurred);
   const setUserConcurred = useAppStore((s) => s.setUserConcurred);
-  const selectedOverrideKeys = useAppStore((s) => s.selectedOverrideKeys);
-  const setSelectedOverrideKeys = useAppStore((s) => s.setSelectedOverrideKeys);
-
   const updateDetectionPolygon = useAppStore((s) => s.updateDetectionPolygon);
   const toggleDetectionVisibility = useAppStore((s) => s.toggleDetectionVisibility);
 
@@ -58,59 +54,21 @@ export const PathologyAnalysisScreen: React.FC = React.memo(() => {
   const isRunning = pathologyAnalysisStatus === 'analyzing';
   const isComplete = pathologyAnalysisStatus === 'complete';
 
-  // Initial keys detected by AI
-  const initialAiPathologyKeys = useMemo(() => {
-    return confirmedPathologies.map((p) => p.pathologyKey);
-  }, [confirmedPathologies]);
+  const handleToggleAiLesion = (lesion: AIDetection) => {
+    setConfirmedPathologies(toggleReviewedLesion(confirmedPathologies, lesion));
+  };
 
-  // Sync override keys with initial detections
-  useEffect(() => {
-    if (selectedOverrideKeys.length === 0 && initialAiPathologyKeys.length > 0) {
-      setSelectedOverrideKeys(initialAiPathologyKeys);
-    }
-  }, [initialAiPathologyKeys, selectedOverrideKeys.length]);
+  const handleAddHumanLesion = (key: PathologyKey) => {
+    setConfirmedPathologies([...confirmedPathologies, createHumanPathology(key)]);
+  };
 
-  const handleToggleOverrideKey = (key: PathologyKey) => {
-    const isSelected = selectedOverrideKeys.includes(key);
-    let nextKeys: string[];
-    if (isSelected) {
-      nextKeys = selectedOverrideKeys.filter((k) => k !== key);
-    } else {
-      nextKeys = [...selectedOverrideKeys, key];
-    }
-    setSelectedOverrideKeys(nextKeys);
+  const handleRemoveHumanLesion = (id: string) => {
+    setConfirmedPathologies(confirmedPathologies.filter((finding) => finding.id !== id));
+  };
 
-    // Update confirmed pathologies according to override selection
-    const updated = nextKeys.map((k) => {
-      const existing = confirmedPathologies.find((p) => p.pathologyKey === k);
-      if (existing) return existing;
-      const tax = PATHOLOGY_DICT[k];
-      const defaultBox: [number, number, number, number] = [150, 150, 350, 350];
-      const defaultPolygon: [number, number][] = [
-        [150, 150],
-        [350, 150],
-        [350, 350],
-        [150, 350],
-      ];
-      return {
-        id: `manual-${k}-${Date.now()}`,
-        pathologyKey: k as PathologyKey,
-        domainId: tax.domainId,
-        confidence: 90,
-        bbox: defaultBox,
-        polygonPoints: defaultPolygon,
-        color: tax.color,
-        fillColor: tax.fillColor,
-        label: tax.label,
-        labelEn: tax.labelEn,
-        description: tax.description,
-        descriptionEn: tax.descriptionEn,
-        geminiVerified: false,
-        isUserEdited: true,
-      } as ConfirmedPathology;
-    });
-
-    setConfirmedPathologies(updated);
+  const handleConcurWithAi = () => {
+    setUserConcurred(true);
+    setConfirmedPathologies(aiDetections.map((detection) => makeConfirmedPathology(detection, { geminiVerified: true })));
   };
 
   // Visible detections for canvas
@@ -185,7 +143,7 @@ export const PathologyAnalysisScreen: React.FC = React.memo(() => {
                 : 'Mô hình Gemini 2D Spatial sẽ quét phim X-quang và tự động phân đoạn các đường viền đa giác ôm sát từng tổn thương và cấu trúc giải phẫu.'}
             </p>
             <button
-              onClick={runAnalysis}
+              onClick={() => { runAnalysis(); }}
               className="inline-flex items-center gap-2 px-6 py-3 rounded-xl bg-teal-600 hover:bg-teal-700 text-white font-bold text-xs transition-all shadow-md shadow-teal-500/20 active:scale-95 cursor-pointer"
             >
               <Sparkles className="w-4 h-4" />
@@ -223,7 +181,7 @@ export const PathologyAnalysisScreen: React.FC = React.memo(() => {
             </div>
             <div className="flex items-center justify-center gap-3 pt-2">
               <button
-                onClick={runAnalysis}
+                onClick={() => { runAnalysis(); }}
                 className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-teal-600 hover:bg-teal-700 text-white font-bold text-xs transition-all shadow-xs cursor-pointer active:scale-95"
               >
                 <RefreshCw className="w-3.5 h-3.5" />
@@ -273,7 +231,7 @@ export const PathologyAnalysisScreen: React.FC = React.memo(() => {
                   <div className="p-3 rounded-xl bg-slate-50 dark:bg-slate-900/60 border border-slate-200 dark:border-slate-700 space-y-1">
                     <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 flex items-center gap-1">
                       <Brain className="w-3.5 h-3.5 text-teal-500" />
-                      {isEn ? 'Gemini Diagnostic Overview:' : 'Tóm tắt chẩn đoán Gemini:'}
+                      {isEn ? 'AI Analysis Summary (Advisory):' : 'Tóm tắt phân tích AI (Tham khảo):'}
                     </span>
                     <p className="text-xs text-slate-700 dark:text-slate-300 leading-relaxed">
                       {pathologyGeminiResult.overallSummary}
@@ -317,9 +275,7 @@ export const PathologyAnalysisScreen: React.FC = React.memo(() => {
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                     <button
                       onClick={() => {
-                        setUserConcurred(true);
-                        // Reset to AI findings
-                        setSelectedOverrideKeys(initialAiPathologyKeys);
+                        handleConcurWithAi();
                       }}
                       className={`px-3 py-2.5 rounded-xl font-bold text-xs flex items-center justify-center space-x-1.5 transition-all cursor-pointer min-h-[44px] ${
                         userConcurred === true
@@ -353,20 +309,21 @@ export const PathologyAnalysisScreen: React.FC = React.memo(() => {
                 <div className="bg-white dark:bg-slate-800/90 rounded-2xl p-4 md:p-5 border border-rose-200 dark:border-rose-800 shadow-xs space-y-3 animate-in fade-in duration-200">
                   <div className="flex items-center justify-between border-b border-rose-100 dark:border-rose-800/60 pb-2">
                     <span className="text-xs font-bold text-rose-800 dark:text-rose-300">
-                      {isEn ? 'Select actual clinical findings from 8 standardized categories:' : 'Tích chọn các bất thường thực tế trên phim (8 nhóm chuẩn):'}
+                      {isEn ? 'Review each AI lesion instance, then add any additional clinical lesion:' : 'Đánh giá từng tổn thương AI, sau đó thêm tổn thương lâm sàng nếu cần:'}
                     </span>
                     <span className="text-[10px] font-mono font-bold text-slate-500">
-                      {selectedOverrideKeys.length} / 8 đã chọn
+                      {confirmedPathologies.length} {isEn ? 'lesions selected' : 'tổn thương đã chọn'}
                     </span>
                   </div>
 
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                    {PATHOLOGY_TAXONOMY.map((item) => {
-                      const isChecked = selectedOverrideKeys.includes(item.key);
+                  <div className="space-y-2">
+                    {aiDetections.map((finding) => {
+                      const isChecked = confirmedPathologies.some((confirmed) => confirmed.id === finding.id);
+                      const item = PATHOLOGY_TAXONOMY.find((taxonomy) => taxonomy.key === finding.pathologyKey);
                       return (
                         <div
-                          key={item.key}
-                          onClick={() => handleToggleOverrideKey(item.key)}
+                          key={finding.id}
+                          onClick={() => handleToggleAiLesion(finding)}
                           className={`p-3 rounded-xl border flex items-start gap-2.5 cursor-pointer select-none transition-all ${
                             isChecked
                               ? 'border-teal-500 bg-teal-50/70 dark:bg-teal-950/50 text-teal-950 dark:text-teal-200 ring-2 ring-teal-500/40 shadow-xs'
@@ -383,12 +340,44 @@ export const PathologyAnalysisScreen: React.FC = React.memo(() => {
                             <div className="flex items-center gap-1.5">
                               <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ background: item.color }} />
                               <span className="text-xs font-bold leading-tight truncate">{isEn ? item.labelEn : item.label}</span>
+                              <span className="text-[10px] font-mono text-slate-400">{finding.id}</span>
                             </div>
                             <p className="text-[10px] text-slate-500 dark:text-slate-400 mt-0.5 line-clamp-1">{isEn ? item.descriptionEn : item.description}</p>
                           </div>
                         </div>
                       );
                     })}
+                  </div>
+
+                  {aiDetections.length === 0 && (
+                    <p className="text-xs text-slate-500">{isEn ? 'No AI lesions are available to select.' : 'Không có tổn thương AI để chọn.'}</p>
+                  )}
+
+                  <div className="border-t border-rose-100 dark:border-rose-900/60 pt-3 space-y-2">
+                    <p className="text-[11px] font-bold text-slate-600 dark:text-slate-300">
+                      {isEn ? 'Add a clinician-only lesion' : 'Thêm tổn thương do bác sĩ ghi nhận'}
+                    </p>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                      {PATHOLOGY_TAXONOMY.map((item) => (
+                        <button
+                          key={item.key}
+                          type="button"
+                          onClick={() => handleAddHumanLesion(item.key)}
+                          className="p-2 rounded-lg border border-slate-200 dark:border-slate-700 text-left text-xs hover:bg-slate-50 dark:hover:bg-slate-700/50 cursor-pointer"
+                        >
+                          <span className="inline-block w-2 h-2 rounded-full mr-1.5" style={{ background: item.color }} />
+                          {isEn ? item.labelEn : item.label}
+                        </button>
+                      ))}
+                    </div>
+                    {confirmedPathologies.filter((finding) => finding.origin === 'human').map((finding) => (
+                      <div key={finding.id} className="flex items-center justify-between rounded-lg bg-blue-50 dark:bg-blue-950/30 px-2.5 py-2 text-xs">
+                        <span>{isEn ? finding.labelEn : finding.label} <span className="font-mono text-[10px] text-slate-400">{finding.id}</span></span>
+                        <button type="button" onClick={() => handleRemoveHumanLesion(finding.id)} className="text-rose-600 hover:text-rose-700 cursor-pointer">
+                          {isEn ? 'Remove' : 'Xóa'}
+                        </button>
+                      </div>
+                    ))}
                   </div>
                 </div>
               )}
@@ -466,4 +455,3 @@ export const PathologyAnalysisScreen: React.FC = React.memo(() => {
 });
 
 export default PathologyAnalysisScreen;
-

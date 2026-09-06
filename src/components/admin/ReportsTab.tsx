@@ -1,6 +1,6 @@
-import React, { useState, useMemo, useEffect, useRef } from 'react';
+import React, { useState, useMemo, useEffect, useRef, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Filter, FileCode, Image as ImageIcon, ShieldCheck, EyeOff, Star, Eye, Trash2 } from 'lucide-react';
+import { Filter, FileCode, Lock, Image as ImageIcon, ShieldCheck, EyeOff, Star, Eye, Trash2 } from 'lucide-react';
 import { AssessmentLogPayload, SystemMetrics } from '../../types/dental';
 import { getTaxonomyLabel, getTechniqueDisplayName } from '../../data/taxonomyData';
 import { parseTimestampToMs, formatDisplayTimestamp, parseLogDateParts } from '../../utils/dateUtils';
@@ -11,10 +11,11 @@ import { ExportDropdown } from './ExportDropdown';
 import { ReportsFiltersBar } from './ReportsFiltersBar';
 import { ReportsStatsCards } from './ReportsStatsCards';
 import { ReviewDetailModal } from './modals/ReviewDetailModal';
-import { DatasetNoticeModal } from './modals/DatasetNoticeModal';
 import { UserDirectoryModal, UniqueUserItem } from './modals/UserDirectoryModal';
 import { usePagination } from '../../hooks/usePagination';
 import { PaginationControls } from '../common/PaginationControls';
+import { createEvaluationExportBundle } from '../../utils/evaluationExport';
+import { isResearchImageStorageAvailable, getTrainingExportLockedMessage } from '../../utils/researchStorageCapability';
 
 interface ReportsTabProps {
   displayLogs: AssessmentLogPayload[];
@@ -24,6 +25,7 @@ interface ReportsTabProps {
   onRequestDelete?: (target: { docId: string; collection: 'reports'; title?: string; timestamp?: string; meta?: string }) => void;
   onDateRangeChange?: (filter: { preset: 'all' | 'today' | '7days' | '30days' | 'custom'; startDate?: string; endDate?: string }) => void;
   onLoadMore?: (collection: 'reports' | 'pathology' | 'bugs', currentLength: number) => void;
+  hasMore?: boolean;
 }
 
 export const ReportsTab: React.FC<ReportsTabProps> = ({
@@ -34,13 +36,13 @@ export const ReportsTab: React.FC<ReportsTabProps> = ({
   onRequestDelete,
   onDateRangeChange,
   onLoadMore,
+  hasMore = false,
 }) => {
   const { t } = useTranslation(['admin', 'common']);
   const language = useAppStore((state) => state.language);
   const storeSystemMetrics = useMetadataStore((state) => state.systemMetrics);
   const systemMetrics = propSystemMetrics || storeSystemMetrics;
   const [logsList, setLogsList] = useState<AssessmentLogPayload[]>(initialDisplayLogs);
-  const [isDatasetNoticeOpen, setIsDatasetNoticeOpen] = useState<boolean>(false);
   const [isUserDirectoryOpen, setIsUserDirectoryOpen] = useState<boolean>(false);
 
   useEffect(() => {
@@ -118,6 +120,31 @@ export const ReportsTab: React.FC<ReportsTabProps> = ({
     return 'INCOMPLETE';
   };
 
+  const exportEvaluationJson = () => {
+    if (!isResearchImageStorageAvailable()) {
+      setToastMsg(getTrainingExportLockedMessage(language));
+      return;
+    }
+    const isPartial = filterType !== 'all' || statusFilter !== 'ALL' || (totalLogsCount !== undefined && filteredLogs.length !== totalLogsCount);
+    const bundle = createEvaluationExportBundle({
+      technical: filteredLogs,
+      scope: {
+        modality: 'technical',
+        filters: { timeFilter: filterType, statusFilter, startDate: filterType === 'day' ? startDate : undefined, endDate: filterType === 'day' ? endDate : undefined },
+        isPartial,
+      },
+    });
+    const blob = new Blob([JSON.stringify(bundle, null, 2)], { type: 'application/json;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `periapical_technical_evaluation_${new Date().toISOString().slice(0, 10)}.json`;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    URL.revokeObjectURL(url);
+  };
+
   const {
     timeFilteredLogs,
     totalUploadsCount,
@@ -171,9 +198,8 @@ export const ReportsTab: React.FC<ReportsTabProps> = ({
         return msB - msA;
       });
 
-    const hasStatusFilter = statusFilter !== 'ALL';
-    // If no status filter is applied and we have persisted systemMetrics, use the exact global aggregation for this date range
-    if (!hasStatusFilter && systemMetrics?.reports) {
+    // Always use the persisted systemMetrics (which is already date-filtered) for the aggregate summary
+    if (systemMetrics?.reports) {
       const rep = systemMetrics.reports;
       const totalUploadsCount = rep.totalSessions;
       const completedAnalysesCount = rep.completedCount;
@@ -191,8 +217,8 @@ export const ReportsTab: React.FC<ReportsTabProps> = ({
       const exactMatchRate = completedAnalysesCount > 0 ? Math.round((exactMatchCount / completedAnalysesCount) * 100) : 0;
       const sortedErrorCounts = Object.entries(rep.errorDistribution || {}).sort((a, b) => (b[1] as number) - (a[1] as number));
       const totalConfirmedErrorsCount = Object.values(rep.errorDistribution || {}).reduce((a, b) => (a as number) + (b as number), 0) as number;
-      const uniqueUsersCount = rep.uniqueUsersCount;
-      const todayUsersCount = rep.todayUsersCount;
+      const uniqueUsersCount = systemMetrics?.users?.uniqueUsersCount ?? rep.uniqueUsersCount;
+      const todayUsersCount = systemMetrics?.users?.activeUsersCount ?? rep.todayUsersCount;
       const uniqueUsersList: UniqueUserItem[] = (rep.userList || []).map(u => ({
         userId: u.userId,
         totalSessions: u.totalSessions,
@@ -220,7 +246,7 @@ export const ReportsTab: React.FC<ReportsTabProps> = ({
     }
 
     // Dynamic calculation for filtered logs or fallback
-    const totalUploadsCount = (!hasStatusFilter && totalLogsCount) ? totalLogsCount : timeFilteredLogs.length;
+    const totalUploadsCount = totalLogsCount ? totalLogsCount : logsList.length;
 
     const completedLogs = timeFilteredLogs.filter((l) => getLogStatus(l) === 'COMPLETED');
     const incompleteLogs = timeFilteredLogs.filter((l) => getLogStatus(l) === 'INCOMPLETE');
@@ -328,12 +354,12 @@ export const ReportsTab: React.FC<ReportsTabProps> = ({
   const { currentPage, setCurrentPage, totalPages } = usePagination(filteredLogs, PAGE_SIZE, totalLogsCount);
 
   useEffect(() => {
-    if (currentPage * PAGE_SIZE >= logsList.length && logsList.length < (totalLogsCount || 0)) {
+    if (currentPage > 1 && logsList.length > 0 && currentPage * PAGE_SIZE >= logsList.length && hasMore) {
       if (onLoadMore) {
         onLoadMore('reports', logsList.length);
       }
     }
-  }, [currentPage, logsList.length, totalLogsCount, onLoadMore]);
+  }, [currentPage, logsList.length, hasMore, onLoadMore]);
 
   useEffect(() => {
     setCurrentPage(1);
@@ -491,6 +517,41 @@ export const ReportsTab: React.FC<ReportsTabProps> = ({
     };
   };
 
+  const fetchExportData = useCallback(async () => {
+    const preset = filterType === 'all' ? 'all' : filterType === 'today' ? 'today' : 'custom';
+    const sDate = filterType === 'day' ? startDate : undefined;
+    const eDate = filterType === 'day' ? endDate : undefined;
+
+    const authHeaders = getAuthHeader ? getAuthHeader() : {};
+    const response = await fetch('/api/admin/export', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        ...authHeaders,
+      },
+      body: JSON.stringify({
+        scope: 'reports',
+        preset,
+        startDate: sDate,
+        endDate: eDate,
+        status: statusFilter,
+        language: language.toUpperCase(),
+      }),
+    });
+
+    const data = await response.json();
+    if (!response.ok || !data.success) {
+      throw new Error(data.error || 'Lỗi khi lấy dữ liệu xuất');
+    }
+
+    return {
+      title: data.title,
+      headers: data.headers,
+      rows: data.rows,
+      totalCount: data.totalCount,
+    };
+  }, [filterType, startDate, endDate, statusFilter, language, getAuthHeader]);
+
   return (
     <div className="p-4 sm:p-6 overflow-y-auto space-y-6 flex-1 flex flex-col min-h-0 text-slate-800 dark:text-slate-100">
       {/* Top Filter Controls */}
@@ -525,28 +586,51 @@ export const ReportsTab: React.FC<ReportsTabProps> = ({
 
       {/* Assessment Record Table */}
       <div className="bg-white dark:bg-blue-950/80 rounded-xl border border-slate-200 dark:border-blue-800/70 shadow-xs overflow-hidden flex flex-col flex-1 min-h-[400px]">
-        <div className="p-3 border-b border-slate-200 dark:border-blue-800/70 flex items-center justify-between bg-slate-50 dark:bg-blue-900/40 shrink-0">
+        <div className="p-3 border-b border-slate-200 dark:border-blue-800/70 flex flex-col sm:flex-row sm:items-center justify-between gap-2 bg-slate-50 dark:bg-blue-900/40 shrink-0">
           <div className="flex items-center space-x-2 text-slate-700 dark:text-slate-200 text-xs font-bold">
             <Filter className="w-3.5 h-3.5 text-blue-500 dark:text-blue-400" />
             <span>
               {t('recordList')} ({filteredLogs.length} {t('results')})
             </span>
           </div>
-          <div className="flex items-center space-x-2">
-            <button
-              onClick={() => setIsDatasetNoticeOpen(true)}
-              className="flex items-center space-x-1.5 px-3 py-1.5 bg-amber-500 hover:bg-amber-600 text-white font-bold text-xs rounded-lg transition-all cursor-pointer shadow-xs border border-amber-400/30"
-              title={t('exportClinicalLabelledJson')}
+          <div className="flex flex-wrap items-center gap-2">
+            <div
+              className="relative inline-flex group cursor-not-allowed"
+              title={!isResearchImageStorageAvailable() ? getTrainingExportLockedMessage(language) : undefined}
             >
-              <FileCode className="w-3.5 h-3.5" />
-              <span>{t('exportAiTrainingDataset')}</span>
-            </button>
+              <button
+                type="button"
+                disabled={!isResearchImageStorageAvailable()}
+                onClick={exportEvaluationJson}
+                className={`flex items-center space-x-1.5 px-3 py-1.5 text-xs font-bold rounded-lg transition-all shadow-xs border ${
+                  isResearchImageStorageAvailable()
+                    ? 'bg-amber-500 hover:bg-amber-600 text-white cursor-pointer border-amber-400/30'
+                    : 'bg-slate-200 dark:bg-slate-800 text-slate-400 dark:text-slate-500 border-slate-300 dark:border-slate-700 cursor-not-allowed opacity-75'
+                }`}
+                title={!isResearchImageStorageAvailable() ? getTrainingExportLockedMessage(language) : t('exportClinicalLabelledJson')}
+              >
+                {!isResearchImageStorageAvailable() ? <Lock className="w-3.5 h-3.5" /> : <FileCode className="w-3.5 h-3.5" />}
+                <span>{t('exportAiTrainingDataset')}</span>
+              </button>
+              {!isResearchImageStorageAvailable() && (
+                <div
+                  role="tooltip"
+                  className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 hidden group-hover:flex flex-col items-center z-50 pointer-events-none"
+                >
+                  <div className="bg-slate-900 text-white text-[11px] font-normal px-2.5 py-1.5 rounded-lg shadow-lg whitespace-nowrap border border-slate-700 max-w-xs text-center">
+                    {getTrainingExportLockedMessage(language)}
+                  </div>
+                  <div className="w-2 h-2 bg-slate-900 rotate-45 -mt-1 border-r border-b border-slate-700" />
+                </div>
+              )}
+            </div>
 
             <ExportDropdown
               disabled={filteredLogs.length === 0}
               language={language}
               onExportCsv={handleExportCsv}
               getDataForGoogleSheets={getReportsDataForGoogleSheets}
+              fetchExportData={fetchExportData}
               headerColor={{ red: 0.15, green: 0.39, blue: 0.92 }}
             />
           </div>
@@ -754,17 +838,13 @@ export const ReportsTab: React.FC<ReportsTabProps> = ({
         onRequestDelete={onRequestDelete}
       />
 
-      <DatasetNoticeModal
-        isOpen={isDatasetNoticeOpen}
-        onClose={() => setIsDatasetNoticeOpen(false)}
-        language={language}
-      />
-
       <UserDirectoryModal
         isOpen={isUserDirectoryOpen}
         onClose={() => setIsUserDirectoryOpen(false)}
         language={language}
         uniqueUsersList={uniqueUsersList}
+        totalUsersCount={uniqueUsersCount}
+        getAuthHeader={getAuthHeader}
       />
     </div>
   );

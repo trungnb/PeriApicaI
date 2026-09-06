@@ -2,8 +2,12 @@ import { useTranslation } from 'react-i18next';
 import React, { useState } from 'react';
 import { Lock, Loader2, AlertCircle } from 'lucide-react';
 
+// Test-phase UI convenience only. The API still requires this identity to be
+// present in PILOT_REVIEWER_IDS and binds it to the authenticated session.
+export const TEST_PHASE_REVIEWER_ID = 'trungnb';
+
 interface AdminLoginProps {
-  onLogin: (password: string, rememberMe: boolean) => Promise<boolean>;
+  onLogin: (password: string, reviewerId: string, rememberMe: boolean) => Promise<boolean>;
   externalError?: string | null;
 }
 
@@ -12,6 +16,7 @@ export const AdminLogin: React.FC<AdminLoginProps> = ({ onLogin, externalError }
   const isEn = i18n.language === 'en';
 
   const [password, setPassword] = useState('');
+  const reviewerId = TEST_PHASE_REVIEWER_ID;
   const [rememberMe, setRememberMe] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
 
@@ -22,9 +27,9 @@ export const AdminLogin: React.FC<AdminLoginProps> = ({ onLogin, externalError }
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!password.trim() || isLoading) return;
+    if (!password.trim() || !reviewerId.trim() || isLoading) return;
     setIsLoading(true);
-    await onLogin(password, rememberMe);
+    await onLogin(password, reviewerId, rememberMe);
     setIsLoading(false);
     setPassword('');
   };
@@ -48,6 +53,18 @@ export const AdminLogin: React.FC<AdminLoginProps> = ({ onLogin, externalError }
       </div>
 
       <form onSubmit={handleLogin} className="w-full space-y-4 text-left">
+        <div className="space-y-1.5">
+          <label className="block text-xs font-bold text-slate-700 dark:text-slate-300">{t('reviewerLabel')}</label>
+          <input
+            type="text"
+            value={reviewerId}
+            readOnly
+            disabled
+            className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 dark:border-slate-700 bg-slate-100 dark:bg-slate-800/90 text-slate-700 dark:text-slate-200 text-xs sm:text-sm outline-none shadow-2xs font-mono cursor-not-allowed"
+          />
+          <p className="text-xs text-slate-500 dark:text-slate-400">{t('reviewerTestPhaseHelp')}</p>
+        </div>
+
         <div className="space-y-1.5">
           <label className="block text-xs font-bold text-slate-700 dark:text-slate-300">
             {t('admin:passwordLabel')}
@@ -90,7 +107,7 @@ export const AdminLogin: React.FC<AdminLoginProps> = ({ onLogin, externalError }
 
         <button
           type="submit"
-          disabled={!password.trim() || isLoading}
+          disabled={!password.trim() || !reviewerId.trim() || isLoading}
           className="w-full h-10 sm:h-11 bg-blue-600 hover:bg-blue-700 active:bg-blue-800 active:scale-95 disabled:bg-slate-200 dark:disabled:bg-slate-800 disabled:text-slate-400 dark:disabled:text-slate-600 disabled:scale-100 disabled:cursor-not-allowed text-white font-bold rounded-xl text-xs sm:text-sm shadow-md shadow-blue-600/20 transition-all flex items-center justify-center space-x-2 cursor-pointer"
         >
           {isLoading ? (
@@ -106,4 +123,3 @@ export const AdminLogin: React.FC<AdminLoginProps> = ({ onLogin, externalError }
     </div>
   );
 };
-

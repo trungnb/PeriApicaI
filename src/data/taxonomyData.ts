@@ -3,7 +3,7 @@ import { BilingualTaxonomyErrorItem, ToothInfo, ErrorDomainId } from '../types/d
 export type { BilingualTaxonomyErrorItem };
 
 export const TAXONOMY_ERRORS: BilingualTaxonomyErrorItem[] = [
-  // Domain 1: Receptor Placement Errors
+  // Domain 1: Receptor Placement Errors (3 canonical technical acquisition errors)
   {
     key: 'missing_apical',
     domainId: 'domain_1',
@@ -25,26 +25,6 @@ export const TAXONOMY_ERRORS: BilingualTaxonomyErrorItem[] = [
     remediationEn: 'Align anterior edge of receptor with midline of adjacent tooth; center receptor squarely on target tooth.',
   },
   {
-    key: 'wrong_target_tooth',
-    domainId: 'domain_1',
-    label: 'Không khớp vị trí răng mục tiêu',
-    labelEn: 'Wrong Target Tooth Position',
-    description: 'Chọn vị trí răng trên sơ đồ một đằng nhưng chụp nhầm vùng răng khác.',
-    descriptionEn: 'Selected tooth location does not match the actual tooth captured on the radiograph.',
-    remediation: 'Kiểm tra sơ đồ răng FDI trước khi đặt cảm biến; đặt đúng trung tâm vùng răng được chỉ định.',
-    remediationEn: 'Verify FDI dental chart before receptor placement; center receptor precisely on designated anatomical region.',
-  },
-  {
-    key: 'not_periapical',
-    domainId: 'domain_1',
-    label: 'Ảnh không phải phim X-quang cận chóp',
-    labelEn: 'Not a Periapical Radiograph',
-    description: 'Hình ảnh tải lên không thuộc chuẩn kỹ thuật phim X-quang quanh chóp chuẩn.',
-    descriptionEn: 'Uploaded image is not a recognized clinical periapical radiograph.',
-    remediation: 'Tải lên đúng phim X-quang quanh chóp chuẩn nha khoa.',
-    remediationEn: 'Upload a valid clinical dental periapical radiograph.',
-  },
-  {
     key: 'tilted_occlusal',
     domainId: 'domain_1',
     label: 'Mặt phẳng nhai bị nghiêng',
@@ -55,7 +35,7 @@ export const TAXONOMY_ERRORS: BilingualTaxonomyErrorItem[] = [
     remediationEn: 'Position receptor edge parallel to occlusal surfaces. Instruct patient to bite firmly and evenly on bite block.',
   },
 
-  // Domain 2: Angulation & Geometric Errors
+  // Domain 2: Angulation & Geometric Errors (4 canonical technical acquisition errors)
   {
     key: 'elongation',
     domainId: 'domain_2',
@@ -97,7 +77,7 @@ export const TAXONOMY_ERRORS: BilingualTaxonomyErrorItem[] = [
     remediationEn: 'Center the PID directly over the receptor and align concentric with the aiming ring.',
   },
 
-  // Domain 3: Exposure, Processing & Artefact Errors
+  // Domain 3: Exposure, Processing & Artefact Errors (4 canonical technical acquisition errors)
   {
     key: 'underexposed_overexposed',
     domainId: 'domain_3',
@@ -140,12 +120,44 @@ export const TAXONOMY_ERRORS: BilingualTaxonomyErrorItem[] = [
   },
 ];
 
+/**
+ * Legacy taxonomy entries retained exclusively for historical backward-compatibility decoding.
+ * Note: `wrong_target_tooth` (FDI mismatch) and `not_periapical` are now governed by the R4 Validity Gate.
+ */
+export const LEGACY_TAXONOMY_ERRORS: BilingualTaxonomyErrorItem[] = [
+  {
+    key: 'wrong_target_tooth',
+    domainId: 'domain_1',
+    label: 'Không khớp vị trí răng mục tiêu',
+    labelEn: 'Wrong Target Tooth Position',
+    description: 'Chọn vị trí răng trên sơ đồ một đằng nhưng chụp nhầm vùng răng khác.',
+    descriptionEn: 'Selected tooth location does not match the actual tooth captured on the radiograph.',
+    remediation: 'Kiểm tra sơ đồ răng FDI trước khi đặt cảm biến; đặt đúng trung tâm vùng răng được chỉ định.',
+    remediationEn: 'Verify FDI dental chart before receptor placement; center receptor precisely on designated anatomical region.',
+  },
+  {
+    key: 'not_periapical',
+    domainId: 'domain_1',
+    label: 'Ảnh không phải phim X-quang cận chóp',
+    labelEn: 'Not a Periapical Radiograph',
+    description: 'Hình ảnh tải lên không thuộc chuẩn kỹ thuật phim X-quang quanh chóp chuẩn.',
+    descriptionEn: 'Uploaded image is not a recognized clinical periapical radiograph.',
+    remediation: 'Tải lên đúng phim X-quang quanh chóp chuẩn nha khoa.',
+    remediationEn: 'Upload a valid clinical dental periapical radiograph.',
+  },
+];
+
+export const ALL_TAXONOMY_ERRORS: BilingualTaxonomyErrorItem[] = [
+  ...TAXONOMY_ERRORS,
+  ...LEGACY_TAXONOMY_ERRORS,
+];
+
 export const DOMAIN_TITLES: Record<ErrorDomainId, { name: string; description: string; nameEn?: string; descriptionEn?: string }> = {
   domain_1: {
     name: 'Miền 1: Lỗi đặt bộ nhận ảnh',
-    description: 'Bao gồm các lỗi mất cuống, mất thân/kẽ, chọn nhầm răng mục tiêu và mặt phẳng nhai bị nghiêng.',
+    description: 'Bao gồm các lỗi mất cuống, mất thân/kẽ và mặt phẳng nhai bị nghiêng.',
     nameEn: 'Domain 1: Receptor Placement Errors',
-    descriptionEn: 'Includes missing apex, missing crown/interproximal, wrong target tooth, and tilted occlusal plane.',
+    descriptionEn: 'Includes missing apex, missing crown/interproximal, and tilted occlusal plane.',
   },
   domain_2: {
     name: 'Miền 2: Lỗi góc độ & Hình học',
@@ -203,7 +215,7 @@ export const ALL_TEETH: ToothInfo[] = [
   { fdiNumber: '38', universalNumber: '#17', name: 'Răng khôn hàm dưới bên trái', arch: 'Mandible', quadrant: 3, type: 'Molar' },
 ];
 
-export const TAXONOMY_DICT = TAXONOMY_ERRORS.reduce((acc, curr) => {
+export const TAXONOMY_DICT = ALL_TAXONOMY_ERRORS.reduce((acc, curr) => {
   acc[curr.key] = curr;
   return acc;
 }, {} as Record<string, BilingualTaxonomyErrorItem>);

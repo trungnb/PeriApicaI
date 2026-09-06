@@ -1,15 +1,64 @@
-node_modules
-dist
+# Installed dependencies and generated output
+node_modules/
+/dist/
+/coverage/
+*.tsbuildinfo
+.vite/
+
+# Local environment and credentials (safe templates may be committed)
 .env
-.DS_Store
-*.log
-.idea/
-*.zip
+.env.*
+!.env.example
+!.env.*.example
 admin_SDK.json
+*service-account*.json
+*service_account*.json
+*serviceAccount*.json
+*firebase-adminsdk*.json
+/credentials/
+/secrets/
+*.pem
+*.key
+*.p12
+*.pfx
 
-# Runtime cache — contains Firestore assessment data in plaintext
-temp_cache.json
+# Local application state and uploaded data
+/runtime/
+/uploads/
+/temp_cache.json
+/temp_cache.json.*
+/firestore-export*/
+/firestore-exports/
+/firestore-debug.log
 
-# Temporary uploaded medical images (runtime directory)
-runtime/
-public/uploads/
+# Logs, caches, and temporary validation output
+*.log
+/logs/
+.cache/
+/tmp/
+/temp/
+/test-results/
+/playwright-report/
+*.bak
+*.old
+*.orig
+*.tmp
+*.swp
+*.swo
+
+# Local archives; retain source, tests, public assets and lockfiles
+*.zip
+*.tar
+*.tar.gz
+*.tgz
+*.7z
+
+# OS and editor-local state
+.DS_Store
+._*
+Thumbs.db
+Desktop.ini
+.idea/
+.vscode/
+.Rhistory
+.RData

@@ -71,52 +71,36 @@ export const PathologyOverlayCanvas: React.FC<Props> = React.memo(({
     ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
 
     detections.forEach((det) => {
-      const isSelected = det.id === selectedId;
-      const [rx1, ry1, rx2, ry2] = det.bbox;
-      const x1 = rx1 * scaleX;
-      const y1 = ry1 * scaleY;
-      const x2 = rx2 * scaleX;
-      const y2 = ry2 * scaleY;
-
-      // Polygon fill
-      if (det.polygonPoints && det.polygonPoints.length >= 3) {
-        const getPt = (p: any): [number, number] => Array.isArray(p) ? [p[0], p[1]] : [p?.x ?? 0, p?.y ?? 0];
-        const [p0x, p0y] = getPt(det.polygonPoints[0]);
-        ctx.beginPath();
-        ctx.moveTo(p0x * scaleX, p0y * scaleY);
-        for (let i = 1; i < det.polygonPoints.length; i++) {
-          const [px, py] = getPt(det.polygonPoints[i]);
-          ctx.lineTo(px * scaleX, py * scaleY);
-        }
-        ctx.closePath();
-        ctx.fillStyle = det.fillColor;
-        ctx.fill();
-        ctx.strokeStyle = det.color;
-        ctx.lineWidth = isSelected ? 2.5 : 1.5;
-        ctx.stroke();
-      } else {
-        // Fallback: filled bbox rect
-        ctx.fillStyle = det.fillColor;
-        ctx.fillRect(x1, y1, x2 - x1, y2 - y1);
-        ctx.strokeStyle = det.color;
-        ctx.lineWidth = isSelected ? 2.5 : 1.5;
-        ctx.setLineDash([]);
-        ctx.strokeRect(x1, y1, x2 - x1, y2 - y1);
+      // Unlocalised findings must simply be skipped by the overlay drawing pipeline
+      const hasGeometry = det.geometryStatus === 'valid' ||
+        (!det.geometryStatus && Array.isArray(det.polygonPoints) && det.polygonPoints.length >= 3);
+      if (!hasGeometry || !det.polygonPoints || det.polygonPoints.length < 3) {
+        return;
       }
+
+      const isSelected = det.id === selectedId;
+      const getPt = (p: any): [number, number] => Array.isArray(p) ? [p[0], p[1]] : [p?.x ?? 0, p?.y ?? 0];
+      const [p0x, p0y] = getPt(det.polygonPoints[0]);
+      ctx.beginPath();
+      ctx.moveTo(p0x * scaleX, p0y * scaleY);
+      for (let i = 1; i < det.polygonPoints.length; i++) {
+        const [px, py] = getPt(det.polygonPoints[i]);
+        ctx.lineTo(px * scaleX, py * scaleY);
+      }
+      ctx.closePath();
+      ctx.fillStyle = det.fillColor;
+      ctx.fill();
+      ctx.strokeStyle = det.color;
+      ctx.lineWidth = isSelected ? 2.5 : 1.5;
+      ctx.stroke();
 
       // Label chip above top-most vertex
       let minY = Infinity;
       let minX = Infinity;
-      if (det.polygonPoints && det.polygonPoints.length >= 3) {
-        const getPt = (p: any): [number, number] => Array.isArray(p) ? [p[0], p[1]] : [p?.x ?? 0, p?.y ?? 0];
-        det.polygonPoints.forEach((rawP) => {
-          const [px, py] = getPt(rawP);
-          if (py < minY) { minY = py; minX = px; }
-        });
-      } else {
-        minX = rx1;
-        minY = ry1;
-      }
+      det.polygonPoints.forEach((rawP) => {
+        const [px, py] = getPt(rawP);
+        if (py < minY) { minY = py; minX = px; }
+      });
 
       const label = PATHOLOGY_DICT[det.pathologyKey]?.label ?? det.pathologyKey;
       const text = `${label}`;

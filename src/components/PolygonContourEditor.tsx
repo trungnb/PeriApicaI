@@ -157,7 +157,7 @@ export const PolygonContourEditor: React.FC<Props> = React.memo(({
       });
 
       const label = PATHOLOGY_DICT[det.pathologyKey]?.label ?? det.pathologyKey;
-      const text = `${label} ${det.confidence}%`;
+      const text = typeof det.confidence === 'number' ? `${label} ${det.confidence}%` : label;
       ctx.font = 'bold 10px system-ui';
       const textW = ctx.measureText(text).width;
 
@@ -221,7 +221,7 @@ export const PolygonContourEditor: React.FC<Props> = React.memo(({
     // 1. Check if clicking on a vertex of the currently selected polygon
     if (selectedId) {
       const selDet = detections.find((d) => d.id === selectedId);
-      if (selDet && selDet.polygonPoints) {
+      if (selDet && selDet.polygonPoints && selDet.polygonPoints.length >= 3) {
         for (let i = 0; i < selDet.polygonPoints.length; i++) {
           const [px, py] = selDet.polygonPoints[i];
           const dist = Math.hypot(x - px * scaleX, y - py * scaleY);
@@ -243,7 +243,7 @@ export const PolygonContourEditor: React.FC<Props> = React.memo(({
 
     // 2. Check if clicking inside any polygon
     for (const det of [...detections].reverse()) {
-      if (det.polygonPoints && isPointInsidePolygon(x, y, det.polygonPoints, scaleX, scaleY)) {
+      if (det.polygonPoints && det.polygonPoints.length >= 3 && isPointInsidePolygon(x, y, det.polygonPoints, scaleX, scaleY)) {
         onSelect(det.id);
         dragRef.current = {
           detId: det.id,
@@ -290,7 +290,7 @@ export const PolygonContourEditor: React.FC<Props> = React.memo(({
     // Update cursor hover
     if (selectedId && canvas) {
       const selDet = detections.find((d) => d.id === selectedId);
-      if (selDet && selDet.polygonPoints) {
+      if (selDet && selDet.polygonPoints && selDet.polygonPoints.length >= 3) {
         for (let i = 0; i < selDet.polygonPoints.length; i++) {
           const [px, py] = selDet.polygonPoints[i];
           const dist = Math.hypot(x - px * scaleX, y - py * scaleY);

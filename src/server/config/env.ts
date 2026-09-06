@@ -2,16 +2,12 @@ import path from 'path';
 import fs from 'fs';
 import crypto from 'crypto';
 import dotenv from 'dotenv';
+import { sanitizeCredentialString, redactObjectSecrets } from '../../utils/apiKeySecurity';
+import { ensureUploadsDirectory, resolveUploadFilePath } from './storagePaths';
 
 dotenv.config();
 
-export const PORT = 3000;
-
-// Directory for storing temporary compressed medical images (outside public/dist for security)
-export const uploadsDir = path.join(process.cwd(), 'runtime', 'uploads');
-if (!fs.existsSync(uploadsDir)) {
-  fs.mkdirSync(uploadsDir, { recursive: true });
-}
+export const PORT = process.env.PORT ? parseInt(process.env.PORT, 10) || 3000 : 3000;
 
 // In-memory runtime HMAC secret generated once when process starts
 const RUNTIME_IMAGE_SIGNING_SECRET = crypto.randomBytes(32).toString('hex');
@@ -22,6 +18,36 @@ const RUNTIME_IMAGE_SIGNING_SECRET = crypto.randomBytes(32).toString('hex');
  */
 export function getImageSigningSecret(): string {
   return RUNTIME_IMAGE_SIGNING_SECRET;
+}
+
+function requiresStableSigningSecrets(): boolean {
+  return process.env.NODE_ENV === 'production' || process.env.DEPLOYMENT_ENV === 'staging';
+}
+
+export function assertSigningSecretConfiguration(): void {
+  const lineage = process.env.INFERENCE_LINEAGE_SIGNING_SECRET?.trim();
+  const validity = process.env.VALIDITY_RECEIPT_SIGNING_SECRET?.trim();
+  if (!requiresStableSigningSecrets()) return;
+  if (!lineage || !validity) throw new Error('STAGING_SIGNING_SECRETS_REQUIRED: configure INFERENCE_LINEAGE_SIGNING_SECRET and VALIDITY_RECEIPT_SIGNING_SECRET.');
+  if (lineage === validity || lineage === process.env.ADMIN_PASSWORD?.trim() || validity === process.env.ADMIN_PASSWORD?.trim()) {
+    throw new Error('STAGING_SIGNING_SECRETS_MUST_BE_INDEPENDENT');
+  }
+}
+
+/** Dedicated stable secret; development alone may use a process-local fallback. */
+export function getInferenceLineageSigningSecret(): string {
+  const configured = process.env.INFERENCE_LINEAGE_SIGNING_SECRET?.trim();
+  assertSigningSecretConfiguration();
+  if (!configured) return RUNTIME_IMAGE_SIGNING_SECRET;
+  return crypto.createHash('sha256').update(`periapicai:inference-lineage:${configured}`).digest('hex');
+}
+
+/** Independent secret for short-lived validity receipts and safe audit envelopes. */
+export function getValidityReceiptSigningSecret(): string {
+  const configured = process.env.VALIDITY_RECEIPT_SIGNING_SECRET?.trim();
+  assertSigningSecretConfiguration();
+  if (!configured) return RUNTIME_IMAGE_SIGNING_SECRET;
+  return crypto.createHash('sha256').update(`periapicai:validity-receipt:${configured}`).digest('hex');
 }
 
 /**
@@ -63,28 +89,22 @@ export function serverLog(level: ServerLogLevel, tag: string, message: string, d
   let formattedDetail = '';
   if (detail !== undefined && detail !== null) {
     if (detail instanceof Error) {
-      formattedDetail = ` | ${detail.name}: ${detail.message}`;
+      formattedDetail = ` | ${detail.name}: ${sanitizeCredentialString(detail.message)}`;
     } else if (typeof detail === 'object') {
       try {
-        const safeDetail = { ...detail };
-        // Mask potential secrets
-        const secretKeys = ['GEMINI_API_KEY', 'apiKey', 'token', 'password', 'secret', 'key', 'sig', 'signature'];
-        for (const [k, v] of Object.entries(safeDetail)) {
-          if (secretKeys.some(sk => k.toLowerCase().includes(sk.toLowerCase())) && typeof v === 'string') {
-            safeDetail[k] = '*** MASKED ***';
-          }
-        }
+        const safeDetail = redactObjectSecrets(detail);
         const json = JSON.stringify(safeDetail);
         formattedDetail = ` | ${json.length > 250 ? json.slice(0, 250) + '...' : json}`;
       } catch {
         formattedDetail = ` | [Object]`;
       }
     } else {
-      const str = String(detail);
+      const str = sanitizeCredentialString(String(detail));
       formattedDetail = ` | ${str.length > 250 ? str.slice(0, 250) + '...' : str}`;
     }
   }
-  const output = `[${timestamp}] [${level}] [${tag}] ${message}${formattedDetail}`;
+  const cleanMessage = sanitizeCredentialString(message);
+  const output = `[${timestamp}] [${level}] [${tag}] ${cleanMessage}${formattedDetail}`;
   if (level === 'ERROR') {
     console.error(output);
   } else if (level === 'WARN') {
@@ -128,7 +148,8 @@ export async function saveAndOptimizeImageFile(assessmentId: string, base64DataU
 
     const safeAssessmentId = assessmentId.replace(/[^a-zA-Z0-9_-]/g, '_');
     const safeFilename = `${safeAssessmentId}${ext}`;
-    const filePath = path.join(uploadsDir, safeFilename);
+    ensureUploadsDirectory();
+    const filePath = resolveUploadFilePath(safeFilename);
 
     await fs.promises.writeFile(filePath, rawBuffer);
 
@@ -158,7 +179,7 @@ export async function deleteImageFile(storageKey: string): Promise<boolean> {
   const safeFilename = filename.replace(/[^a-zA-Z0-9_.-]/g, '');
   if (!safeFilename || safeFilename.includes('..')) return false;
   
-  const filePath = path.join(uploadsDir, safeFilename);
+  const filePath = resolveUploadFilePath(safeFilename);
   try {
     await fs.promises.unlink(filePath);
     return true;

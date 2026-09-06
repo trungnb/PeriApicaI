@@ -7,6 +7,7 @@ import {
 } from '../constants/dictionaries';
 import { reportAutoSystemError } from '../services/apiService';
 import { useAppStore } from '../store/appStore';
+import { AnalysisWorkspaceSnapshot } from '../types/dental';
 
 export type ErrorCategory =
   | 'TECHNICAL_FAILURE'
@@ -34,6 +35,7 @@ export interface StandardizedAIError {
   remediation?: string;
   details?: string;
   actionType: ErrorActionType;
+  reasonCategory?: 'invalid_key' | 'quota_or_rate_limit' | 'provider_unavailable' | 'network_or_timeout' | 'unknown_custom_key_failure';
   resetNotice?: string;
   rawMessage: string;
   stack?: string;
@@ -113,18 +115,60 @@ export function classifyAndFormatAIError(
     rawMessage.includes('byokError') ||
     options.errorCode === 'CUSTOM_KEY_FAILED'
   ) {
+    let reasonCategory: 'invalid_key' | 'quota_or_rate_limit' | 'provider_unavailable' | 'network_or_timeout' | 'unknown_custom_key_failure' = 'unknown_custom_key_failure';
+
+    if (
+      rawMessage.includes('API_KEY_INVALID') ||
+      rawMessage.includes('API key not valid') ||
+      rawMessage.includes('PERMISSION_DENIED') ||
+      options.errorCode === 'INVALID_CUSTOM_KEY'
+    ) {
+      reasonCategory = 'invalid_key';
+    } else if (
+      options.isQuotaExhausted ||
+      options.status === 429 ||
+      rawMessage.includes('429') ||
+      rawMessage.includes('RESOURCE_EXHAUSTED') ||
+      rawMessage.includes('quota') ||
+      rawMessage.includes('Hạn mức')
+    ) {
+      reasonCategory = 'quota_or_rate_limit';
+    } else if (
+      name === 'AbortError' ||
+      rawMessage.includes('timeout') ||
+      rawMessage.includes('timed out') ||
+      rawMessage.includes('hết thời gian')
+    ) {
+      reasonCategory = 'network_or_timeout';
+    } else if (rawMessage.includes('503') || rawMessage.includes('UNAVAILABLE')) {
+      reasonCategory = 'provider_unavailable';
+    }
+
+    let failureSpecificMsg = isEn
+      ? 'The request could not be completed using your current personal API key.'
+      : 'Yêu cầu không thể hoàn tất bằng khóa API cá nhân hiện tại.';
+
+    if (reasonCategory === 'invalid_key') {
+      failureSpecificMsg = isEn ? 'Your personal API key is invalid.' : 'Khóa API cá nhân không hợp lệ.';
+    } else if (reasonCategory === 'quota_or_rate_limit') {
+      failureSpecificMsg = isEn
+        ? 'Your personal API key has reached its quota or is currently rate-limited.'
+        : 'Khóa API cá nhân hiện đã hết hạn mức hoặc đang bị giới hạn.';
+    } else if (reasonCategory === 'provider_unavailable' || reasonCategory === 'network_or_timeout') {
+      failureSpecificMsg = isEn
+        ? 'Your personal API key could not be used to complete the request at this time.'
+        : 'Hiện không thể sử dụng khóa API cá nhân để hoàn tất yêu cầu.';
+    }
+
     return {
       category: 'CUSTOM_KEY_FAILED',
-      title: isEn ? 'Custom API Key Issue' : 'Lỗi Khóa API Cá Nhân (BYOK)',
-      message:
-        options.userMessage ||
-        (isEn
-          ? 'Your custom Gemini API Key is invalid, unauthorized, or has exhausted its quota.'
-          : 'Khóa Gemini API cá nhân của bạn không hợp lệ hoặc đã vượt quá hạn mức sử dụng.'),
+      title: isEn ? 'Personal API key unavailable' : 'Không thể sử dụng khóa API cá nhân',
+      message: options.userMessage || failureSpecificMsg,
       details: isEn
-        ? 'Please verify your API key in Google AI Studio or switch back to the system trial key.'
-        : 'Vui lòng kiểm tra lại khóa API trên Google AI Studio hoặc chuyển về khóa dùng thử của hệ thống.',
+        ? 'You can retry with your personal key or start a new analysis using the application\'s API credentials.'
+        : 'Bạn có thể thử lại với khóa cá nhân hoặc chuyển sang khóa API của ứng dụng cho lần phân tích mới.',
       actionType: 'SHOW_BYOK_MODAL',
+      reasonCategory,
       rawMessage,
       stack,
       timestamp,
@@ -314,7 +358,7 @@ export function logDiagnosticError(
 export function handleAnalysisFlowError(
   input: ErrorClassificationInput | unknown,
   flowType: 'classic' | 'pathology' = 'classic',
-  options?: { language?: 'VI' | 'EN'; context?: Record<string, any> }
+  options?: { language?: 'VI' | 'EN'; context?: Record<string, any>; snapshot?: AnalysisWorkspaceSnapshot | null }
 ): StandardizedAIError {
   const lang = options?.language || useAppStore.getState().language || 'VI';
   const stdError = classifyAndFormatAIError(
@@ -323,6 +367,12 @@ export function handleAnalysisFlowError(
       : { error: input, language: lang, context: options?.context },
     lang
   );
+
+  // Stale Request Protection: If this error belongs to a superseded or invalidated generation,
+  // do NOT dispatch to store, do NOT show modals, and do NOT alter loading states.
+  if (options?.snapshot && !useAppStore.getState().isAnalysisCurrent(options.snapshot)) {
+    return stdError;
+  }
 
   // Log full stack trace internally
   logDiagnosticError(input, options?.context, { component: `AnalysisFlow:${flowType}` });
@@ -346,6 +396,10 @@ export function handleAnalysisFlowError(
       store.setCustomKeyErrorModal({
         isOpen: true,
         message: stdError.message,
+        reasonCategory: stdError.reasonCategory,
+        systemApiAvailable: typeof (input as any)?.systemApiAvailable === 'boolean'
+          ? (input as any).systemApiAvailable
+          : store.systemApiAvailable,
       });
       break;
 

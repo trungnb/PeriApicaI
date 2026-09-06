@@ -1,21 +1,37 @@
+import { providerExecutionConfig, isTerminalExecutionError } from './geminiService';
 import { Type, GoogleGenAI } from '@google/genai';
 import { LRUCache } from 'lru-cache';
 import { executeWithFailover, ExecutionBudget, isRateLimitOrQuotaError, isTransientError, isInvalidApiKeyError } from './geminiService';
 import { PATHOLOGY_DICT } from '../../constants/dictionaries';
 import { validatePathologyOutput } from '../../utils/semanticValidation';
+import { randomUUID } from 'crypto';
+import { createInferenceLineage } from './inferenceLineage';
+import type { InferenceLineage } from '../../types/dental';
+import { resetAssessmentSnapshotsForTests, type RoleModelAssignment } from './assessmentModelSnapshot';
+
+export interface SegmentPathologyOptions {
+  assessmentId?: string;
+  roleA?: RoleModelAssignment;
+  roleB?: RoleModelAssignment;
+}
 
 export interface PathologySegmentResult {
   overallSummary: string;
   observationChain?: string[];
   pathologies: Array<{
+    id?: string;
     key: string;
     confidence: number;
+    modelAScore?: number;
+    modelBScore?: number;
     polygon_points: number[][];
+    geometryStatus?: 'valid' | 'unavailable' | 'malformed';
     clinicalNote: string;
     treatmentRecommendation: string;
     provenance?: 'matched_consensus' | 'model_a_only' | 'model_b_only' | 'single_mode';
     humanReviewed?: boolean;
   }>;
+  inferenceLineage?: InferenceLineage;
 }
 
 export interface SegmentPathologyServiceResponse {
@@ -29,11 +45,42 @@ export interface SegmentPathologyServiceResponse {
   error?: string;
 }
 
+/**
+ * The model never owns lesion identity. Once semantic validation and optional
+ * consensus synthesis are complete, this server boundary assigns an opaque ID
+ * to each final lesion before transport or caching.
+ */
+export function assignServerLesionIds(result: PathologySegmentResult): PathologySegmentResult {
+  const seen = new Set<string>();
+  return {
+    ...result,
+    pathologies: result.pathologies.map((pathology) => {
+      const existingId = typeof pathology.id === 'string' ? pathology.id.trim() : '';
+      // Existing canonical IDs are immutable. Only newly issued IDs must be
+      // made unique within this finalized server response.
+      if (existingId) {
+        seen.add(existingId);
+        return { ...pathology, id: existingId };
+      }
+      let id = `lesion_${randomUUID()}`;
+      while (seen.has(id)) id = `lesion_${randomUUID()}`;
+      seen.add(id);
+      return { ...pathology, id };
+    }),
+  };
+}
+
 // ─── Pathology Cache ─────────────────────────────────────────
 export const pathologyVerifyCache = new LRUCache<string, PathologySegmentResult>({
   max: 100,
   ttl: 1000 * 60 * 60 * 6, // 6 hours
 });
+
+const originalPathologyCacheClear = pathologyVerifyCache.clear.bind(pathologyVerifyCache);
+pathologyVerifyCache.clear = () => {
+  resetAssessmentSnapshotsForTests();
+  return originalPathologyCacheClear();
+};
 
 // ─── 8-Class Standardized Schema with CoT & Polygon Contours ────
 export const PATHOLOGY_SEGMENT_SCHEMA = {
@@ -182,10 +229,21 @@ export function mapOptimizedPathologyToLegacy(optimized: any, language: string):
       ? (isEn ? dictItem.protocol?.primaryTreatmentEn || dictItem.protocol?.primaryTreatment : dictItem.protocol?.primaryTreatment)
       : (isEn ? 'Clinical follow-up or monitoring advised.' : 'Khuyến nghị theo dõi lâm sàng.');
 
+    const points = Array.isArray(path.polygon_points) ? path.polygon_points : [];
+    const hasGeom = points.length >= 3;
+    let geometryStatus = path.geometryStatus;
+    if (!geometryStatus) {
+      geometryStatus = hasGeom ? 'valid' : (points.length > 0 ? 'malformed' : 'unavailable');
+    }
+
     return {
+      ...(typeof path.id === 'string' && path.id.trim() ? { id: path.id.trim() } : {}),
       key: path.key,
-      confidence: path.confidence ?? 85,
-      polygon_points: path.polygon_points || [],
+      confidence: (typeof path.confidence === 'number' && Number.isFinite(path.confidence)) ? path.confidence : undefined,
+      modelAScore: typeof path.modelAScore === 'number' ? path.modelAScore : undefined,
+      modelBScore: typeof path.modelBScore === 'number' ? path.modelBScore : undefined,
+      polygon_points: hasGeom ? points : [],
+      geometryStatus,
       clinicalNote,
       treatmentRecommendation,
       provenance: path.provenance || 'single_mode',
@@ -202,6 +260,7 @@ export function mapOptimizedPathologyToLegacy(optimized: any, language: string):
 /**
  * Synthesizes 2D pathology findings and spatial polygons from two concurrent models (e.g. Pro & Flash)
  * using Spatial BB-IoU Matching and Point Density Selection.
+ * Findings are preserved even if polygon localisation fails.
  */
 export function synthesizePathologyConsensus(
   resA: PathologySegmentResult,
@@ -228,52 +287,92 @@ export function synthesizePathologyConsensus(
 
   // Process findings from Model A
   for (const itemA of pathsA) {
-    const boxA = getBoundingBox(itemA.polygon_points || []);
+    const hasGeomA = Array.isArray(itemA.polygon_points) && itemA.polygon_points.length >= 3;
+    const boxA = hasGeomA ? getBoundingBox(itemA.polygon_points) : null;
     let bestMatchIdx = -1;
     let highestIoU = 0;
+    let fallbackSemanticMatchIdx = -1;
 
     for (let i = 0; i < pathsB.length; i++) {
       if (handledBIndices.has(i)) continue;
       const itemB = pathsB[i];
       if (itemB.key === itemA.key) {
-        const boxB = getBoundingBox(itemB.polygon_points || []);
-        const iou = calculateIoU(boxA, boxB);
-        // IoU threshold > 0.4 confirms they are looking at the same physical lesion
-        if (iou > 0.4 && iou > highestIoU) {
-          highestIoU = iou;
-          bestMatchIdx = i;
+        const hasGeomB = Array.isArray(itemB.polygon_points) && itemB.polygon_points.length >= 3;
+        if (hasGeomA && hasGeomB && boxA) {
+          const boxB = getBoundingBox(itemB.polygon_points);
+          const iou = calculateIoU(boxA, boxB);
+          // IoU threshold > 0.4 confirms they are looking at the same physical lesion
+          if (iou > 0.4 && iou > highestIoU) {
+            highestIoU = iou;
+            bestMatchIdx = i;
+          }
+        } else if (!hasGeomA || !hasGeomB) {
+          // If one or both models lack usable polygon geometry for this key on the target tooth,
+          // record a semantic candidate match
+          if (fallbackSemanticMatchIdx === -1) {
+            fallbackSemanticMatchIdx = i;
+          }
         }
       }
     }
 
-    if (bestMatchIdx !== -1) {
-      // Both models detected this pathology key AT THE SAME LOCATION (High Consensus)
-      const matchB = pathsB[bestMatchIdx];
-      handledBIndices.add(bestMatchIdx);
+    const matchIdx = bestMatchIdx !== -1 ? bestMatchIdx : fallbackSemanticMatchIdx;
+
+    if (matchIdx !== -1) {
+      // Both models detected this pathology key (High Consensus)
+      const matchB = pathsB[matchIdx];
+      handledBIndices.add(matchIdx);
       
-      const mergedConfidence = Math.round((Number(itemA.confidence || 85) + Number(matchB.confidence || 85)) / 2);
+      const confA = typeof itemA.confidence === 'number' && Number.isFinite(itemA.confidence) ? itemA.confidence : 0;
+      const confB = typeof matchB.confidence === 'number' && Number.isFinite(matchB.confidence) ? matchB.confidence : 0;
+      const mergedConfidence = Math.round((confA + confB) / 2);
       
-      // Quality Selection (Point Density): Prefer polygon with more points (more detailed contour)
-      const lenA = itemA.polygon_points?.length || 0;
-      const lenB = matchB.polygon_points?.length || 0;
-      const betterPolygonItem = lenA >= lenB ? itemA : matchB;
+      const lenA = (itemA.polygon_points && itemA.polygon_points.length >= 3) ? itemA.polygon_points.length : 0;
+      const lenB = (matchB.polygon_points && matchB.polygon_points.length >= 3) ? matchB.polygon_points.length : 0;
       
-      const confA = Number(itemA.confidence || 85);
-      const confB = Number(matchB.confidence || 85);
+      let chosenPolygon: number[][] = [];
+      let geometryStatus: 'valid' | 'unavailable' | 'malformed' = 'unavailable';
+
+      if (lenA >= 3 && lenB >= 3) {
+        // Point Density: prefer polygon with more points
+        chosenPolygon = lenA >= lenB ? itemA.polygon_points : matchB.polygon_points;
+        geometryStatus = 'valid';
+      } else if (lenA >= 3) {
+        chosenPolygon = itemA.polygon_points;
+        geometryStatus = 'valid';
+      } else if (lenB >= 3) {
+        chosenPolygon = matchB.polygon_points;
+        geometryStatus = 'valid';
+      } else {
+        chosenPolygon = [];
+        geometryStatus = (itemA.geometryStatus === 'malformed' || matchB.geometryStatus === 'malformed')
+          ? 'malformed'
+          : 'unavailable';
+      }
+      
       const higherConfItem = confA >= confB ? itemA : matchB;
 
       mergedPathologies.push({
         key: itemA.key,
         confidence: mergedConfidence,
-        polygon_points: betterPolygonItem.polygon_points,
+        modelAScore: confA,
+        modelBScore: confB,
+        polygon_points: chosenPolygon,
+        geometryStatus,
         clinicalNote: higherConfItem.clinicalNote || itemA.clinicalNote,
         treatmentRecommendation: higherConfItem.treatmentRecommendation || itemA.treatmentRecommendation,
         provenance: 'matched_consensus'
       });
-    } else if (Number(itemA.confidence || 0) >= 65) {
+      } else if ((typeof itemA.confidence === 'number' && Number.isFinite(itemA.confidence) ? itemA.confidence : 0) >= 65) {
       // Single-model detection preserved if confidence >= 65%
+      const hasGeom = Array.isArray(itemA.polygon_points) && itemA.polygon_points.length >= 3;
       mergedPathologies.push({
         ...itemA,
+        confidence: itemA.confidence,
+        polygon_points: hasGeom ? itemA.polygon_points : [],
+        geometryStatus: itemA.geometryStatus || (hasGeom ? 'valid' : (itemA.polygon_points?.length ? 'malformed' : 'unavailable')),
+        modelAScore: itemA.confidence,
+        modelBScore: undefined,
         provenance: 'model_a_only'
       });
     }
@@ -283,9 +382,15 @@ export function synthesizePathologyConsensus(
   for (let i = 0; i < pathsB.length; i++) {
     if (!handledBIndices.has(i)) {
       const itemB = pathsB[i];
-      if (Number(itemB.confidence || 0) >= 65) {
+      if ((typeof itemB.confidence === 'number' && Number.isFinite(itemB.confidence) ? itemB.confidence : 0) >= 65) {
+        const hasGeom = Array.isArray(itemB.polygon_points) && itemB.polygon_points.length >= 3;
         mergedPathologies.push({
           ...itemB,
+          confidence: itemB.confidence,
+          polygon_points: hasGeom ? itemB.polygon_points : [],
+          geometryStatus: itemB.geometryStatus || (hasGeom ? 'valid' : (itemB.polygon_points?.length ? 'malformed' : 'unavailable')),
+          modelAScore: undefined,
+          modelBScore: itemB.confidence,
           provenance: 'model_b_only'
         });
       }
@@ -310,7 +415,8 @@ export async function segmentPathologyWithGemini(
   onStatusUpdate?: (status: string) => void,
   analysisMode?: string,
   selectedModelB?: string,
-  externalBudget?: ExecutionBudget
+  externalBudget?: ExecutionBudget,
+  options?: SegmentPathologyOptions
 ): Promise<SegmentPathologyServiceResponse> {
   const isEn = outputLanguage === 'EN' || outputLanguage === 'en' || outputLanguage === 'English' || String(outputLanguage).toUpperCase() === 'EN';
   const systemInstruction = buildPathologyInstruction(toothFdi, outputLanguage);
@@ -324,7 +430,11 @@ export async function segmentPathologyWithGemini(
   };
 
   try {
-    const budget = externalBudget || new ExecutionBudget(analysisMode === 'consensus' ? 4 : 3);
+    const budget = externalBudget || new ExecutionBudget(
+      4,
+      undefined,
+      analysisMode === 'consensus' ? 2 : 4
+    );
 
     if (analysisMode === 'consensus') {
       // -------------------------------------------------------------
@@ -338,7 +448,8 @@ export async function segmentPathologyWithGemini(
         : `👥 Đang khởi chạy Luồng Phân tích Song song (${modelA} + ${modelB})...`);
 
       const [resA, resB] = await Promise.allSettled([
-        executeWithFailover(async (aiClient: GoogleGenAI, modelName: string) => {
+        executeWithFailover(
+          async (aiClient: GoogleGenAI, modelName: string) => {
             onStatusUpdate?.(isEn 
               ? `🔬 Querying Model 1 (${modelName})...` 
               : `🔬 Đang phân tích Mô hình 1 (${modelName})...`);
@@ -346,16 +457,33 @@ export async function segmentPathologyWithGemini(
               model: modelName,
               contents: { parts: [imagePart, { text: promptText }] },
               config: {
+                ...providerExecutionConfig(budget),
                 systemInstruction,
                 temperature: 0.0,
                 responseMimeType: 'application/json',
                 responseSchema: PATHOLOGY_SEGMENT_SCHEMA,
               },
             });
+            budget.checkSignal();
             if (!response.text) throw new Error('Empty response from Model 1');
             return validatePathologyOutput(JSON.parse(response.text));
-          }, modelA, customApiKey, onStatusUpdate, budget),
-        executeWithFailover(async (aiClient: GoogleGenAI, modelName: string) => {
+          },
+          modelA,
+          customApiKey,
+          onStatusUpdate,
+          budget,
+          'branchA',
+          options?.roleA?.credentialPreference,
+          {
+            role: 'pathology_branch_a',
+            modelLadder: options?.roleA?.modelLadder,
+            configRevision: options?.roleA?.compatibilityConfigIdentity,
+            credentialAffinity: options?.roleA?.credentialPreference,
+            assessmentId: options?.assessmentId,
+          }
+        ),
+        executeWithFailover(
+          async (aiClient: GoogleGenAI, modelName: string) => {
             onStatusUpdate?.(isEn 
               ? `🔬 Querying Model 2 (${modelName})...` 
               : `🔬 Đang phân tích Mô hình 2 (${modelName})...`);
@@ -363,17 +491,34 @@ export async function segmentPathologyWithGemini(
               model: modelName,
               contents: { parts: [imagePart, { text: promptText }] },
               config: {
+                ...providerExecutionConfig(budget),
                 systemInstruction,
                 temperature: 0.0,
                 responseMimeType: 'application/json',
                 responseSchema: PATHOLOGY_SEGMENT_SCHEMA,
               },
             });
+            budget.checkSignal();
             if (!response.text) throw new Error('Empty response from Model 2');
             return validatePathologyOutput(JSON.parse(response.text));
-          }, modelB, customApiKey, onStatusUpdate, budget)
+          },
+          modelB,
+          customApiKey,
+          onStatusUpdate,
+          budget,
+          'branchB',
+          options?.roleB?.credentialPreference,
+          {
+            role: 'pathology_branch_b',
+            modelLadder: options?.roleB?.modelLadder,
+            configRevision: options?.roleB?.compatibilityConfigIdentity,
+            credentialAffinity: options?.roleB?.credentialPreference,
+            assessmentId: options?.assessmentId,
+          }
+        ),
       ]);
 
+      budget.checkSignal();
       const fulfilledA = resA.status === 'fulfilled' ? resA.value : null;
       const fulfilledB = resB.status === 'fulfilled' ? resB.value : null;
 
@@ -383,6 +528,8 @@ export async function segmentPathologyWithGemini(
       if (!resultA && !resultB) {
         const reasonA: any = resA.status === 'rejected' ? resA.reason : null;
         const reasonB: any = resB.status === 'rejected' ? resB.reason : null;
+        if (isTerminalExecutionError(reasonA)) throw reasonA;
+        if (isTerminalExecutionError(reasonB)) throw reasonB;
         const isCustom = Boolean(reasonA?.isCustomKeyFailed || reasonB?.isCustomKeyFailed);
         const isQuota = Boolean(reasonA?.isQuotaExhausted || reasonB?.isQuotaExhausted);
         const isTransient = Boolean(reasonA?.isTransient || reasonB?.isTransient);
@@ -401,6 +548,10 @@ export async function segmentPathologyWithGemini(
       let finalResult: PathologySegmentResult;
       let usedModelString = '';
 
+      const diversityStatus = (resultA && resultB && fulfilledA && fulfilledB && fulfilledA.usedModel === fulfilledB.usedModel)
+        ? 'DEGRADED_DIVERSITY'
+        : 'DIVERSE';
+
       if (resultA && resultB && fulfilledA && fulfilledB) {
         onStatusUpdate?.(isEn ? '✅ Synthesizing Spatial Union Consensus...' : '✅ Đang dung hợp đa giác không gian giữa 2 mô hình...');
         finalResult = synthesizePathologyConsensus(resultA, resultB, isEn);
@@ -418,7 +569,30 @@ export async function segmentPathologyWithGemini(
         finalResult!.pathologies.forEach(p => { p.provenance = p.provenance || 'single_mode'; });
       }
 
-      const mappedFinalResult = mapOptimizedPathologyToLegacy(finalResult!, outputLanguage);
+      const inferenceLineage = createInferenceLineage({
+        modality: 'pathology',
+        executionMode: 'dual',
+        branches: [
+          ...(resultA && fulfilledA ? [{
+            branch: 'model_a' as const,
+            requestedModel: modelA,
+            actualModel: fulfilledA.usedModel,
+            usedKeyType: fulfilledA.usedKeyType,
+          }] : []),
+          ...(resultB && fulfilledB ? [{
+            branch: 'model_b' as const,
+            requestedModel: modelB,
+            actualModel: fulfilledB.usedModel,
+            usedKeyType: fulfilledB.usedKeyType,
+          }] : []),
+        ],
+        consensusStatus: resultA && resultB ? 'consensus_synthesized' : 'partial_fallback',
+      });
+      const mappedFinalResult = {
+        ...assignServerLesionIds(mapOptimizedPathologyToLegacy(finalResult!, outputLanguage)),
+        diversityStatus,
+        inferenceLineage,
+      };
 
       return {
         success: true,
@@ -429,7 +603,8 @@ export async function segmentPathologyWithGemini(
       // -------------------------------------------------------------
       // SINGLE MODEL PIPELINE (Single-Pass CoT Grounding)
       // -------------------------------------------------------------
-      const failoverRes = await executeWithFailover(async (aiClient: GoogleGenAI, modelName: string) => {
+      const failoverRes = await executeWithFailover(
+        async (aiClient: GoogleGenAI, modelName: string) => {
           onStatusUpdate?.(isEn 
             ? `🔬 Segmenting structures with ${modelName}...` 
             : `🔬 Đang phân đoạn cấu trúc bằng ${modelName}...`);
@@ -437,6 +612,7 @@ export async function segmentPathologyWithGemini(
             model: modelName,
             contents: { parts: [imagePart, { text: promptText }] },
             config: {
+              ...providerExecutionConfig(budget),
               systemInstruction,
               temperature: 0.0,
               responseMimeType: 'application/json',
@@ -444,6 +620,7 @@ export async function segmentPathologyWithGemini(
             },
           });
 
+          budget.checkSignal();
           if (!response.text) {
             throw new Error('Empty response text from Gemini');
           }
@@ -452,9 +629,37 @@ export async function segmentPathologyWithGemini(
             parsed.pathologies.forEach((p: any) => p.provenance = 'single_mode');
           }
           return parsed;
-        }, preferredModel, customApiKey, onStatusUpdate, budget);
+        },
+        preferredModel,
+        customApiKey,
+        onStatusUpdate,
+        budget,
+        'branchSingle',
+        options?.roleA?.credentialPreference,
+        {
+          role: 'pathology_branch_a',
+          modelLadder: options?.roleA?.modelLadder,
+          configRevision: options?.roleA?.compatibilityConfigIdentity,
+          credentialAffinity: options?.roleA?.credentialPreference,
+          assessmentId: options?.assessmentId,
+        }
+      );
 
-      const mappedFinalResult = mapOptimizedPathologyToLegacy(failoverRes.result, outputLanguage);
+      const inferenceLineage = createInferenceLineage({
+        modality: 'pathology',
+        executionMode: 'single',
+        branches: [{
+          branch: 'single',
+          requestedModel: preferredModel || 'gemini-flash-latest',
+          actualModel: failoverRes.usedModel,
+          usedKeyType: failoverRes.usedKeyType,
+        }],
+        consensusStatus: 'not_applicable',
+      });
+      const mappedFinalResult = {
+        ...assignServerLesionIds(mapOptimizedPathologyToLegacy(failoverRes.result, outputLanguage)),
+        inferenceLineage,
+      };
 
       return {
         success: true,
@@ -464,6 +669,7 @@ export async function segmentPathologyWithGemini(
     }
   } catch (unknownError: unknown) {
     const err = unknownError as any;
+    if (isTerminalExecutionError(err)) throw err;
     const isUsingCustom = Boolean(customApiKey && String(customApiKey).trim());
     const isInvalidKey = isInvalidApiKeyError(err) || isInvalidApiKeyError(err?.originalError) || err?.isInvalidKey === true;
     const isQuota = isRateLimitOrQuotaError(err) || isRateLimitOrQuotaError(err?.originalError) || err?.isQuotaExhausted === true || err?.message?.includes('QUOTA_EXHAUSTED');

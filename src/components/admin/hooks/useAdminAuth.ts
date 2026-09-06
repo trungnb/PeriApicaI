@@ -3,19 +3,19 @@ import { getAdminToken, setAdminToken, clearAdminToken } from '../../../utils/ad
 import { clearAdminSessionCache } from '../../../utils/adminSessionCache';
 
 export const useAdminAuth = () => {
-  const [isAuthenticated, setIsAuthenticated] = useState<boolean>(() => {
-    return !!getAdminToken();
-  });
-  const [isVerifyingToken, setIsVerifyingToken] = useState<boolean>(false);
+  // A stored token is only a candidate session until the portal has restored
+  // it. This prevents Admin readers from running during the restoration render.
+  const [isAuthenticated, setIsAuthenticated] = useState<boolean>(false);
+  const [isVerifyingToken, setIsVerifyingToken] = useState<boolean>(() => Boolean(getAdminToken()));
   const [loginError, setLoginError] = useState<string | null>(null);
 
-  const login = async (password: string, rememberMe: boolean): Promise<{ success: boolean; token?: string; error?: string }> => {
+  const login = async (password: string, reviewerId: string, rememberMe: boolean): Promise<{ success: boolean; token?: string; error?: string }> => {
     try {
       setLoginError(null);
       const res = await fetch('/api/admin/auth', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ password }),
+        body: JSON.stringify({ password, reviewerId }),
       });
       const data = await res.json();
       
@@ -33,6 +33,41 @@ export const useAdminAuth = () => {
       const errorMsg = 'Lỗi kết nối. Vui lòng thử lại.';
       setLoginError(errorMsg);
       return { success: false, error: errorMsg };
+    }
+  };
+
+  const verifySession = async (): Promise<boolean> => {
+    const token = getAdminToken();
+    if (!token) {
+      setIsAuthenticated(false);
+      setIsVerifyingToken(false);
+      return false;
+    }
+
+    setIsVerifyingToken(true);
+    try {
+      const res = await fetch('/api/admin/session', {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (res.status === 200) {
+        const data = await res.json().catch(() => ({}));
+        if (data.success) {
+          setIsAuthenticated(true);
+          setIsVerifyingToken(false);
+          return true;
+        }
+      }
+      clearAdminToken();
+      clearAdminSessionCache();
+      setIsAuthenticated(false);
+      setIsVerifyingToken(false);
+      return false;
+    } catch {
+      clearAdminToken();
+      clearAdminSessionCache();
+      setIsAuthenticated(false);
+      setIsVerifyingToken(false);
+      return false;
     }
   };
 
@@ -63,6 +98,7 @@ export const useAdminAuth = () => {
     loginError,
     setLoginError,
     login,
-    logout
+    logout,
+    verifySession,
   };
 };

@@ -1,10 +1,11 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { Upload, Loader2, AlertTriangle, ShieldCheck, Check, Camera, RefreshCw } from 'lucide-react';
 import { useAppStore } from '../store/appStore';
 import { MedicalDarkViewer } from './MedicalDarkViewer';
 import { useTranslation } from 'react-i18next';
 import { getToothDisplayName, getArchDisplayName, getTechniqueDisplayName, getReceptorDisplayName } from '../data/taxonomyData';
 import { useAssessmentSession } from '../hooks/useAssessmentSession';
+import { triggerProactiveValidityCheck } from '../hooks/useRadiographAnalysis';
 import { ByokConfigSection } from './ByokConfigSection';
 import { ModelSelectionSection } from './ModelSelectionSection';
 import { CustomKeyErrorModal } from './CustomKeyErrorModal';
@@ -26,6 +27,8 @@ export const UploadScreen: React.FC = React.memo(() => {
   const shareConsent = useAppStore(state => state.shareConsent);
   const setShareConsent = useAppStore(state => state.setShareConsent);
   const lastCompressionMetrics = useAppStore(state => state.lastCompressionMetrics);
+  const compressedImageBase64 = useAppStore(state => state.compressedImageBase64);
+  const validityGateState = useAppStore(state => state.validityGateState);
   
   const { handleImageSelectedAndAutoLog: onImageSelected } = useAssessmentSession();
 
@@ -39,6 +42,15 @@ export const UploadScreen: React.FC = React.memo(() => {
 
   const hasAnalysisResult = useAppStore(state => !!state.analysisResult);
   const [pendingFile, setPendingFile] = useState<File | null>(null);
+
+  // Auto-trigger proactive validity when image is ready and validity is idle
+  useEffect(() => {
+    if (imageDataUrl && compressedImageBase64 && validityGateState === 'idle' && !isAnalyzing) {
+      triggerProactiveValidityCheck(compressedImageBase64).catch((err) => {
+        console.debug('[UploadScreen] Auto proactive validity trigger notice:', err);
+      });
+    }
+  }, [imageDataUrl, compressedImageBase64, validityGateState, isAnalyzing, selectedTooth.fdiNumber]);
 
   const handleInterceptFile = (file: File) => {
     if (hasAnalysisResult) {
@@ -280,6 +292,54 @@ export const UploadScreen: React.FC = React.memo(() => {
                   )}
                 </div>
 
+                {/* Image Validity Indicator */}
+                {validityGateState !== 'idle' && (
+                  <div className={`border rounded-xl px-3 py-2 text-xs flex items-center justify-between shadow-2xs mt-2 ${
+                    validityGateState === 'checking'
+                      ? 'bg-blue-50/70 dark:bg-blue-950/30 border-blue-200/80 dark:border-blue-800/50 text-blue-800 dark:text-blue-200'
+                      : validityGateState === 'valid' || validityGateState === 'user_confirmed'
+                      ? 'bg-emerald-50/70 dark:bg-emerald-950/30 border-emerald-200/80 dark:border-emerald-800/50 text-emerald-800 dark:text-emerald-200'
+                      : validityGateState === 'warning'
+                      ? 'bg-amber-50/70 dark:bg-amber-950/30 border-amber-200/80 dark:border-amber-800/50 text-amber-800 dark:text-amber-200'
+                      : validityGateState === 'invalid'
+                      ? 'bg-rose-50/70 dark:bg-rose-950/30 border-rose-200/80 dark:border-rose-800/50 text-rose-800 dark:text-rose-200'
+                      : 'bg-slate-50 dark:bg-slate-900/40 border-slate-200 dark:border-slate-700/50 text-slate-700 dark:text-slate-300'
+                  }`}>
+                    <div className="flex items-center space-x-2 font-medium">
+                      {validityGateState === 'checking' && (
+                        <>
+                          <Loader2 className="w-3.5 h-3.5 animate-spin text-blue-500 shrink-0" />
+                          <span>{i18n.language === 'en' ? 'Checking image suitability...' : 'Đang kiểm tra tính phù hợp của ảnh...'}</span>
+                        </>
+                      )}
+                      {(validityGateState === 'valid' || validityGateState === 'user_confirmed') && (
+                        <>
+                          <Check className="w-3.5 h-3.5 text-emerald-500 shrink-0 stroke-[2.5]" />
+                          <span>{i18n.language === 'en' ? 'Image suitable for analysis' : 'Ảnh phù hợp để phân tích'}</span>
+                        </>
+                      )}
+                      {validityGateState === 'warning' && (
+                        <>
+                          <AlertTriangle className="w-3.5 h-3.5 text-amber-500 shrink-0" />
+                          <span>{i18n.language === 'en' ? 'Tooth alignment confirmation needed' : 'Cần xác nhận vị trí răng mục tiêu'}</span>
+                        </>
+                      )}
+                      {validityGateState === 'invalid' && (
+                        <>
+                          <AlertTriangle className="w-3.5 h-3.5 text-rose-500 shrink-0" />
+                          <span>{i18n.language === 'en' ? 'Image not suitable for analysis' : 'Ảnh chưa phù hợp để phân tích'}</span>
+                        </>
+                      )}
+                      {validityGateState === 'unavailable' && (
+                        <>
+                          <AlertTriangle className="w-3.5 h-3.5 text-amber-500 shrink-0" />
+                          <span>{i18n.language === 'en' ? 'Validity check service unavailable' : 'Kiểm tra tính phù hợp tạm thời gián đoạn'}</span>
+                        </>
+                      )}
+                    </div>
+                  </div>
+                )}
+
                 {/* Image Compression Optimization Banner */}
                 {lastCompressionMetrics && (
                   <div className="bg-slate-50 dark:bg-slate-900/40 border border-slate-200/60 dark:border-slate-700/50 rounded-xl p-3 text-xs flex flex-col space-y-2 shadow-2xs mt-2">
@@ -323,15 +383,19 @@ export const UploadScreen: React.FC = React.memo(() => {
               </h4>
             </div>
 
-            <p className="text-xs text-slate-600 dark:text-slate-300 leading-relaxed">
+            <p className="text-xs text-slate-600 dark:text-slate-300 leading-relaxed whitespace-pre-wrap">
               {t('privacyDesc')}
             </p>
 
-            <div className="grid grid-cols-2 gap-3 pt-1">
+            <div className="pt-1 space-y-2">
+              <p className="font-bold text-slate-900 dark:text-slate-100 text-xs">
+                {t('consentHeader')}
+              </p>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               {/* Option 1: Agrees to share */}
               <div
                 onClick={() => setShareConsent(true)}
-                className={`p-3 rounded-xl border text-xs cursor-pointer transition-all flex items-start space-x-2.5 ${
+                className={`p-3 rounded-xl border text-xs cursor-pointer transition-all flex items-center space-x-2.5 ${
                   shareConsent
                     ? isPathology
                       ? 'bg-teal-50/90 dark:bg-teal-950/50 border-teal-600 dark:border-teal-400 text-teal-950 dark:text-teal-100 ring-1 ring-teal-600 dark:ring-teal-400 font-medium shadow-xs'
@@ -339,7 +403,7 @@ export const UploadScreen: React.FC = React.memo(() => {
                     : 'bg-slate-50/70 dark:bg-slate-900/60 border-slate-200 dark:border-slate-700/80 text-slate-700 dark:text-slate-300 hover:bg-slate-100/80 dark:hover:bg-slate-800/80'
                 }`}
               >
-                <div className="mt-0.5 shrink-0">
+                <div className="shrink-0">
                   <div
                     className={`w-4 h-4 rounded-full border flex items-center justify-center transition-colors ${
                       shareConsent
@@ -350,12 +414,9 @@ export const UploadScreen: React.FC = React.memo(() => {
                     {shareConsent && <Check className="w-3 h-3 stroke-[3]" />}
                   </div>
                 </div>
-                <div className="space-y-0.5">
+                <div>
                   <p className="font-bold text-slate-900 dark:text-slate-100 leading-tight">
                     {t('consentYesTitle')}
-                  </p>
-                  <p className="text-[10px] text-slate-600 dark:text-slate-400 leading-tight">
-                    {t('consentYesDesc')}
                   </p>
                 </div>
               </div>
@@ -363,13 +424,13 @@ export const UploadScreen: React.FC = React.memo(() => {
               {/* Option 2: Disagrees */}
               <div
                 onClick={() => setShareConsent(false)}
-                className={`p-3 rounded-xl border text-xs cursor-pointer transition-all flex items-start space-x-2.5 ${
+                className={`p-3 rounded-xl border text-xs cursor-pointer transition-all flex items-center space-x-2.5 ${
                   !shareConsent
                     ? 'bg-amber-50/90 dark:bg-amber-950/50 border-amber-600 dark:border-amber-400 text-amber-950 dark:text-amber-100 ring-1 ring-amber-600 dark:ring-amber-400 font-medium shadow-xs'
                     : 'bg-slate-50/70 dark:bg-slate-900/60 border-slate-200 dark:border-slate-700/80 text-slate-700 dark:text-slate-300 hover:bg-slate-100/80 dark:hover:bg-slate-800/80'
                 }`}
               >
-                <div className="mt-0.5 shrink-0">
+                <div className="shrink-0">
                   <div
                     className={`w-4 h-4 rounded-full border flex items-center justify-center transition-colors ${
                       !shareConsent ? 'border-amber-600 bg-amber-600 text-white' : 'border-slate-400 dark:border-slate-600 bg-white dark:bg-slate-800'
@@ -378,24 +439,22 @@ export const UploadScreen: React.FC = React.memo(() => {
                     {!shareConsent && <Check className="w-3 h-3 stroke-[3]" />}
                   </div>
                 </div>
-                <div className="space-y-0.5">
+                <div>
                   <p className="font-bold text-slate-900 dark:text-slate-100 leading-tight">
                     {t('consentNoTitle')}
-                  </p>
-                  <p className="text-[10px] text-slate-600 dark:text-slate-400 leading-tight">
-                    {t('consentNoDesc')}
                   </p>
                 </div>
               </div>
             </div>
+            </div>
 
-            {/* Notice regarding future implementation */}
+            {/* Notice regarding storage lifecycle */}
             <div className="bg-amber-50/90 dark:bg-amber-950/40 border-l-4 border-amber-500 border-t border-r border-b border-amber-200 dark:border-amber-700/60 rounded-xl p-3.5 text-xs text-amber-950 dark:text-amber-100 leading-relaxed space-y-1 shadow-xs mt-3">
               <div className="flex items-center space-x-2 font-semibold text-amber-900 dark:text-amber-300">
                 <span className="text-amber-600 dark:text-amber-400">ℹ️</span>
                 <span>{t('storageNoticeTitle')}</span>
               </div>
-              <p className="text-amber-900/90 dark:text-amber-200/90 pl-5 leading-relaxed">
+              <p className="text-amber-900/90 dark:text-amber-200/90 pl-5 leading-relaxed whitespace-pre-wrap">
                 {t('storageNoticeDesc')}
               </p>
             </div>

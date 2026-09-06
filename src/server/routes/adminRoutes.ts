@@ -6,15 +6,35 @@ import { adminAuth } from './authRoutes';
 import { adminDeleteLimiter, adminSyncLimiter } from '../config/limiter';
 import { serverLog } from '../config/env';
 import { getStorageAdapter, getOrInitServerCache, FirebaseStorageAdapter, computeSystemMetrics } from '../services/storageAdapter';
-import { getSystemMetadata, recalculateAndPersistSystemMetadata, aggregateMetadataForDateRange, filterRecordsByDateRange } from '../services/systemMetadataService';
+import { rebuildSystemStats, aggregateStatsForDateRange, STATS_COLLECTION, USER_STATS_COLLECTION } from '../services/systemStatsService';
+import {
+  filterRecordsByDateRange,
+  determineAccuracyCategory,
+  isLogErrorHelper,
+  isLogIncompleteHelper,
+} from '../utils/metadataHelpers';
+import { getTaxonomyLabel, getTechniqueDisplayName } from '../../data/taxonomyData';
+import { getPathologyLabel, getTreatmentText } from '../../data/pathologyTaxonomyData';
+import { isLogAdminVerified } from '../../utils/reportUtils';
+
 import { runAutoSyncJob, getIsAutoSyncRunning } from '../jobs/syncJob';
 import { getFirestoreInstance } from '../services/firebaseService';
 import { restorePathologyDocFromFirestore } from '../services/firestorePathologyService';
+import { FieldPath } from 'firebase-admin/firestore';
+import {
+  getSanitizedRegistrySummary,
+  refreshModelRegistry,
+} from '../services/modelRegistryService';
+import { resolveControlPlaneState } from '../services/modelResolverService';
+import { getAllHealthRecords } from '../services/modelHealthService';
+import { getGlobalPolicyTimestamp } from '../services/modelPolicyService';
+import { getAllCompatibilityRecords } from '../services/modelCompatibilityGate';
+import { getAllModelOperationalAvailabilityRecords } from '../services/modelAvailabilityService';
 
 const router = Router();
 
 // Sync status inspection endpoint
-router.get('/api/admin/sync-status', adminAuth, (req: Request, res: Response) => {
+router.get('/api/admin/sync-status', adminAuth, (_req: Request, res: Response) => {
   const cache = getOrInitServerCache();
   const totalReports = cache.reports.length;
   const unsyncedReports = cache.reports.filter(r => r.firestoreSynced !== true).length;
@@ -34,8 +54,62 @@ router.get('/api/admin/sync-status', adminAuth, (req: Request, res: Response) =>
   });
 });
 
+// Model discovery registry inspection endpoint
+router.get('/api/admin/models/registry', adminAuth, (_req: Request, res: Response) => {
+  const summary = getSanitizedRegistrySummary();
+  const controlPlane = resolveControlPlaneState();
+  res.json({ success: true, ...summary, controlPlane });
+});
+
+// Full adaptive control-plane inspection endpoint
+router.get('/api/admin/models/control-plane', adminAuth, (_req: Request, res: Response) => {
+  const controlPlane = resolveControlPlaneState();
+  const registrySummary = getSanitizedRegistrySummary();
+  const healthRecords = getAllHealthRecords();
+  const policyTimestamp = getGlobalPolicyTimestamp();
+
+  res.json({
+    success: true,
+    policyMode: controlPlane.policyMode,
+    cohortId: controlPlane.cohortId,
+    matrixRevision: controlPlane.matrixRevision,
+    ladderRevision: controlPlane.ladderRevision,
+    analysisConfigVersion: controlPlane.analysisConfigVersion,
+    activeMatrix: controlPlane.activeMatrix,
+    roleAssignments: controlPlane.roleAssignments,
+    roleLadders: controlPlane.roleLadders,
+    selectionRationales: controlPlane.selectionRationales,
+    controlPlane,
+    discoveryTimestamps: {
+      lastCheckedAt: registrySummary.lastCheckedAt,
+      primaryLastSuccess: registrySummary.sources.system_primary.lastSuccessfulCheckAt,
+      backupLastSuccess: registrySummary.sources.system_backup.lastSuccessfulCheckAt,
+    },
+    policyTimestamps: {
+      lastPolicyCheckAt: policyTimestamp,
+    },
+    candidates: controlPlane.candidates,
+    runtimeHealthSummary: healthRecords,
+    compatibility: getAllCompatibilityRecords(),
+    availability: getAllModelOperationalAvailabilityRecords(),
+  });
+});
+
+// Manual model discovery refresh endpoint
+router.post('/api/admin/models/refresh', adminAuth, async (_req: Request, res: Response) => {
+  try {
+    await refreshModelRegistry({ force: true, triggeredBy: 'admin_manual' });
+    const summary = getSanitizedRegistrySummary();
+    const controlPlane = resolveControlPlaneState();
+    res.json({ success: true, ...summary, controlPlane });
+  } catch (unknownError: unknown) {
+    const err = unknownError instanceof Error ? unknownError : new Error(String(unknownError));
+    res.status(500).json({ success: false, error: err.message || 'Lỗi làm mới danh mục model' });
+  }
+});
+
 // Manual trigger sync endpoint
-router.post('/api/admin/trigger-sync', adminAuth, async (req: Request, res: Response) => {
+router.post('/api/admin/trigger-sync', adminAuth, async (_req: Request, res: Response) => {
   try {
     const initialCache = getOrInitServerCache();
     const beforeUnsyncedReports = initialCache.reports.filter(r => r.firestoreSynced !== true).length;
@@ -60,103 +134,6 @@ router.post('/api/admin/trigger-sync', adminAuth, async (req: Request, res: Resp
   }
 });
 
-// Sync full cache from Firestore helper
-let isSyncingCache = false;
-
-async function syncFullCacheFromFirestore(db: any) {
-  if (isSyncingCache) return; // Prevent concurrent sync calls
-  isSyncingCache = true;
-  try {
-    const cache = getOrInitServerCache();
-    
-    // Fetch all collections and system metadata concurrently in parallel to speed up sync
-    const [reportsSnapshot, bugsSnapshot, segSnapshot, metricsData] = await Promise.all([
-      db.collection('reports').orderBy('timestamp', 'desc').limit(100).get(),
-      db.collection('bugs').orderBy('timestamp', 'desc').limit(100).get(),
-      db.collection('seg_reports').orderBy('timestamp', 'desc').limit(100).get(),
-      getSystemMetadata(db),
-    ]);
-    
-    // 1. Sync Reports (Luồng A)
-    if (!reportsSnapshot.empty) {
-      const mergedMap = new Map();
-      // Load Firestore source of truth
-      reportsSnapshot.forEach((doc: any) => {
-        const data = doc.data();
-        const id = data.assessmentId || data.id || doc.id;
-        if (id) {
-          mergedMap.set(id, { ...data, assessmentId: id, firestoreSynced: true });
-        }
-      });
-      // Overlay local unsynced (newer) data to avoid overwriting recent updates
-      cache.reports.filter(r => r.firestoreSynced !== true).forEach(r => {
-        const id = r.assessmentId || r.id;
-        if (id) mergedMap.set(id, r);
-      });
-      cache.reports = Array.from(mergedMap.values()).sort((a, b) => {
-        const tA = new Date(a.updatedAt || a.timestamp || 0).getTime();
-        const tB = new Date(b.updatedAt || b.timestamp || 0).getTime();
-        return tB - tA;
-      });
-    }
-
-    // 2. Sync Bugs
-    if (!bugsSnapshot.empty) {
-      const mergedMap = new Map();
-      bugsSnapshot.forEach((doc: any) => {
-        const data = doc.data();
-        const id = data.bugId || data.id || doc.id;
-        if (id) {
-          mergedMap.set(id, { ...data, bugId: id, firestoreSynced: true });
-        }
-      });
-      cache.bugs.filter(b => b.firestoreSynced !== true).forEach(b => {
-        const id = b.bugId || b.id;
-        if (id) mergedMap.set(id, b);
-      });
-      cache.bugs = Array.from(mergedMap.values()).sort((a, b) => {
-        const tA = new Date(a.timestamp || 0).getTime();
-        const tB = new Date(b.timestamp || 0).getTime();
-        return tB - tA;
-      });
-    }
-
-    // 3. Sync Seg_Reports (Luồng B - Pathology)
-    if (!segSnapshot.empty) {
-      const mergedMap = new Map();
-      segSnapshot.forEach((doc: any) => {
-        const data = doc.data();
-        const id = data.assessmentId || data.id || doc.id;
-        if (id) {
-          const restored = restorePathologyDocFromFirestore({ ...data, assessmentId: id, _id: doc.id });
-          mergedMap.set(id, { ...restored, assessmentId: id, firestoreSynced: true });
-        }
-      });
-      (cache.seg_reports || []).filter(r => r.firestoreSynced !== true).forEach(r => {
-        const id = r.assessmentId || r.id;
-        if (id) mergedMap.set(id, r);
-      });
-      cache.seg_reports = Array.from(mergedMap.values()).sort((a, b) => {
-        const tA = new Date(a.updatedAt || a.timestamp || 0).getTime();
-        const tB = new Date(b.updatedAt || b.timestamp || 0).getTime();
-        return tB - tA;
-      });
-    }
-
-    // 4. Sync System Metadata Document (dashboard)
-    if (metricsData) {
-      cache.systemMetrics = metricsData;
-    }
-
-    cache.lastUpdated = new Date().toISOString();
-  } catch (unknownError: unknown) {
-    const err = unknownError instanceof Error ? unknownError : new Error(String(unknownError));
-    serverLog('WARN', 'SyncCache', 'Không thể sync từ Firestore', err?.message || err);
-  } finally {
-    isSyncingCache = false;
-  }
-}
-
 // Firestore / RAM data inspection endpoint
 router.get('/api/firestore-data', adminAuth, async (req: Request, res: Response) => {
   const force = req.query.force === 'true';
@@ -166,37 +143,293 @@ router.get('/api/firestore-data', adminAuth, async (req: Request, res: Response)
   return handleFirestoreData(req, res, false);
 });
 
+type AdminCaseScope = 'reports' | 'pathology' | 'bugs';
+
+const ADMIN_CASE_COLLECTIONS: Record<AdminCaseScope, 'reports' | 'seg_reports' | 'bugs'> = {
+  reports: 'reports',
+  pathology: 'seg_reports',
+  bugs: 'bugs',
+};
+
+function getAdminScopeId(scope: AdminCaseScope, record: any): string {
+  return String(scope === 'bugs'
+    ? record.bugId || record.id || record._id || ''
+    : record.assessmentId || record.id || record._id || '');
+}
+
+function getAdminScopeTimestamp(record: any): string {
+  const value = record?.timestamp || record?.updatedAt || record?.createdAt || '';
+  return typeof value === 'string' ? value : String(value || '');
+}
+
+function encodeAdminCursor(scope: AdminCaseScope, record: any): string {
+  return Buffer.from(JSON.stringify({ scope, timestamp: getAdminScopeTimestamp(record), id: getAdminScopeId(scope, record) })).toString('base64url');
+}
+
+function decodeAdminCursor(scope: AdminCaseScope, raw: unknown): { timestamp: string; id: string } | null {
+  if (typeof raw !== 'string' || !raw) return null;
+  try {
+    const value = JSON.parse(Buffer.from(raw, 'base64url').toString('utf8'));
+    if (value?.scope !== scope || typeof value.timestamp !== 'string' || typeof value.id !== 'string') return null;
+    return { timestamp: value.timestamp, id: value.id };
+  } catch {
+    return null;
+  }
+}
+
+function sortAdminScopeRecords(scope: AdminCaseScope, records: any[]): any[] {
+  return [...records].sort((left, right) => {
+    const timestampDelta = getAdminScopeTimestamp(right).localeCompare(getAdminScopeTimestamp(left));
+    return timestampDelta || getAdminScopeId(scope, right).localeCompare(getAdminScopeId(scope, left));
+  });
+}
+
+function recordsAfterAdminCursor(scope: AdminCaseScope, records: any[], cursor: { timestamp: string; id: string } | null): any[] {
+  if (!cursor) return records;
+  return records.filter((record) => {
+    const timestamp = getAdminScopeTimestamp(record);
+    if (timestamp < cursor.timestamp) return true;
+    return timestamp === cursor.timestamp && getAdminScopeId(scope, record) < cursor.id;
+  });
+}
+
+function getAdminDateBounds(options: { preset?: string; startDate?: string; endDate?: string }): { start?: string; end?: string } {
+  if (options.startDate || options.endDate) {
+    return {
+      start: options.startDate ? new Date(`${options.startDate}T00:00:00.000Z`).toISOString() : undefined,
+      end: options.endDate ? new Date(`${options.endDate}T23:59:59.999Z`).toISOString() : undefined,
+    };
+  }
+  if (!options.preset || options.preset === 'all') return {};
+  const now = new Date();
+  if (options.preset === 'today') {
+    const start = new Date(now);
+    start.setHours(0, 0, 0, 0);
+    return { start: start.toISOString(), end: now.toISOString() };
+  }
+  if (options.preset === '7days' || options.preset === '30days') {
+    const start = new Date(now);
+    start.setDate(start.getDate() - (options.preset === '7days' ? 7 : 30));
+    return { start: start.toISOString(), end: now.toISOString() };
+  }
+  return {};
+}
+
+/**
+ * Canonical bounded Admin case reader. It deliberately never syncs records or
+ * rebuilds metadata: reads must remain reads. Firebase-backed requests query a
+ * single collection by keyset cursor; the durable local cache is used only as
+ * an offline/local-fallback source and to overlay unsynced local writes.
+ */
+router.get('/api/admin/cases/:scope', adminAuth, async (req: Request, res: Response) => {
+  const scope = req.params.scope as AdminCaseScope;
+  if (!(scope in ADMIN_CASE_COLLECTIONS)) {
+    return res.status(400).json({ success: false, error: 'Unknown Admin case scope.' });
+  }
+
+  const requestedLimit = Number.parseInt(String(req.query.limit || '50'), 10);
+  const limit = Number.isFinite(requestedLimit) ? Math.min(Math.max(requestedLimit, 1), 100) : 50;
+  const cursor = decodeAdminCursor(scope, req.query.cursor);
+  if (req.query.cursor && !cursor) {
+    return res.status(400).json({ success: false, error: 'Invalid Admin pagination cursor.' });
+  }
+
+  const filter = {
+    preset: String(req.query.preset || 'all'),
+    startDate: typeof req.query.startDate === 'string' ? req.query.startDate : undefined,
+    endDate: typeof req.query.endDate === 'string' ? req.query.endDate : undefined,
+  };
+  const cache = getOrInitServerCache();
+  const cacheRecords = scope === 'reports'
+    ? cache.reports
+    : scope === 'pathology'
+    ? cache.seg_reports || []
+    : cache.bugs;
+  const storageAdapter = getStorageAdapter();
+  const db = storageAdapter instanceof FirebaseStorageAdapter ? storageAdapter.getDb() : null;
+
+  try {
+    let records: any[];
+    let source: 'firestore' | 'cache' = 'cache';
+    let hasMore = false;
+
+    if (db) {
+      source = 'firestore';
+      let query: any = db.collection(ADMIN_CASE_COLLECTIONS[scope]);
+      const bounds = getAdminDateBounds(filter);
+      if (bounds.start) query = query.where('timestamp', '>=', bounds.start);
+      if (bounds.end) query = query.where('timestamp', '<=', bounds.end);
+      query = query.orderBy('timestamp', 'desc').orderBy(FieldPath.documentId(), 'desc');
+      if (cursor) query = query.startAfter(cursor.timestamp, cursor.id);
+      const snapshot = await query.limit(limit + 1).get();
+      const remote = snapshot.docs.map((doc: any) => {
+        const data = doc.data();
+        const normalized = scope === 'pathology'
+          ? restorePathologyDocFromFirestore({ ...data, assessmentId: data.assessmentId || doc.id, _id: doc.id })
+          : data;
+        const idField = scope === 'bugs' ? 'bugId' : 'assessmentId';
+        return { ...normalized, [idField]: normalized[idField] || doc.id, firestoreSynced: true };
+      });
+      const unsynced = (cacheRecords || []).filter((record: any) => record.firestoreSynced !== true);
+      const merged = new Map<string, any>();
+      remote.forEach((record: any) => merged.set(getAdminScopeId(scope, record), record));
+      unsynced.forEach((record: any) => merged.set(getAdminScopeId(scope, record), record));
+      const filtered = recordsAfterAdminCursor(scope, filterRecordsByDateRange(sortAdminScopeRecords(scope, Array.from(merged.values())), filter), cursor);
+      records = filtered.slice(0, limit);
+      hasMore = remote.length > limit || filtered.length > limit;
+    } else {
+      const filtered = recordsAfterAdminCursor(
+        scope,
+        filterRecordsByDateRange(sortAdminScopeRecords(scope, cacheRecords || []), filter),
+        cursor,
+      );
+      records = filtered.slice(0, limit);
+      hasMore = filtered.length > limit;
+    }
+
+    const last = records.at(-1);
+    return res.json({
+      success: true,
+      scope,
+      source,
+      records,
+      nextCursor: hasMore && last ? encodeAdminCursor(scope, last) : null,
+      hasMore,
+    });
+  } catch (error: unknown) {
+    const err = error instanceof Error ? error : new Error(String(error));
+    serverLog('WARN', 'AdminCases', `Unable to load ${scope} cases`, err.message);
+    return res.status(500).json({ success: false, error: 'Unable to load Admin cases.' });
+  }
+});
+
+// Admin paginated users directory endpoint (Cursor-based)
+router.get('/api/admin/users', adminAuth, async (req: Request, res: Response) => {
+  try {
+    const limit = Math.min(Math.max(parseInt(req.query.limit as string, 10) || 50, 1), 100);
+    const cursor = typeof req.query.cursor === 'string' && req.query.cursor.trim() ? req.query.cursor.trim() : null;
+
+    const storageAdapter = getStorageAdapter();
+    if (storageAdapter instanceof FirebaseStorageAdapter && storageAdapter.getDb()) {
+      const db = storageAdapter.getDb()!;
+      // Read total count in O(1) from system_stats/all_time (never scanning user_stats on initial load)
+      let totalCount = 0;
+      try {
+        const allTimeSnap = await db.collection(STATS_COLLECTION).doc('all_time').get();
+        if (allTimeSnap.exists) {
+          totalCount = allTimeSnap.data()?.users?.uniqueUsersCount || 0;
+        }
+      } catch (e) {
+        // Ignored
+      }
+
+      let query = db.collection(USER_STATS_COLLECTION)
+        .orderBy('totalSessions', 'desc');
+
+      if (cursor) {
+        const cursorDoc = await db.collection(USER_STATS_COLLECTION).doc(cursor).get();
+        if (cursorDoc.exists) {
+          query = query.startAfter(cursorDoc);
+        }
+      }
+
+      // Fetch limit + 1 to check if more items exist
+      const snap = await query.limit(limit + 1).get();
+      const hasMore = snap.docs.length > limit;
+      const returnedDocs = hasMore ? snap.docs.slice(0, limit) : snap.docs;
+      const nextCursor = hasMore && returnedDocs.length > 0 ? returnedDocs[returnedDocs.length - 1].id : null;
+
+      const users = returnedDocs.map(d => {
+        const data = d.data();
+        return {
+          userId: data.userId || d.id,
+          totalSessions: data.totalSessions || 0,
+          completedSessions: data.completedSessions || 0,
+          lastActive: data.lastActive || '',
+          lastTooth: data.lastTooth || '',
+          updatedAt: data.updatedAt || '',
+        };
+      });
+
+      if (totalCount === 0 && users.length > 0) {
+        totalCount = users.length;
+      }
+
+      return res.json({
+        success: true,
+        users,
+        totalCount,
+        hasMore,
+        nextCursor,
+      });
+    } else {
+      // Local RAM cache fallback with cursor simulation
+      const cache = getOrInitServerCache();
+      const userMap: Record<string, any> = {};
+      const allLogs = [...(cache.reports || []), ...(cache.seg_reports || [])];
+      for (const log of allLogs) {
+        const uid = log.userId || log.deviceId || log.user_id || log.device_id;
+        if (!uid || typeof uid !== 'string' || !uid.trim()) continue;
+        const cleanUid = uid.trim();
+        if (!userMap[cleanUid]) {
+          userMap[cleanUid] = {
+            userId: cleanUid,
+            totalSessions: 0,
+            completedSessions: 0,
+            lastActive: log.timestamp || log.createdAt || '',
+            lastTooth: log.tooth?.fdiNumber || '',
+          };
+        }
+        userMap[cleanUid].totalSessions++;
+        if (log.sessionStatus === 'COMPLETED' || log.lastCompletedStep === 5) {
+          userMap[cleanUid].completedSessions++;
+        }
+      }
+      const sortedUsers = Object.values(userMap).sort((a: any, b: any) => {
+        if (b.totalSessions !== a.totalSessions) return b.totalSessions - a.totalSessions;
+        return a.userId.localeCompare(b.userId);
+      });
+
+      let startIndex = 0;
+      if (cursor) {
+        const cursorIdx = sortedUsers.findIndex(u => u.userId === cursor);
+        if (cursorIdx >= 0) {
+          startIndex = cursorIdx + 1;
+        }
+      }
+
+      const paginated = sortedUsers.slice(startIndex, startIndex + limit);
+      const hasMore = (startIndex + limit) < sortedUsers.length;
+      const nextCursor = hasMore && paginated.length > 0 ? paginated[paginated.length - 1].userId : null;
+
+      return res.json({
+        success: true,
+        users: paginated,
+        totalCount: sortedUsers.length,
+        hasMore,
+        nextCursor,
+      });
+    }
+  } catch (unknownError: unknown) {
+    const err = unknownError instanceof Error ? unknownError : new Error(String(unknownError));
+    res.status(500).json({ success: false, error: err?.message || 'Lỗi nạp danh sách người dùng' });
+  }
+});
+
 // Admin stats aggregation endpoint
-router.get('/api/admin/summary-stats', adminAuth, async (req: Request, res: Response) => {
+router.get('/api/admin/summary-stats', adminAuth, async (_req: Request, res: Response) => {
   try {
     const storageAdapter = getStorageAdapter();
     const cache = getOrInitServerCache();
-
-    if (cache.reports.length === 0 && storageAdapter instanceof FirebaseStorageAdapter && storageAdapter.getDb()) {
-      try {
-        await syncFullCacheFromFirestore(storageAdapter.getDb());
-      } catch (unknownError: unknown) {
-    const syncErr = unknownError instanceof Error ? unknownError : new Error(String(unknownError));
-        console.warn('[Cache Auto-Init Sync Error on stats]:', syncErr?.message || syncErr);
-      }
-    }
 
     let totalSessions = 0;
     let totalConcurred = 0;
     const errorDistribution: Record<string, number> = {};
 
     if (storageAdapter instanceof FirebaseStorageAdapter && storageAdapter.getDb()) {
-      const db = storageAdapter.getDb();
-      const statsDoc = await db.collection('system_metrics').doc('dashboard').get();
-      if (statsDoc.exists) {
-        const data = statsDoc.data();
-        totalSessions = data?.totalSessions || 0;
-        totalConcurred = data?.totalConcurred || 0;
-        Object.assign(errorDistribution, data?.errorDistribution || {});
-      } else {
-        const countSnap = await db.collection('reports').count().get();
-        totalSessions = countSnap.data().count;
-      }
+      const stats = await aggregateStatsForDateRange(storageAdapter.getDb(), { preset: 'all' });
+      totalSessions = stats?.reports?.totalSessions || 0;
+      Object.assign(errorDistribution, stats?.reports?.errorDistribution || {});
     } else {
       const reports = cache.reports || [];
       totalSessions = reports.length;
@@ -230,28 +463,9 @@ async function handleFirestoreData(req: Request, res: Response, force: boolean) 
     const isFirebase = storageAdapter.type === 'firebase';
     const cache = getOrInitServerCache();
 
-    // 1. If cache is dirty (has unsynced reports/bugs), flush to Firestore first
-    if (cache.isCacheDirty && isFirebase) {
-      try {
-        await runAutoSyncJob();
-      } catch (unknownError: unknown) {
-    const err = unknownError instanceof Error ? unknownError : new Error(String(unknownError));
-        serverLog('WARN', 'AutoSyncOnOpen', 'Lỗi đồng bộ ngầm khi mở portal', err?.message || err);
-      }
-    }
-
-    // 2. Ensure Realtime Snapshot Stream is active
-    if (storageAdapter instanceof FirebaseStorageAdapter && storageAdapter.getDb()) {
-      // Only do a manual full query if force refresh requested or cache is completely empty
-      if ((force || cache.reports.length === 0)) {
-        try {
-          await syncFullCacheFromFirestore(storageAdapter.getDb());
-        } catch (unknownError: unknown) {
-    const syncErr = unknownError instanceof Error ? unknownError : new Error(String(unknownError));
-          serverLog('WARN', 'CacheSyncOnForce', 'Lỗi sync từ Firestore khi force refresh', syncErr?.message || syncErr);
-        }
-      }
-    }
+    // Legacy compatibility endpoint: reads only the durable RAM/disk cache.
+    // Sync jobs and Firestore collection reads are intentionally kept out of
+    // Admin read paths. New UI code uses /api/admin/cases/:scope instead.
 
     const preset = (req.query.preset || req.query.datePreset || 'all') as string;
     const startDate = req.query.startDate as string | undefined;
@@ -310,18 +524,13 @@ async function handleFirestoreData(req: Request, res: Response, force: boolean) 
     if (isFirebase && storageAdapter instanceof FirebaseStorageAdapter && storageAdapter.getDb()) {
       const db = storageAdapter.getDb();
       try {
-        if (force) {
-          systemMetrics = await recalculateAndPersistSystemMetadata(db, cache);
+        const stats = await aggregateStatsForDateRange(db, { preset, startDate, endDate });
+        if (stats) {
+          systemMetrics = stats;
           cache.systemMetrics = systemMetrics;
-        } else {
-          const metaData = await getSystemMetadata(db);
-          if (metaData) {
-            systemMetrics = metaData;
-            cache.systemMetrics = systemMetrics;
-          }
         }
       } catch (e) {
-        serverLog('WARN', 'MetricsFetchError', 'Could not fetch system_metrics document', (e as any)?.message || e);
+        serverLog('WARN', 'MetricsFetchError', 'Could not fetch system_stats document', (e as any)?.message || e);
       }
     }
 
@@ -330,11 +539,7 @@ async function handleFirestoreData(req: Request, res: Response, force: boolean) 
       cache.systemMetrics = systemMetrics;
     }
 
-    const filteredSystemMetrics = aggregateMetadataForDateRange(systemMetrics, {
-      preset,
-      startDate,
-      endDate,
-    });
+    const filteredSystemMetrics = systemMetrics;
 
     const totalLogsCount = filteredSystemMetrics?.reports?.totalSessions ?? lightweightLogs.length;
     const totalBugsCount = filteredSystemMetrics?.bugs?.totalBugs ?? bugs.length;
@@ -359,23 +564,18 @@ async function handleFirestoreData(req: Request, res: Response, force: boolean) 
   }
 }
 
-// Endpoint to fetch aggregated system metadata for specific date ranges directly from system_metadata document
+
+// Endpoint to fetch aggregated system stats for specific date ranges directly from system_stats collection
 router.get('/api/admin/metadata', adminAuth, async (req: Request, res: Response) => {
   try {
     const storageAdapter = getStorageAdapter();
     const db = storageAdapter instanceof FirebaseStorageAdapter ? storageAdapter.getDb() : getFirestoreInstance();
-    
-    let rawMetadata = await getSystemMetadata(db);
-    if (!rawMetadata) {
-      const cache = getOrInitServerCache();
-      rawMetadata = cache.systemMetrics || computeSystemMetrics(cache.reports || [], cache.seg_reports || [], cache.bugs || []);
-    }
 
     const preset = (req.query.preset || req.query.datePreset || 'all') as string;
     const startDate = req.query.startDate as string | undefined;
     const endDate = req.query.endDate as string | undefined;
 
-    const filteredMetadata = aggregateMetadataForDateRange(rawMetadata, {
+    const filteredMetadata = await aggregateStatsForDateRange(db, {
       preset,
       startDate,
       endDate,
@@ -427,11 +627,11 @@ router.get('/api/admin/diagnose-drift', adminAuth, async (req: Request, res: Res
       };
     }
 
-    const metadataDoc = await getSystemMetadata(db);
+    const allTimeStats = await aggregateStatsForDateRange(db, { preset: 'all' });
     const metadataCounts = {
-      reports: metadataDoc?.reports?.totalSessions ?? 0,
-      seg_reports: metadataDoc?.pathology?.totalPathologyLogs ?? 0,
-      bugs: metadataDoc?.bugs?.totalBugs ?? 0,
+      reports: allTimeStats?.reports?.totalSessions ?? 0,
+      seg_reports: allTimeStats?.pathology?.totalPathologyLogs ?? 0,
+      bugs: allTimeStats?.bugs?.totalBugs ?? 0,
     };
 
     const cache = getOrInitServerCache();
@@ -448,8 +648,8 @@ router.get('/api/admin/diagnose-drift', adminAuth, async (req: Request, res: Res
     };
 
     let repairedMetadata = null;
-    if (drift.reports !== 0 || drift.seg_reports !== 0 || drift.bugs !== 0 || req.query.fix === 'true') {
-      repairedMetadata = await recalculateAndPersistSystemMetadata(db);
+    if (req.query.fix === 'true') {
+      repairedMetadata = await rebuildSystemStats(db);
       cache.systemMetrics = repairedMetadata;
     }
 
@@ -460,7 +660,7 @@ router.get('/api/admin/diagnose-drift', adminAuth, async (req: Request, res: Res
       cacheCounts,
       drift,
       hasDrift: drift.reports !== 0 || drift.seg_reports !== 0 || drift.bugs !== 0,
-      repairedMetadata: repairedMetadata || metadataDoc,
+      repairedMetadata: repairedMetadata || allTimeStats,
     });
   } catch (unknownError: unknown) {
     const err = unknownError instanceof Error ? unknownError : new Error(String(unknownError));
@@ -647,6 +847,283 @@ router.get('/api/admin/export-backup', adminAuth, async (_req: Request, res: Res
   }
 });
 
+function getLogStatusServer(l: any): 'COMPLETED' | 'INCOMPLETE' | 'FAILED_NON_DENTAL' {
+  if (isLogErrorHelper(l)) return 'FAILED_NON_DENTAL';
+  if (isLogIncompleteHelper(l)) return 'INCOMPLETE';
+  return 'COMPLETED';
+}
+
+function buildAdminExportBundle(
+  scope: AdminCaseScope,
+  records: any[],
+  lang: 'VI' | 'EN'
+): { title: string; headers: string[]; rows: (string | number)[][] } {
+  const now = new Date();
+  const formattedDate = `${now.getFullYear()}_${String(now.getMonth() + 1).padStart(2, '0')}_${String(now.getDate()).padStart(2, '0')}`;
+
+  if (scope === 'reports') {
+    const headers = [
+      'Assessment ID',
+      'Timestamp',
+      'Tooth FDI',
+      'Tooth Name',
+      'Technique',
+      'Status',
+      'Stage',
+      'AI Overall Quality',
+      'AI Errors Detected',
+      'User Concurred',
+      'Final Confirmed Errors',
+      'Accuracy Score',
+      'User Notes',
+      'Image URL',
+      'Admin Verified',
+      'Admin Notes',
+    ];
+
+    const rows = records.map((l: any) => {
+      const status = getLogStatusServer(l);
+      const isCompleted = status === 'COMPLETED';
+      const isInvalid = status === 'FAILED_NON_DENTAL';
+      const accuracyCategory = (!isCompleted || isInvalid) ? 'N/A' : determineAccuracyCategory(l);
+
+      const aiErrors: string[] = [];
+      if (l.aiAnalysis?.findings && Array.isArray(l.aiAnalysis.findings)) {
+        l.aiAnalysis.findings.forEach((f: any) => {
+          if (Array.isArray(f.detectedErrors)) {
+            f.detectedErrors.forEach((e: any) => {
+              if (e.errorKey) {
+                const label = getTaxonomyLabel(e.errorKey, lang) || e.errorKey;
+                aiErrors.push(label);
+              }
+            });
+          }
+        });
+      }
+
+      const finalErrors = (l.finalConfirmedErrors || []).map((e: string) => getTaxonomyLabel(e, lang) || e);
+      const isAdmin = isLogAdminVerified(l);
+
+      return [
+        l.assessmentId || '',
+        l.timestamp || '',
+        l.tooth?.fdiNumber || '',
+        l.tooth?.name || '',
+        getTechniqueDisplayName(l.technique || '', lang) || l.technique || '',
+        status,
+        l.stage || '',
+        l.aiAnalysis?.overallQuality || '',
+        aiErrors.join('; '),
+        l.userValidation?.concurred !== undefined ? (l.userValidation.concurred ? 'YES' : 'NO') : '',
+        finalErrors.join('; '),
+        accuracyCategory,
+        l.userValidation?.userNotes || l.userNotes || '',
+        l.imageUrl || '',
+        isAdmin ? 'YES' : 'NO',
+        l.verifiedNotes || '',
+      ];
+    });
+
+    return {
+      title: `PeriApical_AI_Assessment_Logs_${formattedDate}`,
+      headers,
+      rows,
+    };
+  }
+
+  if (scope === 'pathology') {
+    const headers = [
+      'Case ID',
+      'Timestamp',
+      'Status',
+      'Tooth FDI',
+      'Tooth Area',
+      'Technique',
+      'Receptor',
+      'Anomalies Count',
+      'Detected Anomalies',
+      'Treatment Guidance',
+      'User Notes',
+      'Image URL',
+      'Admin Verified',
+      'Admin Notes',
+    ];
+
+    const rows = records.map((log: any) => {
+      const statusStr = getLogStatusServer(log);
+      const toothFdi = log.tooth?.fdiNumber || '';
+      const arch = log.tooth?.arch === 'Maxilla' ? 'Maxilla' : (log.tooth?.arch === 'Mandible' ? 'Mandible' : '');
+
+      const pathList = (log.confirmedPathologies || [])
+        .map((p: any) => `${getPathologyLabel(p.pathologyKey, lang) || p.pathologyKey}${typeof p.confidence === 'number' ? ` (${p.confidence}%)` : ''}`)
+        .join('; ');
+      const treatList = (log.confirmedPathologies || [])
+        .map((p: any) => `${getPathologyLabel(p.pathologyKey, lang) || p.pathologyKey}: ${getTreatmentText(p.pathologyKey, lang) || ''}`)
+        .join(' | ');
+
+      const isAdmin = Boolean(log.isReviewedByAdmin || log.verifiedBy === 'Admin' || log.verifiedNotes?.includes('Admin'));
+
+      return [
+        log.assessmentId || '',
+        log.timestamp || '',
+        statusStr,
+        toothFdi,
+        arch,
+        log.technique || '',
+        log.receptorType || '',
+        (log.confirmedPathologies?.length || 0).toString(),
+        pathList,
+        treatList,
+        log.userNotes || '',
+        log.imageUrl || '',
+        isAdmin ? 'YES' : 'NO',
+        log.verifiedNotes || '',
+      ];
+    });
+
+    return {
+      title: `PeriApical_Pathology_Logs_${formattedDate}`,
+      headers,
+      rows,
+    };
+  }
+
+  // bugs
+  const headers = ['Thời Gian (Timestamp)', 'Nguồn Bug (Source)', 'Mức Độ (Severity)', 'Đường Dẫn (Path)', 'Mô Tả Lỗi (Description)'];
+  const rows = records.map((b: any) => [
+    b.timestamp || b.createdAt || '',
+    b.source === 'SYSTEM_AUTO' ? 'Hệ thống tự ghi' : 'Người dùng báo lỗi',
+    b.severity || 'INFO',
+    b.path || '',
+    b.description || '',
+  ]);
+
+  return {
+    title: `PeriApical_AI_Bug_Reports_${formattedDate}`,
+    headers,
+    rows,
+  };
+}
+
+// Dedicated full-scope export endpoint with cursor pagination
+router.post('/api/admin/export', adminAuth, async (req: Request, res: Response) => {
+  try {
+    const scope = (req.body?.scope || 'reports') as AdminCaseScope;
+    if (!['reports', 'pathology', 'bugs'].includes(scope)) {
+      return res.status(400).json({ success: false, error: 'Scope không hợp lệ.' });
+    }
+
+    const preset = String(req.body?.preset || 'all');
+    const startDate = typeof req.body?.startDate === 'string' ? req.body.startDate : undefined;
+    const endDate = typeof req.body?.endDate === 'string' ? req.body.endDate : undefined;
+    const status = typeof req.body?.status === 'string' ? req.body.status : 'ALL';
+    const sourceFilter = typeof req.body?.source === 'string' ? req.body.source : 'all';
+    const lang = (req.body?.language === 'EN' ? 'EN' : 'VI') as 'VI' | 'EN';
+
+    const filter = { preset, startDate, endDate };
+    const storageAdapter = getStorageAdapter();
+    const db = storageAdapter instanceof FirebaseStorageAdapter ? storageAdapter.getDb() : null;
+    const cache = getOrInitServerCache();
+
+    // Snapshot start timestamp to prevent infinite loops if new writes happen during export loop
+    const exportStartedAt = new Date().toISOString();
+
+    let fetchedDocs: any[] = [];
+
+    if (db) {
+      const collectionName = ADMIN_CASE_COLLECTIONS[scope];
+      let baseQuery: any = db.collection(collectionName);
+
+      const bounds = getAdminDateBounds(filter);
+      if (bounds.start) baseQuery = baseQuery.where('timestamp', '>=', bounds.start);
+      if (bounds.end) baseQuery = baseQuery.where('timestamp', '<=', bounds.end);
+      baseQuery = baseQuery.where('timestamp', '<=', exportStartedAt);
+
+      baseQuery = baseQuery.orderBy('timestamp', 'desc').orderBy(FieldPath.documentId(), 'desc');
+
+      const EXPORT_BATCH_SIZE = 250;
+      let lastDocSnap: any = null;
+      let hasMore = true;
+
+      while (hasMore) {
+        let pageQuery = baseQuery.limit(EXPORT_BATCH_SIZE);
+        if (lastDocSnap) {
+          pageQuery = pageQuery.startAfter(lastDocSnap);
+        }
+        const snapshot = await pageQuery.get();
+        if (snapshot.empty) {
+          hasMore = false;
+          break;
+        }
+
+        const batchRecords = snapshot.docs.map((doc: any) => {
+          const data = doc.data();
+          const normalized = scope === 'pathology'
+            ? restorePathologyDocFromFirestore({ ...data, assessmentId: data.assessmentId || doc.id, _id: doc.id })
+            : data;
+          const idField = scope === 'bugs' ? 'bugId' : 'assessmentId';
+          return { ...normalized, [idField]: normalized[idField] || doc.id };
+        });
+
+        fetchedDocs.push(...batchRecords);
+
+        if (snapshot.docs.length < EXPORT_BATCH_SIZE) {
+          hasMore = false;
+        } else {
+          lastDocSnap = snapshot.docs[snapshot.docs.length - 1];
+        }
+      }
+    } else {
+      // Local RAM cache fallback
+      const cacheRecords = scope === 'reports'
+        ? cache.reports
+        : scope === 'pathology'
+        ? cache.seg_reports || []
+        : cache.bugs;
+      fetchedDocs = filterRecordsByDateRange(cacheRecords || [], filter);
+      fetchedDocs = sortAdminScopeRecords(scope, fetchedDocs);
+    }
+
+    // Apply exact canonical date range filter in memory
+    fetchedDocs = filterRecordsByDateRange(fetchedDocs, filter);
+
+    // Apply secondary status or source filter
+    let filteredRecords = fetchedDocs;
+
+    if (scope === 'reports' || scope === 'pathology') {
+      if (status && status !== 'ALL') {
+        filteredRecords = filteredRecords.filter((log: any) => {
+          const st = getLogStatusServer(log);
+          return st === status;
+        });
+      }
+    } else if (scope === 'bugs') {
+      if (sourceFilter && sourceFilter !== 'all') {
+        filteredRecords = filteredRecords.filter((bug: any) => {
+          const bugSource = bug.source || 'USER_SUBMITTED';
+          return bugSource === sourceFilter;
+        });
+      }
+    }
+
+    // Build standard export dataset
+    const bundle = buildAdminExportBundle(scope, filteredRecords, lang);
+
+    return res.json({
+      success: true,
+      scope,
+      totalCount: bundle.rows.length,
+      title: bundle.title,
+      headers: bundle.headers,
+      rows: bundle.rows,
+    });
+  } catch (unknownError: unknown) {
+    const err = unknownError instanceof Error ? unknownError : new Error(String(unknownError));
+    serverLog('ERROR', 'AdminExport', `Export query failed: ${err.message}`, err);
+    return res.status(500).json({ success: false, error: err?.message || 'Export failed' });
+  }
+});
+
 // Restore backup
 router.post('/api/admin/restore-backup', adminAuth, async (req: Request, res: Response) => {
   try {
@@ -705,6 +1182,21 @@ router.post('/api/admin/restore-backup', adminAuth, async (req: Request, res: Re
     const err = unknownError instanceof Error ? unknownError : new Error(String(unknownError));
     serverLog('ERROR', 'AdminRoute', '[Restore Backup Error]:', err);
     return res.status(500).json({ success: false, error: err?.message || 'Lỗi khi khôi phục dữ liệu' });
+  }
+});
+
+router.post('/api/admin/rebuild-stats', adminAuth, async (_req: Request, res: Response) => {
+  try {
+    const storageAdapter = getStorageAdapter();
+    const db = storageAdapter instanceof FirebaseStorageAdapter ? storageAdapter.getDb() : getFirestoreInstance();
+    if (!db) {
+      return res.status(400).json({ success: false, error: 'Firestore is not initialized' });
+    }
+    const result = await rebuildSystemStats(db);
+    return res.json({ success: true, result });
+  } catch (error: any) {
+    serverLog('ERROR', 'AdminRoute', '[Rebuild Stats Error]:', error);
+    return res.status(500).json({ success: false, error: error?.message || 'Lỗi hệ thống khi rebuild stats' });
   }
 });
 

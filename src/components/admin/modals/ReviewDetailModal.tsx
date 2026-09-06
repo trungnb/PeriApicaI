@@ -107,19 +107,7 @@ export const ReviewDetailModal: React.FC<ReviewDetailModalProps> = ({
         setToastMsg('Đã chốt & lưu lỗi đánh giá thành công! ⭐');
         setTimeout(() => setToastMsg(null), 3500);
 
-        const updatedLog: AssessmentLogPayload = {
-          ...modalLog,
-          userValidation: {
-            concurred: true,
-            overriddenErrors: finalErrors,
-            userNotes: formattedNotes,
-          },
-          verifiedErrors: finalErrors,
-          finalConfirmedErrors: finalErrors,
-          verifiedNotes: formattedNotes,
-          verifiedAt: new Date().toISOString(),
-          verifiedBy: 'Admin',
-        };
+        const updatedLog = res.log;
 
         onLogVerified(updatedLog);
         setModalLog(updatedLog);
@@ -143,11 +131,11 @@ export const ReviewDetailModal: React.FC<ReviewDetailModalProps> = ({
       }}
     >
       <div
-        className="bg-white dark:bg-slate-950 w-full max-w-5xl rounded-2xl shadow-2xl border border-slate-200 dark:border-blue-900/60 overflow-hidden my-auto max-h-[90vh] flex flex-col"
+        className="bg-white dark:bg-slate-950 w-full max-w-5xl rounded-2xl shadow-2xl border border-slate-200 dark:border-blue-900/60 overflow-hidden my-auto max-h-[calc(100dvh-16px)] sm:max-h-[90vh] flex flex-col"
         onClick={(e) => e.stopPropagation()}
       >
         {/* Modal Header */}
-        <div className="p-4 sm:p-5 border-b border-slate-200 dark:border-blue-900/60 bg-slate-900 text-white flex items-center justify-between shrink-0">
+        <div className="p-3 sm:p-5 border-b border-slate-200 dark:border-blue-900/60 bg-slate-900 text-white flex items-center justify-between shrink-0">
           <div className="flex items-center space-x-3">
             <div className="w-10 h-10 rounded-xl bg-amber-500/20 border border-amber-500/40 flex items-center justify-center text-amber-400">
               <Star className="w-5 h-5 fill-amber-400" />
@@ -202,9 +190,9 @@ export const ReviewDetailModal: React.FC<ReviewDetailModalProps> = ({
         </div>
 
         {/* Modal Body: 2 Columns */}
-        <div className="p-4 sm:p-6 overflow-y-auto flex-1 grid grid-cols-1 lg:grid-cols-12 gap-6 bg-slate-50 dark:bg-blue-950/30">
+        <div className="p-3 sm:p-6 overflow-y-auto flex-1 grid grid-cols-1 lg:grid-cols-12 gap-4 sm:gap-6 bg-slate-50 dark:bg-blue-950/30">
           {/* Left Column: Image & Metadata (4/10 ratio) */}
-          <div className="lg:col-span-5 space-y-4 flex flex-col">
+          <div className="lg:col-span-5 space-y-3 sm:space-y-4 flex flex-col">
             <div className="bg-slate-900 rounded-xl p-3 border border-slate-800 flex flex-col space-y-2">
               <div className="flex items-center justify-between text-xs text-slate-300 font-semibold border-b border-slate-800 pb-2">
                 <span>{t('periapicalRadiograph')}</span>
@@ -218,7 +206,7 @@ export const ReviewDetailModal: React.FC<ReviewDetailModalProps> = ({
                   </span>
                 )}
               </div>
-              <div className="min-h-[260px] max-h-[45vh] bg-slate-950 rounded-lg flex items-center justify-center p-2 relative overflow-hidden border border-slate-800/80">
+              <div className="min-h-[160px] sm:min-h-[260px] max-h-[40vh] bg-slate-950 rounded-lg flex items-center justify-center p-2 relative overflow-hidden border border-slate-800/80">
                 {modalLog.shareConsent === false ? (
                   <div className="text-center p-4 space-y-2 text-slate-400">
                     <EyeOff className="w-8 h-8 mx-auto text-amber-500/80" />
@@ -231,7 +219,7 @@ export const ReviewDetailModal: React.FC<ReviewDetailModalProps> = ({
                     src={modalLog.imageUrl || modalLog.imageDataUrl}
                     alt="X-ray Preview"
                     referrerPolicy="no-referrer"
-                    className="max-h-[40vh] w-auto object-contain rounded-md"
+                    className="max-h-[35vh] sm:max-h-[40vh] w-auto object-contain rounded-md"
                     onError={() => setImageError(true)}
                   />
                 ) : (

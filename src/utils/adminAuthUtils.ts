@@ -24,7 +24,7 @@ export const isRemembered = (): boolean => {
   return false; // No longer support long-term remember
 };
 
-export const setAdminToken = (token: string, remember: boolean) => {
+export const setAdminToken = (token: string, _remember?: boolean) => {
   memoryAdminToken = token;
   if (typeof window !== 'undefined') {
     sessionStorage.setItem(ADMIN_SESSION_TOKEN_KEY, token);

@@ -16,7 +16,6 @@ interface ReportsFiltersBarProps {
 }
 
 export const ReportsFiltersBar: React.FC<ReportsFiltersBarProps> = ({
-  language,
   filterType,
   setFilterType,
   statusFilter,
@@ -118,14 +117,14 @@ export const ReportsFiltersBar: React.FC<ReportsFiltersBarProps> = ({
       </div>
 
       {filterType === 'day' && (
-        <div className="flex items-center gap-3 pt-2 border-t border-slate-100 dark:border-blue-900/60">
+        <div className="flex flex-wrap items-center gap-3 pt-2 border-t border-slate-100 dark:border-blue-900/60">
           <div className="flex items-center gap-2">
             <span className="text-xs text-slate-500 dark:text-blue-300/80">{t('from')}</span>
             <input
               type="date"
               value={startDate}
               onChange={(e) => setStartDate(e.target.value)}
-              className="text-xs p-1.5 border border-slate-300 dark:border-blue-700 bg-white dark:bg-blue-950 text-slate-900 dark:text-slate-100 rounded-md"
+              className="text-xs p-1.5 border border-slate-300 dark:border-blue-700 bg-white dark:bg-blue-950 text-slate-900 dark:text-slate-100 rounded-md max-w-[140px]"
             />
           </div>
           <div className="flex items-center gap-2">
@@ -134,7 +133,7 @@ export const ReportsFiltersBar: React.FC<ReportsFiltersBarProps> = ({
               type="date"
               value={endDate}
               onChange={(e) => setEndDate(e.target.value)}
-              className="text-xs p-1.5 border border-slate-300 dark:border-blue-700 bg-white dark:bg-blue-950 text-slate-900 dark:text-slate-100 rounded-md"
+              className="text-xs p-1.5 border border-slate-300 dark:border-blue-700 bg-white dark:bg-blue-950 text-slate-900 dark:text-slate-100 rounded-md max-w-[140px]"
             />
           </div>
         </div>

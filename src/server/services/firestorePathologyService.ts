@@ -3,9 +3,15 @@
  * CRUD for the separate `seg_reports` collection.
  */
 import { getFirestoreInstance } from './firebaseService';
-import { saveAndOptimizeImageFile, deleteImageFile, serverLog, generateSignedImageUrl } from '../config/env';
-import { getOrInitServerCache, saveServerCacheToDisk } from './storageAdapter';
+import { saveAndOptimizeImageFile, serverLog } from '../config/env';
+import { getOrInitServerCache, markServerCacheDirty, saveServerCacheToDisk } from './storageAdapter';
 import { executeAtomicPathologyWrite, executeAtomicBulkDelete } from './atomicUpdateService';
+import {
+  appendPathologyReview,
+  materializePathologyEvaluationLesionIds,
+  readPathologyEvaluation,
+} from '../../utils/pathologyEvaluation';
+import { preserveImmutableInferenceLineage } from './inferenceLineage';
 
 const COLLECTION = 'seg_reports';
 
@@ -45,6 +51,17 @@ export function formatPathologyDocForFirestore(doc: any): any {
   if (Array.isArray(clone.finalConfirmedPathologies)) {
     clone.finalConfirmedPathologies = convertPathologyList(clone.finalConfirmedPathologies);
   }
+  if (clone.pathologyEvaluation) {
+    clone.pathologyEvaluation = { ...clone.pathologyEvaluation };
+    if (Array.isArray(clone.pathologyEvaluation.aiPredictionSnapshot)) {
+      clone.pathologyEvaluation.aiPredictionSnapshot = convertPathologyList(clone.pathologyEvaluation.aiPredictionSnapshot);
+    }
+    const convertReview = (review: any) => review && typeof review === 'object'
+      ? { ...review, finalFindings: convertPathologyList(review.finalFindings) }
+      : review;
+    if (clone.pathologyEvaluation.currentReview) clone.pathologyEvaluation.currentReview = convertReview(clone.pathologyEvaluation.currentReview);
+    if (Array.isArray(clone.pathologyEvaluation.reviewHistory)) clone.pathologyEvaluation.reviewHistory = clone.pathologyEvaluation.reviewHistory.map(convertReview);
+  }
 
   return clone;
 }
@@ -83,13 +100,23 @@ export function restorePathologyDocFromFirestore(doc: any): any {
   if (Array.isArray(clone.finalConfirmedPathologies)) {
     clone.finalConfirmedPathologies = convertPathologyList(clone.finalConfirmedPathologies);
   }
+  if (clone.pathologyEvaluation) {
+    clone.pathologyEvaluation = { ...clone.pathologyEvaluation };
+    if (Array.isArray(clone.pathologyEvaluation.aiPredictionSnapshot)) {
+      clone.pathologyEvaluation.aiPredictionSnapshot = convertPathologyList(clone.pathologyEvaluation.aiPredictionSnapshot);
+    }
+    const convertReview = (review: any) => review && typeof review === 'object'
+      ? { ...review, finalFindings: convertPathologyList(review.finalFindings) }
+      : review;
+    if (clone.pathologyEvaluation.currentReview) clone.pathologyEvaluation.currentReview = convertReview(clone.pathologyEvaluation.currentReview);
+    if (Array.isArray(clone.pathologyEvaluation.reviewHistory)) clone.pathologyEvaluation.reviewHistory = clone.pathologyEvaluation.reviewHistory.map(convertReview);
+  }
 
   return clone;
 }
 
 // ─── In-Memory RAM Cache (integrated with ServerCache & disk temp_cache.json) ─────
 let ramCache: any[] = [];
-let unsubscribeSnapshot: (() => void) | null = null;
 
 export function startPathologySnapshot(): void {
   serverLog('INFO', 'PathologySnapshot', 'Realtime snapshot listener disabled to save Firestore read quota. Using on-demand storage cache.');
@@ -110,6 +137,11 @@ export async function savePathologyLog(
   const db = getFirestoreInstance();
   const cache = getOrInitServerCache();
   const assessmentId = payload.assessmentId ?? `pathology-session-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
+  const existingIdx = cache.seg_reports.findIndex((r: any) => r.assessmentId === assessmentId);
+  const previousRecord = existingIdx >= 0
+    ? structuredClone(cache.seg_reports[existingIdx])
+    : undefined;
+  const immutableLineage = preserveImmutableInferenceLineage(previousRecord?.inferenceLineage, payload.inferenceLineage);
 
   let finalImageUrl: string | undefined = '';
   const userAgreedSharing = payload.shareConsent === true;
@@ -129,6 +161,7 @@ export async function savePathologyLog(
 
   const docData = {
     ...payload,
+    ...(immutableLineage ? { inferenceLineage: immutableLineage } : {}),
     shareConsent: userAgreedSharing,
     assessmentId,
     imageUrl: finalImageUrl,
@@ -142,17 +175,16 @@ export async function savePathologyLog(
   delete (docData as any).imageDataUrl;
 
   // Update in-memory cache
-  const existingIdx = cache.seg_reports.findIndex((r: any) => r.assessmentId === assessmentId);
   if (existingIdx >= 0) {
     cache.seg_reports[existingIdx] = {
-      ...cache.seg_reports[existingIdx],
+      ...previousRecord,
       ...docData,
     };
   } else {
     cache.seg_reports.unshift(docData);
   }
   ramCache = cache.seg_reports;
-  cache.isCacheDirty = true;
+  markServerCacheDirty(cache);
   saveServerCacheToDisk();
 
   let firestoreSynced = false;
@@ -168,14 +200,16 @@ export async function savePathologyLog(
       const atomicRes = await executeAtomicPathologyWrite(
         db,
         assessmentId,
-        firestorePayload,
-        existingIdx < 0,
-        existingIdx >= 0 ? cache.seg_reports[existingIdx] : undefined
+        firestorePayload
       );
 
       firestoreSynced = atomicRes.success;
       const target = cache.seg_reports.find((r: any) => r.assessmentId === assessmentId);
-      if (target && atomicRes.success) target.firestoreSynced = true;
+      if (target && atomicRes.success) {
+        target.firestoreSynced = true;
+        markServerCacheDirty(cache);
+        saveServerCacheToDisk();
+      }
 
       serverLog('INFO', 'PathologyService', `Saved to seg_reports atomically: ${assessmentId}`);
     } catch (unknownError: unknown) {
@@ -185,6 +219,39 @@ export async function savePathologyLog(
   }
 
   return { success: true, assessmentId, imageUrl: finalImageUrl, firestoreSynced };
+}
+
+/** Records a new admin truth version while retaining the immutable AI prediction snapshot. */
+export async function saveAdminPathologyReview(input: {
+  assessmentId: string;
+  finalFindings: any[];
+  reviewerId: string;
+  reviewedAt: string;
+  notes?: string;
+}): Promise<{ success: boolean; assessmentId: string; imageUrl?: string; firestoreSynced: boolean }> {
+  const cache = getOrInitServerCache();
+  const existing = cache.seg_reports.find((record: any) => record.assessmentId === input.assessmentId);
+  if (!existing) throw new Error('Pathology assessment was not found.');
+
+  const evaluation = appendPathologyReview(materializePathologyEvaluationLesionIds(readPathologyEvaluation(existing)), {
+    reviewerId: input.reviewerId,
+    reviewedAt: input.reviewedAt,
+    finalFindings: input.finalFindings,
+    ...(input.notes === undefined ? {} : { notes: input.notes }),
+  });
+
+  return savePathologyLog({
+    assessmentId: input.assessmentId,
+    shareConsent: existing.shareConsent === true,
+    imageUrl: existing.imageUrl,
+    detectedPathologies: structuredClone(evaluation.aiPredictionSnapshot),
+    pathologyEvaluation: evaluation,
+    finalConfirmedPathologies: structuredClone(input.finalFindings),
+    verifiedNotes: input.notes || '',
+    verifiedAt: input.reviewedAt,
+    verifiedBy: input.reviewerId,
+    isReviewedByAdmin: true,
+  });
 }
 
 export async function getPathologyLogs(limitCount: number = 100): Promise<any[]> {
@@ -231,7 +298,7 @@ export async function deletePathologyLogs(options: {
   });
   const deletedCount = initialCount - cache.seg_reports.length;
   ramCache = cache.seg_reports;
-  cache.isCacheDirty = true;
+  markServerCacheDirty(cache);
   saveServerCacheToDisk(true);
 
   if (db) {
