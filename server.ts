@@ -62,7 +62,7 @@ export function createApp(): express.Express {
     res.setHeader('X-Content-Type-Options', 'nosniff');
     res.setHeader('Strict-Transport-Security', 'max-age=31536000; includeSubDomains');
     res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
-    res.setHeader('Content-Security-Policy', "default-src 'self'; img-src 'self' data: blob: https:; script-src 'self' blob: https://accounts.google.com; frame-src 'self' https://accounts.google.com; worker-src 'self' blob:; style-src 'self' 'unsafe-inline' https://accounts.google.com; connect-src 'self' https: ws: wss:; frame-ancestors 'self' https://aistudio.google.com https://localhost.corp.google.com:26001;");
+    res.setHeader('Content-Security-Policy', "default-src 'self'; img-src 'self' data: blob: https:; script-src 'self' blob: https://accounts.google.com; frame-src 'self' https://accounts.google.com; worker-src 'self' blob:; style-src 'self' 'unsafe-inline' https://accounts.google.com; connect-src 'self' https: ws: wss:; frame-ancestors 'self' *;");
     next();
   });
 
