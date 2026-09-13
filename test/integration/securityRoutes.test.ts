@@ -144,6 +144,7 @@ test('CSP does not allow inline or eval scripts', async () => {
     const csp = response.headers.get('content-security-policy') || '';
     assert.match(csp, /script-src 'self' blob:/);
     assert.doesNotMatch(csp, /script-src[^;]*unsafe-(?:inline|eval)/);
+    assert.match(csp, /frame-ancestors 'self' https:\/\/aistudio\.google\.com https:\/\/localhost\.corp\.google\.com:26001/);
   } finally {
     await new Promise<void>((resolve) => configuredServer.close(() => resolve()));
   }

@@ -25,6 +25,8 @@ The current architecture provides:
 - Server-side image validation, persistence DTO allowlisting, and signed lineage/validity attestations.
 - Hardened Admin restore/delete flows, login lockout behavior, proxy trust parsing, generic error responses, CSP, and stack-trace redaction.
 - Added focused security regression coverage and a Google AI Studio / Cloud Run release package with secret-safe metadata and environment template.
+- Allowed only exact AI Studio frame origins in `frame-ancestors`; removed the wildcard embed policy that caused `refused to connect`.
+- Reduced deployment environment template to required server secrets plus optional Firestore credentials.
 
 Current production prompt lineage labels remain:
 
