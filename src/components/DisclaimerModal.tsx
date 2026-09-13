@@ -1,5 +1,4 @@
 import React, { useEffect, useRef } from 'react';
-import { motion, AnimatePresence } from 'motion/react';
 import { AlertTriangle, CheckCircle2, Sparkles, ShieldAlert } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 
@@ -31,7 +30,7 @@ export const DisclaimerModal: React.FC<Props> = ({ onClose }) => {
   };
 
   return (
-    <AnimatePresence>
+    <>
       <div
         className="fixed inset-0 z-50 flex items-center justify-center p-2 sm:p-6 overflow-y-auto"
         role="dialog"
@@ -39,22 +38,14 @@ export const DisclaimerModal: React.FC<Props> = ({ onClose }) => {
         aria-labelledby="disclaimer-modal-title"
       >
         {/* Backdrop - Explicitly non-dismissible by backdrop click */}
-        <motion.div
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          exit={{ opacity: 0 }}
-          transition={{ duration: 0.2 }}
-          className="fixed inset-0 bg-slate-950/70 backdrop-blur-md select-none pointer-events-auto"
+        <div
+          className="fixed inset-0 bg-slate-950/70 backdrop-blur-md select-none pointer-events-auto transition-all duration-200 opacity-100 animate-in fade-in"
           aria-hidden="true"
         />
 
         {/* Modal Card */}
-        <motion.div
-          initial={{ opacity: 0, scale: 0.92, y: 16 }}
-          animate={{ opacity: 1, scale: 1, y: 0 }}
-          exit={{ opacity: 0, scale: 0.92, y: 16 }}
-          transition={{ type: 'spring', damping: 25, stiffness: 300 }}
-          className="relative w-full max-w-lg bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-2xl overflow-hidden z-10 my-auto max-h-[calc(100dvh-16px)] flex flex-col"
+        <div
+          className="relative w-full max-w-lg bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-2xl overflow-hidden z-10 my-auto max-h-[calc(100dvh-16px)] flex flex-col transition-all duration-200 opacity-100 animate-in fade-in zoom-in-95 slide-in-from-bottom-3"
         >
           {/* Top Decorative Header Accent */}
           <div className="h-2 bg-gradient-to-r from-amber-500 via-sky-500 to-teal-400 shrink-0" />
@@ -103,8 +94,8 @@ export const DisclaimerModal: React.FC<Props> = ({ onClose }) => {
               </button>
             </div>
           </div>
-        </motion.div>
+        </div>
       </div>
-    </AnimatePresence>
+    </>
   );
 };

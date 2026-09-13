@@ -127,10 +127,10 @@ export const AIAnalysisScreen: React.FC = React.memo(() => {
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-slate-100 dark:border-slate-700/80 pb-3">
           <div className="space-y-1">
             <p className="text-base font-bold text-slate-900 dark:text-slate-100">
-              {t('common:targetTooth')}: {selectedTooth?.fdiNumber} - {selectedTooth ? getToothDisplayName(selectedTooth, language) : ''} {selectedTooth ? `(${getArchDisplayName(selectedTooth.arch, language)})` : ''}
+              {language === 'EN' ? 'Target Tooth' : 'Răng mục tiêu'}: {selectedTooth?.fdiNumber} - {selectedTooth ? getToothDisplayName(selectedTooth, language) : ''} {selectedTooth ? `(${getArchDisplayName(selectedTooth.arch, language)})` : ''}
             </p>
             <p className="text-xs text-slate-600 dark:text-slate-400">
-              {t('imagingTechnique')}: <strong className="font-semibold text-blue-700 dark:text-sky-400">{techniqueText}</strong> • {t('receptorType')}: <strong className="font-semibold text-blue-700 dark:text-sky-400">{receptorText}</strong>
+              {language === 'EN' ? 'Imaging Technique' : 'Kỹ thuật chụp'}: <strong className="font-semibold text-blue-700 dark:text-sky-400">{techniqueText}</strong> • {language === 'EN' ? 'Receptor Type' : 'Bộ nhận ảnh'}: <strong className="font-semibold text-blue-700 dark:text-sky-400">{receptorText}</strong>
             </p>
           </div>
 

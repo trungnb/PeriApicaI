@@ -1,16 +1,17 @@
-import { providerExecutionConfig, isTerminalExecutionError } from './geminiService';
+import { providerExecutionConfig, isTerminalExecutionError, SimpleLRU } from './geminiService';
 import { Type, GoogleGenAI } from '@google/genai';
-import { LRUCache } from 'lru-cache';
 import { executeWithFailover, ExecutionBudget, isRateLimitOrQuotaError, isTransientError, isInvalidApiKeyError } from './geminiService';
 import { PATHOLOGY_DICT } from '../../constants/dictionaries';
 import { validatePathologyOutput } from '../../utils/semanticValidation';
 import { randomUUID } from 'crypto';
-import { createInferenceLineage } from './inferenceLineage';
+import { createInferenceLineage, computePathologyResultDigest } from './inferenceLineage';
+import { digestValidityImage } from './validityReceipt';
 import type { InferenceLineage } from '../../types/dental';
-import { resetAssessmentSnapshotsForTests, type RoleModelAssignment } from './assessmentModelSnapshot';
+import { resetAssessmentSnapshotsForTests, type RoleModelAssignment } from './modelManager';
 
 export interface SegmentPathologyOptions {
   assessmentId?: string;
+  imageDigest?: string;
   roleA?: RoleModelAssignment;
   roleB?: RoleModelAssignment;
 }
@@ -71,10 +72,7 @@ export function assignServerLesionIds(result: PathologySegmentResult): Pathology
 }
 
 // ─── Pathology Cache ─────────────────────────────────────────
-export const pathologyVerifyCache = new LRUCache<string, PathologySegmentResult>({
-  max: 100,
-  ttl: 1000 * 60 * 60 * 6, // 6 hours
-});
+export const pathologyVerifyCache = new SimpleLRU<string, PathologySegmentResult>(100, 1000 * 60 * 60 * 6);
 
 const originalPathologyCacheClear = pathologyVerifyCache.clear.bind(pathologyVerifyCache);
 pathologyVerifyCache.clear = () => {
@@ -569,9 +567,16 @@ export async function segmentPathologyWithGemini(
         finalResult!.pathologies.forEach(p => { p.provenance = p.provenance || 'single_mode'; });
       }
 
+      const mappedLegacy = assignServerLesionIds(mapOptimizedPathologyToLegacy(finalResult!, outputLanguage));
+      const imageDigest = options?.imageDigest || digestValidityImage(imageBase64) || undefined;
+      const resultDigest = computePathologyResultDigest(mappedLegacy.pathologies);
+
       const inferenceLineage = createInferenceLineage({
         modality: 'pathology',
         executionMode: 'dual',
+        assessmentId: options?.assessmentId,
+        sourceImageDigest: imageDigest,
+        resultDigest,
         branches: [
           ...(resultA && fulfilledA ? [{
             branch: 'model_a' as const,
@@ -589,7 +594,7 @@ export async function segmentPathologyWithGemini(
         consensusStatus: resultA && resultB ? 'consensus_synthesized' : 'partial_fallback',
       });
       const mappedFinalResult = {
-        ...assignServerLesionIds(mapOptimizedPathologyToLegacy(finalResult!, outputLanguage)),
+        ...mappedLegacy,
         diversityStatus,
         inferenceLineage,
       };
@@ -645,9 +650,16 @@ export async function segmentPathologyWithGemini(
         }
       );
 
+      const mappedLegacy = assignServerLesionIds(mapOptimizedPathologyToLegacy(failoverRes.result, outputLanguage));
+      const imageDigest = options?.imageDigest || digestValidityImage(imageBase64) || undefined;
+      const resultDigest = computePathologyResultDigest(mappedLegacy.pathologies);
+
       const inferenceLineage = createInferenceLineage({
         modality: 'pathology',
         executionMode: 'single',
+        assessmentId: options?.assessmentId,
+        sourceImageDigest: imageDigest,
+        resultDigest,
         branches: [{
           branch: 'single',
           requestedModel: preferredModel || 'gemini-flash-latest',
@@ -657,7 +669,7 @@ export async function segmentPathologyWithGemini(
         consensusStatus: 'not_applicable',
       });
       const mappedFinalResult = {
-        ...assignServerLesionIds(mapOptimizedPathologyToLegacy(failoverRes.result, outputLanguage)),
+        ...mappedLegacy,
         inferenceLineage,
       };
 

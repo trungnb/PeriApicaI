@@ -1,6 +1,5 @@
 import React from 'react';
 import { ArrowRight, Microscope, Layers, ShieldCheck, Sparkles } from 'lucide-react';
-import { motion, AnimatePresence } from 'motion/react';
 import { useAppStore } from '../store/appStore';
 import { useTranslation } from 'react-i18next';
 
@@ -113,15 +112,7 @@ export const WelcomeScreen: React.FC = React.memo(() => {
           </div>
 
           {/* Dynamic Section 2: Supported Errors / Pathology Structures */}
-          <AnimatePresence mode="wait">
-            <motion.div
-              key={appEngineMode}
-              initial={{ opacity: 0, y: 6 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: -6 }}
-              transition={{ duration: 0.2 }}
-              className="space-y-1.5 sm:space-y-2"
-            >
+          <div key={appEngineMode} className="space-y-1.5 sm:space-y-2 transition-all duration-200 opacity-100 animate-in fade-in slide-in-from-bottom-1">
               <div className="flex items-center space-x-1.5">
                 {isPathology ? (
                   <Sparkles className="w-4 h-4 text-teal-600 dark:text-teal-400" />
@@ -248,19 +239,10 @@ export const WelcomeScreen: React.FC = React.memo(() => {
                   </div>
                 </div>
               )}
-            </motion.div>
-          </AnimatePresence>
+          </div>
 
           {/* Dynamic Section 3: 3-Step Workflow */}
-          <AnimatePresence mode="wait">
-            <motion.div
-              key={`workflow-${appEngineMode}`}
-              initial={{ opacity: 0, y: 6 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: -6 }}
-              transition={{ duration: 0.2 }}
-              className="space-y-1.5 sm:space-y-2"
-            >
+          <div key={`workflow-${appEngineMode}`} className="space-y-1.5 sm:space-y-2 transition-all duration-200 opacity-100 animate-in fade-in slide-in-from-bottom-1">
               <div className="flex items-center space-x-1.5">
                 <Layers className={`w-4 h-4 ${isPathology ? 'text-teal-600 dark:text-teal-400' : 'text-blue-600 dark:text-sky-400'}`} />
                 <h3 className="text-xs sm:text-sm font-bold text-slate-900 dark:text-slate-100">
@@ -338,8 +320,7 @@ export const WelcomeScreen: React.FC = React.memo(() => {
                   </p>
                 </div>
               </div>
-            </motion.div>
-          </AnimatePresence>
+          </div>
 
         </div>
       </div>

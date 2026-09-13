@@ -7,6 +7,7 @@ const router = Router();
 
 export interface AdminSession { expiresAt: number; reviewerId: string; }
 // In-memory sessions bind the password-authenticated, allowlisted reviewer identity to the token.
+// ponytail: in-memory admin sessions support single-instance deployment; upgrade to signed stateless JWTs or Redis/Firestore session store if multi-instance clustering is deployed.
 export const adminSessions = new Map<string, AdminSession>();
 
 // Clean up expired sessions periodically to prevent memory leaks

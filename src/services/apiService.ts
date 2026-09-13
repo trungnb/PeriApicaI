@@ -97,35 +97,33 @@ function estimateQueueBytes(queue: any[]): number {
   }
 }
 
+const MAX_QUEUE_AGE_MS = 24 * 60 * 60 * 1000; // 24 hours expiry for offline queue items
+
 /**
- * Prunes offline queue by dropping large base64 images first, then oldest entries if size exceeds limits.
+ * Prunes offline queue by dropping expired entries, stripping medical images, and capping size.
  */
 function pruneOfflineQueue(queue: any[]): any[] {
   if (!Array.isArray(queue)) return [];
 
-  // 1. Strip images exceeding MAX_OFFLINE_IMAGE_BYTES
-  let pruned = queue.map((item) => {
-    if (item.imageDataUrl && estimateStringBytes(item.imageDataUrl) > MAX_OFFLINE_IMAGE_BYTES) {
-      const { imageDataUrl, ...rest } = item;
-      return rest;
-    }
-    return item;
+  const now = Date.now();
+  // 1. Drop expired items older than 24 hours
+  let active = queue.filter((item) => {
+    const queuedAt = item.queuedAt ? Date.parse(item.queuedAt) : 0;
+    return !queuedAt || (now - queuedAt < MAX_QUEUE_AGE_MS);
   });
 
-  // 2. Cap item count (keep newest items)
+  // 2. Strip medical images unconditionally from offline persistence to prevent sensitive image retention in localStorage
+  let pruned = active.map((item) => {
+    const { imageDataUrl: _dataUrl, imageUrl: _url, ...rest } = item;
+    return rest;
+  });
+
+  // 3. Cap item count (keep newest items)
   if (pruned.length > MAX_QUEUE_ITEMS) {
     pruned = pruned.slice(pruned.length - MAX_QUEUE_ITEMS);
   }
 
-  // 3. Check total byte limit; strip all images first if still over limit
-  if (estimateQueueBytes(pruned) > MAX_QUEUE_TOTAL_BYTES) {
-    pruned = pruned.map((item) => {
-      const { imageDataUrl, imageUrl, ...rest } = item;
-      return rest;
-    });
-  }
-
-  // 4. If still over limit, drop oldest items until under limit
+  // 4. If still over byte limit, drop oldest items
   while (pruned.length > 1 && estimateQueueBytes(pruned) > MAX_QUEUE_TOTAL_BYTES) {
     pruned.shift();
   }
@@ -339,7 +337,8 @@ export const saveAssessmentLog = async (payload: AssessmentLogPayload, imageData
       const deduped = existing.filter(
         (e) => !(e.payload?.assessmentId === assessmentId && e.payload?.lastCompletedStep === payload.lastCompletedStep)
       );
-      deduped.push({ ...dataToSave, queuedAt: new Date().toISOString() });
+      const { imageDataUrl: _img, ...offlinePayload } = dataToSave;
+      deduped.push({ ...offlinePayload, queuedAt: new Date().toISOString() });
       safelySaveQueue(PENDING_LOGS_QUEUE_KEY, deduped);
     } catch {
       // Ignore storage errors
@@ -384,7 +383,8 @@ export const savePathologyAssessmentLog = async (payload: any, imageDataUrl?: st
       const deduped = existing.filter(
         (e) => !(e.assessmentId === assessmentId && e.lastCompletedStep === payload.lastCompletedStep)
       );
-      deduped.push({ ...dataToSave, queuedAt: new Date().toISOString() });
+      const { imageDataUrl: _img, imageUrl: _imgUrl, ...offlinePayload } = dataToSave;
+      deduped.push({ ...offlinePayload, queuedAt: new Date().toISOString() });
       safelySaveQueue(PENDING_PATHOLOGY_LOGS_QUEUE_KEY, deduped);
     } catch {
       // Ignore storage errors

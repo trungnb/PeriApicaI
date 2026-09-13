@@ -1,11 +1,10 @@
 import path from 'path';
 import fs from 'fs';
 import crypto from 'crypto';
-import dotenv from 'dotenv';
 import { sanitizeCredentialString, redactObjectSecrets } from '../../utils/apiKeySecurity';
 import { ensureUploadsDirectory, resolveUploadFilePath } from './storagePaths';
 
-dotenv.config();
+if (typeof process.loadEnvFile === 'function' && fs.existsSync('.env')) process.loadEnvFile();
 
 export const PORT = process.env.PORT ? parseInt(process.env.PORT, 10) || 3000 : 3000;
 

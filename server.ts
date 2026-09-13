@@ -15,7 +15,7 @@ import bugRoutes from './src/server/routes/bugRoutes';
 import pathologyRoutes from './src/server/routes/pathologyRoutes';
 import validityRoutes from './src/server/routes/validityRoutes';
 import { startPathologySnapshot } from './src/server/services/firestorePathologyService';
-import { initializeModelRegistryAsync } from './src/server/services/modelRegistryService';
+import { initializeModelManager } from './src/server/services/modelManager';
 
 function serveStaticAssets(app: express.Express, clientDistPath: string): void {
   app.use(express.static(clientDistPath, {
@@ -32,10 +32,16 @@ function serveStaticAssets(app: express.Express, clientDistPath: string): void {
   });
 }
 
-async function startServer() {
-  assertSigningSecretConfiguration();
+export function createApp(): express.Express {
   const app = express();
-  app.set('trust proxy', 1);
+  const trustProxySetting = process.env.TRUST_PROXY?.trim().toLowerCase();
+  const trustProxyHops = trustProxySetting ? Number(trustProxySetting) : NaN;
+  const trustProxy = trustProxySetting === 'true'
+    ? 1
+    : /^\d+$/.test(trustProxySetting || '') && Number.isSafeInteger(trustProxyHops)
+      ? trustProxyHops
+      : false;
+  app.set('trust proxy', trustProxy);
 
   // Enable gzip/brotli compression for fast payload delivery (bypassing SSE streams)
   app.use(
@@ -56,7 +62,7 @@ async function startServer() {
     res.setHeader('X-Content-Type-Options', 'nosniff');
     res.setHeader('Strict-Transport-Security', 'max-age=31536000; includeSubDomains');
     res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
-    res.setHeader('Content-Security-Policy', "default-src 'self'; img-src 'self' data: blob: https:; script-src 'self' 'unsafe-inline' 'unsafe-eval' blob: https://accounts.google.com; frame-src 'self' https://accounts.google.com; worker-src 'self' blob:; style-src 'self' 'unsafe-inline' https://accounts.google.com; connect-src 'self' https: ws: wss:; frame-ancestors 'self' *;");
+    res.setHeader('Content-Security-Policy', "default-src 'self'; img-src 'self' data: blob: https:; script-src 'self' blob: https://accounts.google.com; frame-src 'self' https://accounts.google.com; worker-src 'self' blob:; style-src 'self' 'unsafe-inline' https://accounts.google.com; connect-src 'self' https: ws: wss:; frame-ancestors 'self';");
     next();
   });
 
@@ -102,17 +108,24 @@ async function startServer() {
       }
       return res.status(err.status || 500).json({
         success: false,
-        error: err.message || 'Internal server error',
+        error: 'Internal server error',
       });
     }
     next();
   });
 
+  return app;
+}
+
+async function startServer() {
+  assertSigningSecretConfiguration();
+  const app = createApp();
+
   // Start background jobs & Realtime Snapshot Stream
   startCleanupJob();
   startAutoSyncJob();
   startPathologySnapshot();
-  initializeModelRegistryAsync();
+  void initializeModelManager();
 
   // Vite development middleware or production static asset serving
   const isCjsBundle = typeof __filename === 'string' && __filename.endsWith('.cjs');
@@ -151,7 +164,9 @@ async function startServer() {
   });
 }
 
-startServer().catch((err) => {
-  serverLog('ERROR', 'ServerStartupError', 'Lỗi không thể khởi chạy server', err);
-  process.exit(1);
-});
+if (process.env.NODE_ENV !== 'test') {
+  startServer().catch((err) => {
+    serverLog('ERROR', 'ServerStartupError', 'Lỗi không thể khởi chạy server', err);
+    process.exit(1);
+  });
+}

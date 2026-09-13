@@ -2,27 +2,88 @@ import { Request, Response, NextFunction } from 'express';
 import { TechniqueType, ReceptorType, ToothInfo } from '../../types/dental';
 import { ALL_TEETH, getToothDisplayName } from '../../data/taxonomyData';
 
-// Check if a string is a valid Base64 encoded image
-export function isValidBase64Image(str: string): boolean {
-  if (!str || typeof str !== 'string') return false;
+const MAX_DECODED_IMAGE_BYTES = 10 * 1024 * 1024; // 10MB decoded limit
+
+export function detectImageMagicMime(buffer: Buffer): 'image/jpeg' | 'image/png' | 'image/webp' | null {
+  if (buffer.length < 12) return null;
+  // JPEG: FF D8 FF
+  if (buffer[0] === 0xff && buffer[1] === 0xd8 && buffer[2] === 0xff) {
+    return 'image/jpeg';
+  }
+  // PNG: 89 50 4E 47 0D 0A 1A 0A
+  if (
+    buffer[0] === 0x89 && buffer[1] === 0x50 && buffer[2] === 0x4e && buffer[3] === 0x47 &&
+    buffer[4] === 0x0d && buffer[5] === 0x0a && buffer[6] === 0x1a && buffer[7] === 0x0a
+  ) {
+    return 'image/png';
+  }
+  // WebP: RIFF .... WEBP
+  if (
+    buffer[0] === 0x52 && buffer[1] === 0x49 && buffer[2] === 0x46 && buffer[3] === 0x46 &&
+    buffer[8] === 0x57 && buffer[9] === 0x45 && buffer[10] === 0x42 && buffer[11] === 0x50
+  ) {
+    return 'image/webp';
+  }
+  return null;
+}
+
+export interface ValidatedImageInfo {
+  cleanBase64: string;
+  mimeType: 'image/jpeg' | 'image/png' | 'image/webp';
+}
+
+/** Extract base64 image data, inspect true magic bytes, and enforce MIME matching. */
+export function extractAndValidateImage(input: string, explicitMime?: string): ValidatedImageInfo | null {
+  if (!input || typeof input !== 'string') return null;
   
-  // Strip potential data URL prefix safely
-  let cleanStr = str.trim();
+  let cleanStr = input.trim();
+  let prefixMime: string | null = null;
   if (cleanStr.startsWith('data:')) {
-    const parts = cleanStr.split(';base64,');
-    if (parts.length >= 2) {
-      cleanStr = parts.slice(1).join(';base64,');
+    const match = cleanStr.match(/^data:(image\/[a-zA-Z0-9+.-]+);base64,/i);
+    if (match) {
+      prefixMime = match[1].toLowerCase();
+      cleanStr = cleanStr.slice(match[0].length);
     } else {
-      cleanStr = cleanStr.replace(/^data:image\/[^;]+;base64,/, '');
+      const parts = cleanStr.split(';base64,');
+      if (parts.length >= 2) {
+        cleanStr = parts.slice(1).join(';base64,');
+      } else {
+        cleanStr = cleanStr.replace(/^data:image\/[^;]+;base64,/i, '');
+      }
     }
   }
   
   cleanStr = cleanStr.replace(/[\r\n\s]/g, '');
-  if (cleanStr.length < 50) return false;
+  if (cleanStr.length < 50) return null;
 
   // Base64 regex supporting standard and URL-safe base64 characters
   const base64Regex = /^[A-Za-z0-9+/=\-_]+$/;
-  return base64Regex.test(cleanStr);
+  if (!base64Regex.test(cleanStr)) return null;
+
+  // Approximate decoded size check before Buffer allocation
+  const estimatedBytes = (cleanStr.length * 3) / 4;
+  if (estimatedBytes > MAX_DECODED_IMAGE_BYTES) return null;
+
+  try {
+    const buffer = Buffer.from(cleanStr, 'base64');
+    if (buffer.length > MAX_DECODED_IMAGE_BYTES) return null;
+    const detectedMime = detectImageMagicMime(buffer);
+    if (!detectedMime) return null;
+
+    const declared = (prefixMime || explicitMime || '').trim().toLowerCase();
+    if (declared) {
+      const normDeclared = declared === 'image/jpg' ? 'image/jpeg' : declared;
+      if (normDeclared !== detectedMime) return null;
+    }
+    return { cleanBase64: cleanStr, mimeType: detectedMime };
+  } catch {
+    return null;
+  }
+}
+
+// Check if a string is a valid Base64 encoded image (JPEG, PNG, or WebP) with genuine magic bytes
+export function isValidBase64Image(str: string, explicitMime?: string): boolean {
+  return extractAndValidateImage(str, explicitMime) !== null;
 }
 
 // ─── Canonical Production Enumerations (Units R3-B & R3-C) ────

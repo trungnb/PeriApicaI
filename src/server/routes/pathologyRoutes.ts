@@ -16,12 +16,12 @@ import {
 } from '../services/firestorePathologyService';
 import { adminAuth } from './authRoutes';
 import { serverLog } from '../config/env';
-import { validatePathologySegment } from '../middleware/validation';
+import { validatePathologySegment, extractAndValidateImage } from '../middleware/validation';
 import { requireUsableApiKeyMode } from '../middleware/apiKeyMode';
 import { requireValidityReceipt } from '../middleware/validityReceipt';
 import { ExecutionBudget, getApiKeySources } from '../services/geminiService';
-import { getOrCreateAssessmentSnapshot } from '../services/assessmentModelSnapshot';
-import '../services/modelResolverService';
+import { discoverAvailableVisionModels, getOrCreateAssessmentSnapshot } from '../services/modelManager';
+import { digestValidityImage } from '../services/validityReceipt';
 
 import { generalActionLimiter } from '../config/limiter';
 import { bindCancellationLifecycle } from '../utils/lifecycle';
@@ -43,8 +43,11 @@ router.post('/api/segment-pathology', requireUsableApiKeyMode, validatePathology
   bindCancellationLifecycle(res, controller, deadlineTimer);
 
   try {
-    const { imageBase64, mimeType, toothFdi, language, selectedModel, analysisMode, selectedModelB } = req.body;
+    const { imageBase64, mimeType: declaredMime, toothFdi, language, selectedModel, analysisMode, selectedModelB } = req.body;
     const { apiKeyOption, customApiKey } = res.locals.apiKeyMode;
+    const effectiveCustomKey = apiKeyOption === 'custom' ? customApiKey : undefined;
+
+    await discoverAvailableVisionModels(effectiveCustomKey);
 
     const assessmentId = req.body.assessmentId || res.locals.validityReceipt?.assessmentId;
     const snapshot = getOrCreateAssessmentSnapshot(
@@ -54,7 +57,8 @@ router.post('/api/segment-pathology', requireUsableApiKeyMode, validatePathology
             pathology_branch_a: selectedModel,
             pathology_branch_b: selectedModelB,
           }
-        : undefined
+        : undefined,
+      effectiveCustomKey
     );
 
     const roleA = snapshot.roles.pathology_branch_a;
@@ -67,19 +71,22 @@ router.post('/api/segment-pathology', requireUsableApiKeyMode, validatePathology
       return res.status(400).json({ error: 'Missing imageBase64 or toothFdi' });
     }
 
+    const imageInfo = extractAndValidateImage(imageBase64, declaredMime);
+    if (!imageInfo) {
+      clearTimeout(deadlineTimer);
+      return res.status(400).json({ error: 'Corrupted or invalid Base64 image encoding or mismatched MIME type' });
+    }
+
+    const { cleanBase64, mimeType: cleanMime } = imageInfo;
+
     const rawLang = String(language || req.body.outputLanguage || '');
     const isEn = rawLang.toUpperCase() === 'EN' || rawLang.toLowerCase() === 'english';
     const outputLanguage = isEn ? 'EN' : 'VI';
 
-    let cleanBase64 = imageBase64;
-    let cleanMime = mimeType || 'image/jpeg';
-    if (typeof imageBase64 === 'string' && imageBase64.startsWith('data:')) {
-      const match = imageBase64.match(/^data:([^;]+);base64,(.+)$/);
-      if (match) { cleanMime = match[1]; cleanBase64 = match[2]; }
-    }
-
     const cacheKey = crypto
       .createHash('sha256')
+      .update(String(assessmentId || ''))
+      .update(String(snapshot.ladderRevision || ''))
       .update(cleanBase64)
       .update(String(toothFdi || ''))
       .update(String(outputLanguage || ''))
@@ -127,6 +134,8 @@ router.post('/api/segment-pathology', requireUsableApiKeyMode, validatePathology
     );
     const apiStart = Date.now();
 
+    const imageDigest = res.locals.validityReceipt?.imageDigest || digestValidityImage(cleanBase64) || undefined;
+
     const segResult = await segmentPathologyWithGemini(
       cleanBase64,
       cleanMime,
@@ -140,6 +149,7 @@ router.post('/api/segment-pathology', requireUsableApiKeyMode, validatePathology
       budget,
       {
         assessmentId,
+        imageDigest,
         roleA,
         roleB,
       }
@@ -216,7 +226,7 @@ router.post('/api/segment-pathology', requireUsableApiKeyMode, validatePathology
       isQuotaExhausted,
       systemApiAvailable: getApiKeySources().length > 0,
       userMessage,
-      error: segResult.error ?? 'Segmentation failed'
+      error: 'Segmentation failed'
     })}\n\n`);
     res.write('data: [DONE]\n\n');
     return res.end();
@@ -224,7 +234,11 @@ router.post('/api/segment-pathology', requireUsableApiKeyMode, validatePathology
     clearTimeout(deadlineTimer);
     if (isTerminalExecutionError(err)) {
       if (!res.destroyed) {
-        const payload = { success: false, errorType: err.code || 'CANCELLED', error: err.message };
+        const payload = {
+          success: false,
+          errorType: err.code || 'CANCELLED',
+          error: err.code === 'EXECUTION_DEADLINE' ? 'Request timed out' : 'Request cancelled',
+        };
         if (res.headersSent) { res.write(`data: ${JSON.stringify(payload)}\n\n`); res.end(); }
         else res.status(err.code === 'EXECUTION_DEADLINE' ? 504 : 499).json(payload);
       }
@@ -295,7 +309,7 @@ router.post('/api/verify-pathology', adminAuth, async (req: Request, res: Respon
     return res.json({ success: true, ...result });
   } catch (err: any) {
     serverLog('ERROR', 'PathologyAPI', 'Failed to verify pathology log', err);
-    return res.status(500).json({ success: false, error: err?.message || 'Failed to verify pathology log' });
+    return res.status(500).json({ success: false, error: 'Failed to verify pathology log' });
   }
 });
 

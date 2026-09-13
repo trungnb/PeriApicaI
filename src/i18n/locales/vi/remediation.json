@@ -16,5 +16,8 @@
   "notesLabel": "Ghi chú Lâm sàng / Nhận xét của Giảng viên:",
   "notesPlaceholder": "Nhập nhận định thêm, ví dụ: Bệnh nhân vòm miệng sâu, cần lót gạc vào khối cắn...",
   "backToAnalysis": "Quay lại Phân tích & Xác minh",
-  "finishAndReturnHome": "Kết thúc phiên & Trở về Trang chủ"
+  "finishAndReturnHome": "Kết thúc phiên & Trở về Trang chủ",
+  "imagingTechnique": "Kỹ thuật chụp",
+  "receptorType": "Bộ nhận ảnh",
+  "targetTooth": "Răng mục tiêu"
 }

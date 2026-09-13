@@ -152,15 +152,11 @@ export interface EvaluationExportBundle {
 export const TECHNICAL_EVALUATION_CLASS_KEYS = TAXONOMY_ERRORS.map((item) => item.key);
 export const PATHOLOGY_EVALUATION_CLASS_KEYS = [...CANONICAL_PATHOLOGY_KEYS];
 
-function clone<T>(value: T): T {
-  return structuredClone(value);
-}
-
 function contextFrom(record: AssessmentLogPayload | PathologyAssessmentLog): EvaluationCaseContext {
   return {
     assessmentId: record.assessmentId,
     timestamp: record.timestamp,
-    tooth: clone(record.tooth),
+    tooth: structuredClone(record.tooth),
     technique: record.technique,
     receptorType: record.receptorType,
     ...(record.sessionStatus === undefined ? {} : { sessionStatus: record.sessionStatus }),
@@ -216,11 +212,11 @@ export function exportTechnicalEvaluationRecord(record: AssessmentLogPayload): T
     disposition,
     ...eligibility(disposition),
     inferenceLineage: inferenceLineageForEvaluation(aiPrediction?.inferenceLineage),
-    ...(record.validityAudit === undefined ? {} : { validityAudit: clone(record.validityAudit) }),
+    ...(record.validityAudit === undefined ? {} : { validityAudit: structuredClone(record.validityAudit) }),
     aiPredictionSnapshot: {
       overallQuality: aiPrediction.overallQuality,
       findings: technicalAiFindings(aiPrediction),
-      ...(aiPrediction.consensusMeta === undefined ? {} : { consensusMeta: clone(aiPrediction.consensusMeta) }),
+      ...(aiPrediction.consensusMeta === undefined ? {} : { consensusMeta: structuredClone(aiPrediction.consensusMeta) }),
     },
     ...(reviewed ? {
       humanReview: {
@@ -228,7 +224,7 @@ export function exportTechnicalEvaluationRecord(record: AssessmentLogPayload): T
         version: evaluation.currentReview!.version,
         reviewerId: evaluation.currentReview!.reviewerId,
         reviewedAt: evaluation.currentReview!.reviewedAt,
-        finalClassKeys: clone(finalClassKeys),
+        finalClassKeys: structuredClone(finalClassKeys),
         ...(evaluation.currentReview!.notes === undefined ? {} : { notes: evaluation.currentReview!.notes }),
       },
     } : {}),
@@ -236,7 +232,7 @@ export function exportTechnicalEvaluationRecord(record: AssessmentLogPayload): T
       version: review.version,
       reviewerId: review.reviewerId,
       reviewedAt: review.reviewedAt,
-      finalClassKeys: clone(review.finalClassKeys),
+      finalClassKeys: structuredClone(review.finalClassKeys),
       ...(review.notes === undefined ? {} : { notes: review.notes }),
     })),
   };
@@ -251,8 +247,8 @@ function exportLesion(
     origin,
     classKey: finding.pathologyKey,
     confidence: finding.confidence,
-    bbox: clone(finding.bbox),
-    ...(finding.polygonPoints === undefined ? {} : { polygonPoints: clone(finding.polygonPoints) }),
+    bbox: structuredClone(finding.bbox),
+    ...(finding.polygonPoints === undefined ? {} : { polygonPoints: structuredClone(finding.polygonPoints) }),
     ...(finding.geometryStatus === undefined ? {} : { geometryStatus: finding.geometryStatus }),
     ...(finding.pixelArea === undefined ? {} : { pixelArea: finding.pixelArea }),
   };
@@ -280,7 +276,7 @@ export function exportPathologyEvaluationRecord(record: PathologyAssessmentLog):
     disposition,
     ...eligibility(disposition),
     inferenceLineage: inferenceLineageForEvaluation(record.inferenceLineage),
-    ...(record.validityAudit === undefined ? {} : { validityAudit: clone(record.validityAudit) }),
+    ...(record.validityAudit === undefined ? {} : { validityAudit: structuredClone(record.validityAudit) }),
     aiPredictionSnapshot: {
       lesions: evaluation.aiPredictionSnapshot.map((finding) => exportLesion(finding, 'ai')),
     },

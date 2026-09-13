@@ -18,9 +18,19 @@ router.post('/api/report-bug', generalActionLimiter, async (req: Request, res: R
     const cleanDescription = typeof rawData.description === 'string'
       ? sanitizeCredentialString(rawData.description.substring(0, 5000))
       : 'Không có mô tả';
-    const cleanErrorDetails = rawData.errorDetails
-      ? redactObjectSecrets(JSON.parse(JSON.stringify(rawData.errorDetails)))
-      : null;
+
+    let cleanErrorDetails: Record<string, any> | null = null;
+    if (rawData.errorDetails && typeof rawData.errorDetails === 'object') {
+      try {
+        const serialized = JSON.stringify(rawData.errorDetails);
+        if (serialized.length > 64 * 1024) {
+          return res.status(400).json({ success: false, error: 'errorDetails exceeds maximum allowed size (64KB)' });
+        }
+        cleanErrorDetails = redactObjectSecrets(rawData.errorDetails);
+      } catch {
+        return res.status(400).json({ success: false, error: 'Invalid errorDetails object' });
+      }
+    }
 
     const bugData = {
       description: cleanDescription,
@@ -36,7 +46,7 @@ router.post('/api/report-bug', generalActionLimiter, async (req: Request, res: R
     return res.json(result);
   } catch (err: any) {
     if (!res.headersSent) {
-      return res.status(500).json({ error: 'Failed to report bug', details: err?.message });
+      return res.status(500).json({ error: 'Failed to report bug' });
     }
   }
 });
@@ -44,7 +54,8 @@ router.post('/api/report-bug', generalActionLimiter, async (req: Request, res: R
 // Endpoint: Retrieve bug logs (admin-protected)
 router.get('/api/bugs', adminAuth, async (req: Request, res: Response) => {
   try {
-    const limit = req.query.limit ? Math.min(parseInt(String(req.query.limit), 10), 500) : undefined;
+    const rawLimit = parseInt(String(req.query.limit || ''), 10);
+    const limit = Number.isInteger(rawLimit) && rawLimit > 0 ? Math.min(Math.max(1, rawLimit), 500) : undefined;
     const storageAdapter = getStorageAdapter();
     const bugs = await storageAdapter.getBugs(limit);
     return res.json({
@@ -54,7 +65,7 @@ router.get('/api/bugs', adminAuth, async (req: Request, res: Response) => {
       bugs,
     });
   } catch (err: any) {
-    return res.json({ success: false, error: err.message });
+    return res.status(500).json({ success: false, error: 'Failed to fetch bugs' });
   }
 });
 

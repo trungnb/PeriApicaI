@@ -5,10 +5,6 @@ import type {
   PathologyReviewVersion,
 } from '../types/dental';
 
-function clone<T>(value: T): T {
-  return structuredClone(value);
-}
-
 function hasLesionId(value: unknown): value is string {
   return typeof value === 'string' && value.trim().length > 0;
 }
@@ -23,9 +19,9 @@ function issueLegacyLesionId(): string {
  */
 export function materializePathologyEvaluationLesionIds(evaluation: PathologyEvaluationData): PathologyEvaluationData {
   return {
-    ...clone(evaluation),
+    ...structuredClone(evaluation),
     aiPredictionSnapshot: evaluation.aiPredictionSnapshot.map((detection) => ({
-      ...clone(detection),
+      ...structuredClone(detection),
       ...(hasLesionId(detection.id) ? {} : { id: issueLegacyLesionId() }),
     })),
   };
@@ -35,7 +31,7 @@ export function materializePathologyEvaluationLesionIds(evaluation: PathologyEva
 export function createUnreviewedPathologyEvaluation(detections: AIDetection[]): PathologyEvaluationData {
   return {
     schemaVersion: 1,
-    aiPredictionSnapshot: clone(detections),
+    aiPredictionSnapshot: structuredClone(detections),
     reviewState: 'unreviewed',
     reviewHistory: [],
   };
@@ -48,14 +44,14 @@ export function createUnreviewedPathologyEvaluation(detections: AIDetection[]): 
 export function readPathologyEvaluation(record: Partial<PathologyAssessmentLog> & Record<string, any>): PathologyEvaluationData {
   const existing = record.pathologyEvaluation as PathologyEvaluationData | undefined;
   if (existing?.schemaVersion === 1 && Array.isArray(existing.aiPredictionSnapshot) && Array.isArray(existing.reviewHistory)) {
-    return clone(existing);
+    return structuredClone(existing);
   }
 
-  const aiPredictionSnapshot = clone(Array.isArray(record.detectedPathologies) ? record.detectedPathologies : []);
+  const aiPredictionSnapshot = structuredClone(Array.isArray(record.detectedPathologies) ? record.detectedPathologies : []);
   const legacyReviewed = Boolean(record.isReviewedByAdmin || record.verifiedBy || record.verifiedAt);
   if (!legacyReviewed) return createUnreviewedPathologyEvaluation(aiPredictionSnapshot);
 
-  const finalFindings = clone(
+  const finalFindings = structuredClone(
     Array.isArray(record.finalConfirmedPathologies)
       ? record.finalConfirmedPathologies
       : Array.isArray(record.confirmedPathologies)
@@ -74,7 +70,7 @@ export function readPathologyEvaluation(record: Partial<PathologyAssessmentLog> 
     schemaVersion: 1,
     aiPredictionSnapshot,
     reviewState: 'reviewed',
-    currentReview: clone(review),
+    currentReview: structuredClone(review),
     reviewHistory: [review],
   };
 }
@@ -84,22 +80,22 @@ export function appendPathologyReview(
   evaluation: PathologyEvaluationData,
   input: Omit<PathologyReviewVersion, 'version' | 'reviewed'>,
 ): PathologyEvaluationData {
-  const history = clone(evaluation.reviewHistory || []);
+  const history = structuredClone(evaluation.reviewHistory || []);
   const version = history.reduce((highest, review) => Math.max(highest, review.version), 0) + 1;
   const review: PathologyReviewVersion = {
     version,
     reviewed: true,
     reviewerId: input.reviewerId,
     reviewedAt: input.reviewedAt,
-    finalFindings: clone(input.finalFindings),
+    finalFindings: structuredClone(input.finalFindings),
     ...(input.notes === undefined ? {} : { notes: input.notes }),
   };
   history.push(review);
   return {
     schemaVersion: 1,
-    aiPredictionSnapshot: clone(evaluation.aiPredictionSnapshot),
+    aiPredictionSnapshot: structuredClone(evaluation.aiPredictionSnapshot),
     reviewState: 'reviewed',
-    currentReview: clone(review),
+    currentReview: structuredClone(review),
     reviewHistory: history,
   };
 }

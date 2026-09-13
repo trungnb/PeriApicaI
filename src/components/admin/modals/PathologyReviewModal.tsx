@@ -14,7 +14,6 @@ import {
 import { PathologyAssessmentLog, Language, ConfirmedPathology } from '../../../types/dental';
 import { formatDisplayTimestamp } from '../../../utils/dateUtils';
 import { verifyPathologyAssessmentLog } from '../../../services/apiService';
-import { imageBlobCache } from '../../../utils/imageBlobCache';
 import { useMetadataStore } from '../../../store/useMetadataStore';
 import { mergeReviewCandidates, selectReviewFindingsById } from '../../../utils/pathologyReviewWorkflow';
 
@@ -52,9 +51,7 @@ export const PathologyReviewModal: React.FC<PathologyReviewModalProps> = ({
       return;
     }
 
-    // Resolve image from cache if available in current session
-    const cached = imageBlobCache.get(selectedLog.assessmentId);
-    const resolvedImageUrl = selectedLog.imageUrl || cached?.dataUrl || cached?.blobUrl || (selectedLog as any).imageDataUrl;
+    const resolvedImageUrl = selectedLog.imageUrl || (selectedLog as any).imageDataUrl;
 
     setModalLog({
       ...selectedLog,

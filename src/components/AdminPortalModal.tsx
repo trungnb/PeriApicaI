@@ -4,7 +4,6 @@ import { useAdminData } from './admin/hooks/useAdminData';
 import { useAdminDelete } from './admin/hooks/useAdminDelete';
 import { useTranslation } from 'react-i18next';
 import React, { useState, useEffect, useCallback, useRef, Suspense, lazy } from 'react';
-import { motion, AnimatePresence } from 'motion/react';
 import { X, ShieldCheck, BarChart2, Bug, LogOut, Flame, RefreshCw, Trash2, Loader2, Activity, Microscope } from 'lucide-react';
 import { useAppStore } from '../store/appStore';
 import { useMetadataStore } from '../store/useMetadataStore';
@@ -233,16 +232,12 @@ export const AdminPortalModal: React.FC = () => {
 
 
   return (
-    <AnimatePresence>
+    <>
       {isOpen && (
         <div className="fixed inset-0 z-[70] flex items-center justify-center p-1 sm:p-4 overflow-y-auto">
           {/* Animated Backdrop */}
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            transition={{ duration: 0.2, ease: 'easeOut' }}
-            className="fixed inset-0 bg-slate-950/80 backdrop-blur-sm"
+          <div
+            className="fixed inset-0 bg-slate-950/80 backdrop-blur-sm transition-all duration-200 opacity-100 animate-in fade-in"
             onClick={() => {
               if (!isDeleteModalOpen) {
                 handleClose();
@@ -251,18 +246,11 @@ export const AdminPortalModal: React.FC = () => {
           />
 
           {/* Animated Modal Dialog */}
-          <motion.div
-            initial={{ opacity: 0, scale: 0.95, y: 12 }}
-            animate={{ opacity: 1, scale: 1, y: 0 }}
-            exit={{ opacity: 0, scale: 0.96, y: 8 }}
-            transition={{
-              duration: 0.24,
-              ease: [0.16, 1, 0.3, 1]
-            }}
+          <div
             role="dialog"
             aria-modal="true"
             aria-labelledby="admin-portal-modal-title"
-            className={`relative bg-white dark:bg-slate-900 rounded-2xl ${isAuthenticated ? 'max-w-7xl h-[calc(100dvh-8px)] sm:h-[92vh] max-h-[calc(100dvh-8px)] sm:max-h-[92vh]' : 'max-w-md max-h-[calc(100dvh-16px)] overflow-y-auto'} w-full border border-slate-200/90 dark:border-slate-800 shadow-2xl overflow-hidden my-auto flex flex-col z-10 transition-[max-width,height] duration-200`}
+            className={`relative bg-white dark:bg-slate-900 rounded-2xl ${isAuthenticated ? 'max-w-7xl h-[calc(100dvh-8px)] sm:h-[92vh] max-h-[calc(100dvh-8px)] sm:max-h-[92vh]' : 'max-w-md max-h-[calc(100dvh-16px)] overflow-y-auto'} w-full border border-slate-200/90 dark:border-slate-800 shadow-2xl overflow-hidden my-auto flex flex-col z-10 transition-all duration-200 opacity-100 animate-in fade-in zoom-in-95 slide-in-from-bottom-3`}
             onClick={(e) => e.stopPropagation()}
           >
             {!isOnline && (
@@ -793,10 +781,10 @@ export const AdminPortalModal: React.FC = () => {
             <span>{toastNotification.message}</span>
           </div>
         )}
-          </motion.div>
+          </div>
         </div>
       )}
-    </AnimatePresence>
+    </>
   );
 };
 

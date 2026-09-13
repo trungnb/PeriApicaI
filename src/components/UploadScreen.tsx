@@ -149,13 +149,15 @@ export const UploadScreen: React.FC = React.memo(() => {
                 : t('uploadRadiograph')}
             </h3>
 
-            {/* Hidden File Inputs */}
+            {/* Hidden File Inputs (completely hidden and off-screen to avoid browser fallback text leaks) */}
             <input
               type="file"
               ref={fileInputRef}
               onChange={handleFileChange}
               accept="image/png, image/jpeg, image/jpg, image/webp"
-              className="hidden"
+              className="sr-only hidden opacity-0 pointer-events-none absolute -top-[9999px] -left-[9999px] w-0 h-0"
+              tabIndex={-1}
+              aria-hidden="true"
             />
             <input
               type="file"
@@ -163,7 +165,9 @@ export const UploadScreen: React.FC = React.memo(() => {
               onChange={handleFileChange}
               accept="image/png, image/jpeg, image/jpg, image/webp"
               capture="environment"
-              className="hidden"
+              className="sr-only hidden opacity-0 pointer-events-none absolute -top-[9999px] -left-[9999px] w-0 h-0"
+              tabIndex={-1}
+              aria-hidden="true"
             />
 
             {!imageDataUrl ? (

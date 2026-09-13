@@ -5,10 +5,6 @@ import type {
   TechnicalReviewVersion,
 } from '../types/dental';
 
-function clone<T>(value: T): T {
-  return structuredClone(value);
-}
-
 function hasStoredEvaluation(value: unknown): value is TechnicalEvaluationData {
   const candidate = value as TechnicalEvaluationData | undefined;
   return candidate?.schemaVersion === 1
@@ -33,7 +29,7 @@ function isInvalid(record: Partial<AssessmentLogPayload>): boolean {
 export function createUnreviewedTechnicalEvaluation(aiAnalysis: AIAnalysisResult): TechnicalEvaluationData {
   return {
     schemaVersion: 1,
-    aiPredictionSnapshot: clone(aiAnalysis),
+    aiPredictionSnapshot: structuredClone(aiAnalysis),
     reviewState: 'unreviewed',
     reviewHistory: [],
   };
@@ -48,10 +44,10 @@ export function readTechnicalEvaluation(
   record: Partial<AssessmentLogPayload> & Record<string, any>,
 ): TechnicalEvaluationData {
   if (hasStoredEvaluation(record.technicalEvaluation)) {
-    return clone(record.technicalEvaluation);
+    return structuredClone(record.technicalEvaluation);
   }
 
-  const evaluation = createUnreviewedTechnicalEvaluation(clone(record.aiAnalysis));
+  const evaluation = createUnreviewedTechnicalEvaluation(structuredClone(record.aiAnalysis));
   const legacyReviewed = !isInvalid(record)
     && (Boolean(record.verifiedAt || record.verifiedBy) || isCompleted(record));
   if (!legacyReviewed) return evaluation;
@@ -65,7 +61,7 @@ export function readTechnicalEvaluation(
         ? record.userId
         : 'reviewer-unavailable:legacy-record',
     reviewedAt: String(record.verifiedAt || record.updatedAt || record.timestamp || ''),
-    finalClassKeys: clone((record.finalConfirmedErrors || []).filter((key: string) => key !== 'not_periapical')),
+    finalClassKeys: structuredClone((record.finalConfirmedErrors || []).filter((key: string) => key !== 'not_periapical')),
     ...(typeof record.verifiedNotes === 'string'
       ? { notes: record.verifiedNotes }
       : typeof record.userValidation?.userNotes === 'string'
@@ -77,7 +73,7 @@ export function readTechnicalEvaluation(
   return {
     ...evaluation,
     reviewState: 'reviewed',
-    currentReview: clone(review),
+    currentReview: structuredClone(review),
     reviewHistory: [review],
   };
 }
@@ -87,22 +83,22 @@ export function appendTechnicalReview(
   evaluation: TechnicalEvaluationData,
   input: Omit<TechnicalReviewVersion, 'version' | 'reviewed'>,
 ): TechnicalEvaluationData {
-  const history = clone(evaluation.reviewHistory || []);
+  const history = structuredClone(evaluation.reviewHistory || []);
   const version = history.reduce((highest, review) => Math.max(highest, review.version), 0) + 1;
   const review: TechnicalReviewVersion = {
     version,
     reviewed: true,
     reviewerId: input.reviewerId,
     reviewedAt: input.reviewedAt,
-    finalClassKeys: clone(input.finalClassKeys),
+    finalClassKeys: structuredClone(input.finalClassKeys),
     ...(input.notes === undefined ? {} : { notes: input.notes }),
   };
   history.push(review);
   return {
     schemaVersion: 1,
-    aiPredictionSnapshot: clone(evaluation.aiPredictionSnapshot),
+    aiPredictionSnapshot: structuredClone(evaluation.aiPredictionSnapshot),
     reviewState: 'reviewed',
-    currentReview: clone(review),
+    currentReview: structuredClone(review),
     reviewHistory: history,
   };
 }
@@ -116,21 +112,21 @@ export function mergeTechnicalEvaluation(
   previousRecord: (Partial<AssessmentLogPayload> & Record<string, any>) | undefined,
   incoming: TechnicalEvaluationData | undefined,
 ): TechnicalEvaluationData | undefined {
-  if (!previousRecord?.technicalEvaluation) return incoming ? clone(incoming) : undefined;
+  if (!previousRecord?.technicalEvaluation) return incoming ? structuredClone(incoming) : undefined;
   const previous = readTechnicalEvaluation(previousRecord);
   if (!incoming) return previous;
 
   const previousHasLineage = previous.aiPredictionSnapshot.inferenceLineage?.status === 'available';
   const incomingHasLineage = incoming.aiPredictionSnapshot.inferenceLineage?.status === 'available';
   const aiPredictionSnapshot = !previousHasLineage && incomingHasLineage
-    ? clone(incoming.aiPredictionSnapshot)
-    : clone(previous.aiPredictionSnapshot);
+    ? structuredClone(incoming.aiPredictionSnapshot)
+    : structuredClone(previous.aiPredictionSnapshot);
 
   if (previous.reviewState === 'reviewed') {
     return { ...previous, aiPredictionSnapshot };
   }
   return {
-    ...clone(incoming),
+    ...structuredClone(incoming),
     aiPredictionSnapshot,
   };
 }

@@ -4,11 +4,13 @@ import {
   isValidReceptor,
   isValidTechnique,
 } from './validation';
+import { CANONICAL_TECHNICAL_KEYS_SET } from '../../data/taxonomyData';
 import { CANONICAL_PATHOLOGY_KEYS } from '../../utils/semanticValidation';
 import { appendPathologyReview, createUnreviewedPathologyEvaluation } from '../../utils/pathologyEvaluation';
 import { createUnreviewedTechnicalEvaluation } from '../../utils/technicalEvaluation';
-import { verifyAttestedInferenceLineage } from '../services/inferenceLineage';
+import { verifyAttestedInferenceLineage, computeTechnicalResultDigest, computePathologyResultDigest } from '../services/inferenceLineage';
 import { verifyAttestedValidityAudit } from '../services/validityAudit';
+import { digestValidityImage } from '../services/validityReceipt';
 import type { AIAnalysisResult, InferenceModality } from '../../types/dental';
 
 const MAX_ID_LENGTH = 100;
@@ -195,10 +197,14 @@ function parseImageDataUrl(value: unknown): string | undefined {
 
 function parseTechnicalError(value: unknown, index: number) {
   const error = objectValue(value, `detectedErrors[${index}]`);
+  const errorKey = requiredString(error.errorKey, `detectedErrors[${index}].errorKey`, 100);
+  if (!CANONICAL_TECHNICAL_KEYS_SET.has(errorKey)) {
+    fail(`detectedErrors[${index}].errorKey is not a recognized canonical error.`);
+  }
   const provenance = optionalString(error.provenance, `detectedErrors[${index}].provenance`, 40);
   if (provenance !== undefined && !PROVENANCE_VALUES.has(provenance)) fail('Technical provenance is invalid.');
   return {
-    errorKey: requiredString(error.errorKey, `detectedErrors[${index}].errorKey`, 100),
+    errorKey,
     errorName: requiredString(error.errorName, `detectedErrors[${index}].errorName`, MAX_SHORT_TEXT_LENGTH),
     confidence: finiteNumber(error.confidence, `detectedErrors[${index}].confidence`, 0, 100),
     ...(error.modelAScore === undefined ? {} : { modelAScore: finiteNumber(error.modelAScore, 'modelAScore', 0, 100) }),
@@ -276,9 +282,15 @@ function parseTechnicalAnalysis(value: unknown): AIAnalysisResult {
 function parseUserValidation(value: unknown) {
   const validation = objectValue(value, 'userValidation');
   if (typeof validation.concurred !== 'boolean') fail('userValidation.concurred must be a boolean.');
+  const overriddenErrors = stringArray(validation.overriddenErrors, 'userValidation.overriddenErrors', 50);
+  for (const errKey of overriddenErrors) {
+    if (!CANONICAL_TECHNICAL_KEYS_SET.has(errKey)) {
+      fail('userValidation.overriddenErrors contains an invalid error key.');
+    }
+  }
   return {
     concurred: validation.concurred,
-    overriddenErrors: stringArray(validation.overriddenErrors, 'userValidation.overriddenErrors', 50),
+    overriddenErrors,
     ...(validation.userNotes === undefined
       ? {}
       : { userNotes: optionalString(validation.userNotes, 'userValidation.userNotes', MAX_TEXT_LENGTH) }),
@@ -374,25 +386,76 @@ export function parsePublicTechnicalSaveDto(body: unknown, serverTimestamp = new
   const imageDataUrl = parseImageDataUrl(envelope.imageDataUrl);
   const shareConsent = parseConsent(payload.shareConsent);
   const aiAnalysis = parseTechnicalAnalysis(payload.aiAnalysis);
+
+  if (!aiAnalysis.inferenceLineage) {
+    fail('Public technical assessment requires a valid attested inference lineage envelope.');
+  }
+  if (!aiAnalysis.validityAudit) {
+    fail('Public technical assessment requires a valid attested validity audit envelope.');
+  }
+
+  const assessmentId = parseAssessmentId(payload.assessmentId);
+
+  if (!aiAnalysis.validityAudit.assessmentId || aiAnalysis.validityAudit.assessmentId !== assessmentId) {
+    fail('Validity audit assessment ID does not match assessment ID.');
+  }
+  if (!aiAnalysis.inferenceLineage.assessmentId || aiAnalysis.inferenceLineage.assessmentId !== assessmentId) {
+    fail('Inference lineage assessment ID does not match assessment ID.');
+  }
+  if (aiAnalysis.inferenceLineage.sourceImageDigest && aiAnalysis.inferenceLineage.sourceImageDigest !== aiAnalysis.validityAudit.sourceImageDigest) {
+    fail('Inference lineage image digest does not match validity audit image digest.');
+  }
+  if (aiAnalysis.inferenceLineage.resultDigest) {
+    const computedDigest = computeTechnicalResultDigest(aiAnalysis.findings, aiAnalysis.overallQuality);
+    if (computedDigest !== aiAnalysis.inferenceLineage.resultDigest) {
+      fail('Analysis findings do not match attested inference lineage result digest.');
+    }
+  }
+
+  const tooth = parseTooth(payload.tooth);
+  const technique = parseTechnique(payload.technique);
+  const receptorType = parseReceptor(payload.receptorType);
+
+  if (aiAnalysis.validityAudit.targetFdi !== tooth.fdiNumber) {
+    fail('Validity audit target FDI does not match assessment tooth FDI.');
+  }
+  if (aiAnalysis.validityAudit.technique !== technique) {
+    fail('Validity audit technique does not match assessment technique.');
+  }
+  if (aiAnalysis.validityAudit.receptorType !== receptorType) {
+    fail('Validity audit receptorType does not match assessment receptorType.');
+  }
+  if (imageDataUrl) {
+    const computedDigest = digestValidityImage(imageDataUrl);
+    if (computedDigest && computedDigest !== aiAnalysis.validityAudit.sourceImageDigest) {
+      fail('Image digest does not match attested validity audit.');
+    }
+  }
+
+  const rawFinalErrors = stringArray(payload.finalConfirmedErrors, 'finalConfirmedErrors', 50);
+  for (const errKey of rawFinalErrors) {
+    if (!CANONICAL_TECHNICAL_KEYS_SET.has(errKey)) {
+      fail('finalConfirmedErrors contains an invalid error key.');
+    }
+  }
+
   const record = {
-    assessmentId: parseAssessmentId(payload.assessmentId),
+    assessmentId,
     ...(payload.userId === undefined ? {} : { userId: parseUserId(payload.userId) }),
     timestamp: serverTimestamp,
-    tooth: parseTooth(payload.tooth),
-    technique: parseTechnique(payload.technique),
-    receptorType: parseReceptor(payload.receptorType),
+    tooth,
+    technique,
+    receptorType,
     sessionStatus: parseSessionStatus(payload.sessionStatus),
     lastCompletedStep: parseLastCompletedStep(payload.lastCompletedStep),
     ...(payload.stage === undefined ? {} : { stage: optionalString(payload.stage, 'stage', MAX_SHORT_TEXT_LENGTH) }),
     ...(payload.stepStatus === undefined ? {} : { stepStatus: parseStepStatus(payload.stepStatus) }),
     aiAnalysis,
-    ...(aiAnalysis.validityAudit === undefined ? {} : { validityAudit: aiAnalysis.validityAudit }),
-    ...(aiAnalysis.inferenceLineage
-      ? { technicalEvaluation: createUnreviewedTechnicalEvaluation(aiAnalysis) }
-      : {}),
+    validityAudit: aiAnalysis.validityAudit,
+    technicalEvaluation: createUnreviewedTechnicalEvaluation(aiAnalysis),
     userValidation: parseUserValidation(payload.userValidation),
     ...(payload.userNotes === undefined ? {} : { userNotes: optionalString(payload.userNotes, 'userNotes', MAX_TEXT_LENGTH) }),
-    finalConfirmedErrors: stringArray(payload.finalConfirmedErrors, 'finalConfirmedErrors', 50),
+    finalConfirmedErrors: rawFinalErrors,
     shareConsent,
   };
 
@@ -417,7 +480,54 @@ export function parsePublicPathologySaveDto(body: unknown, serverTimestamp = new
   const inferenceLineage = parseAttestedInferenceLineage(payload.inferenceLineage, 'pathology');
   const validityAudit = parseAttestedValidityAudit(payload.validityAudit);
 
+  if (!inferenceLineage) {
+    fail('Public pathology assessment requires a valid attested inference lineage envelope.');
+  }
+  if (!validityAudit) {
+    fail('Public pathology assessment requires a valid attested validity audit envelope.');
+  }
+
+  const assessmentId = parseAssessmentId(payload.assessmentId);
+
+  if (!validityAudit.assessmentId || validityAudit.assessmentId !== assessmentId) {
+    fail('Validity audit assessment ID does not match assessment ID.');
+  }
+  if (!inferenceLineage.assessmentId || inferenceLineage.assessmentId !== assessmentId) {
+    fail('Inference lineage assessment ID does not match assessment ID.');
+  }
+  if (inferenceLineage.sourceImageDigest && inferenceLineage.sourceImageDigest !== validityAudit.sourceImageDigest) {
+    fail('Inference lineage image digest does not match validity audit image digest.');
+  }
+
+  const tooth = parseTooth(payload.tooth);
+  const technique = parseTechnique(payload.technique);
+  const receptorType = parseReceptor(payload.receptorType);
+
+  if (validityAudit.targetFdi !== tooth.fdiNumber) {
+    fail('Validity audit target FDI does not match assessment tooth FDI.');
+  }
+  if (validityAudit.technique !== technique) {
+    fail('Validity audit technique does not match assessment technique.');
+  }
+  if (validityAudit.receptorType !== receptorType) {
+    fail('Validity audit receptorType does not match assessment receptorType.');
+  }
+  if (imageDataUrl) {
+    const computedDigest = digestValidityImage(imageDataUrl);
+    if (computedDigest && computedDigest !== validityAudit.sourceImageDigest) {
+      fail('Image digest does not match attested validity audit.');
+    }
+  }
+
   const detectedPathologies = parsePathologyArray(payload.detectedPathologies, 'detectedPathologies');
+
+  if (inferenceLineage.resultDigest) {
+    const computedDigest = computePathologyResultDigest(detectedPathologies);
+    if (computedDigest !== inferenceLineage.resultDigest) {
+      fail('Detected pathologies do not match attested inference lineage result digest.');
+    }
+  }
+
   const userId = payload.userId === undefined ? undefined : parseUserId(payload.userId);
   const sessionStatus = parseSessionStatus(payload.sessionStatus);
   const lastCompletedStep = parseLastCompletedStep(payload.lastCompletedStep);
@@ -434,16 +544,16 @@ export function parsePublicPathologySaveDto(body: unknown, serverTimestamp = new
     })
     : unreviewedEvaluation;
   const record = {
-    assessmentId: parseAssessmentId(payload.assessmentId),
+    assessmentId,
     ...(userId === undefined ? {} : { userId }),
     timestamp: serverTimestamp,
-    tooth: parseTooth(payload.tooth),
-    technique: parseTechnique(payload.technique),
-    receptorType: parseReceptor(payload.receptorType),
+    tooth,
+    technique,
+    receptorType,
     ...(payload.aiModel === undefined ? {} : { aiModel: optionalString(payload.aiModel, 'aiModel', 100) }),
     ...(analysisMode === undefined ? {} : { analysisMode }),
-    ...(inferenceLineage === undefined ? {} : { inferenceLineage }),
-    ...(validityAudit === undefined ? {} : { validityAudit }),
+    inferenceLineage,
+    validityAudit,
     sessionStatus,
     lastCompletedStep,
     ...(payload.stage === undefined ? {} : { stage: optionalString(payload.stage, 'stage', MAX_SHORT_TEXT_LENGTH) }),

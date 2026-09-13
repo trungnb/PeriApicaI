@@ -58,6 +58,33 @@ export interface ErrorClassificationInput {
   context?: Record<string, any>;
 }
 
+type CustomKeyReason = NonNullable<StandardizedAIError['reasonCategory']>;
+
+const HTTP_ERROR_CATEGORIES: Record<number, ErrorCategory> = {
+  429: 'QUOTA_EXHAUSTED',
+  500: 'SERVER_ERROR',
+  502: 'SERVER_ERROR',
+  503: 'SERVER_ERROR',
+  504: 'SERVER_ERROR',
+};
+const ERROR_CODE_CATEGORIES: Record<string, ErrorCategory> = {
+  CUSTOM_KEY_FAILED: 'CUSTOM_KEY_FAILED',
+  NOT_PERIAPICAL: 'NON_DENTAL',
+};
+const CUSTOM_KEY_MARKERS = ['API_KEY_INVALID', 'API key not valid', 'PERMISSION_DENIED', 'byokError'];
+const QUOTA_MARKERS = ['429', 'RESOURCE_EXHAUSTED', 'quota', 'Hạn mức'];
+const TIMEOUT_MARKERS = ['timeout', 'timed out', 'hết thời gian'];
+const SERVER_MARKERS = ['Failed to fetch', 'NetworkError', 'ECONNREFUSED'];
+const CUSTOM_REASON_MESSAGES: Record<CustomKeyReason, { en: string; vi: string }> = {
+  invalid_key: { en: 'Your personal API key is invalid.', vi: 'Khóa API cá nhân không hợp lệ.' },
+  quota_or_rate_limit: { en: 'Your personal API key has reached its quota or is currently rate-limited.', vi: 'Khóa API cá nhân hiện đã hết hạn mức hoặc đang bị giới hạn.' },
+  provider_unavailable: { en: 'Your personal API key could not be used to complete the request at this time.', vi: 'Hiện không thể sử dụng khóa API cá nhân để hoàn tất yêu cầu.' },
+  network_or_timeout: { en: 'Your personal API key could not be used to complete the request at this time.', vi: 'Hiện không thể sử dụng khóa API cá nhân để hoàn tất yêu cầu.' },
+  unknown_custom_key_failure: { en: 'The request could not be completed using your current personal API key.', vi: 'Yêu cầu không thể hoàn tất bằng khóa API cá nhân hiện tại.' },
+};
+
+const includesAny = (value: string, markers: string[]) => markers.some((marker) => value.includes(marker));
+
 /**
  * Normalizes any error object, string, or API response into a standard format.
  */
@@ -105,89 +132,36 @@ export function classifyAndFormatAIError(
   const { message: rawMessage, stack, name } = extractErrorDetails(options.error);
   const context = options.context || {};
   const timestamp = new Date().toISOString();
+  const statusCategory = typeof options.status === 'number' ? HTTP_ERROR_CATEGORIES[options.status] : undefined;
+  const codeCategory = options.errorCode ? ERROR_CODE_CATEGORIES[options.errorCode] : undefined;
+  const common = { rawMessage, stack, timestamp, context };
 
-  // 1. Explicit Custom Key (BYOK) Failure
-  if (
-    options.isCustomKeyFailed ||
-    rawMessage.includes('API_KEY_INVALID') ||
-    rawMessage.includes('API key not valid') ||
-    rawMessage.includes('PERMISSION_DENIED') ||
-    rawMessage.includes('byokError') ||
-    options.errorCode === 'CUSTOM_KEY_FAILED'
-  ) {
-    let reasonCategory: 'invalid_key' | 'quota_or_rate_limit' | 'provider_unavailable' | 'network_or_timeout' | 'unknown_custom_key_failure' = 'unknown_custom_key_failure';
-
-    if (
-      rawMessage.includes('API_KEY_INVALID') ||
-      rawMessage.includes('API key not valid') ||
-      rawMessage.includes('PERMISSION_DENIED') ||
-      options.errorCode === 'INVALID_CUSTOM_KEY'
-    ) {
-      reasonCategory = 'invalid_key';
-    } else if (
-      options.isQuotaExhausted ||
-      options.status === 429 ||
-      rawMessage.includes('429') ||
-      rawMessage.includes('RESOURCE_EXHAUSTED') ||
-      rawMessage.includes('quota') ||
-      rawMessage.includes('Hạn mức')
-    ) {
-      reasonCategory = 'quota_or_rate_limit';
-    } else if (
-      name === 'AbortError' ||
-      rawMessage.includes('timeout') ||
-      rawMessage.includes('timed out') ||
-      rawMessage.includes('hết thời gian')
-    ) {
-      reasonCategory = 'network_or_timeout';
-    } else if (rawMessage.includes('503') || rawMessage.includes('UNAVAILABLE')) {
-      reasonCategory = 'provider_unavailable';
-    }
-
-    let failureSpecificMsg = isEn
-      ? 'The request could not be completed using your current personal API key.'
-      : 'Yêu cầu không thể hoàn tất bằng khóa API cá nhân hiện tại.';
-
-    if (reasonCategory === 'invalid_key') {
-      failureSpecificMsg = isEn ? 'Your personal API key is invalid.' : 'Khóa API cá nhân không hợp lệ.';
-    } else if (reasonCategory === 'quota_or_rate_limit') {
-      failureSpecificMsg = isEn
-        ? 'Your personal API key has reached its quota or is currently rate-limited.'
-        : 'Khóa API cá nhân hiện đã hết hạn mức hoặc đang bị giới hạn.';
-    } else if (reasonCategory === 'provider_unavailable' || reasonCategory === 'network_or_timeout') {
-      failureSpecificMsg = isEn
-        ? 'Your personal API key could not be used to complete the request at this time.'
-        : 'Hiện không thể sử dụng khóa API cá nhân để hoàn tất yêu cầu.';
-    }
-
+  if (options.isCustomKeyFailed || codeCategory === 'CUSTOM_KEY_FAILED' || includesAny(rawMessage, CUSTOM_KEY_MARKERS)) {
+    const reasonCategory = (
+      [
+        [includesAny(rawMessage, ['API_KEY_INVALID', 'API key not valid', 'PERMISSION_DENIED']) || options.errorCode === 'INVALID_CUSTOM_KEY', 'invalid_key'],
+        [options.isQuotaExhausted || statusCategory === 'QUOTA_EXHAUSTED' || includesAny(rawMessage, QUOTA_MARKERS), 'quota_or_rate_limit'],
+        [name === 'AbortError' || includesAny(rawMessage, TIMEOUT_MARKERS), 'network_or_timeout'],
+        [includesAny(rawMessage, ['503', 'UNAVAILABLE']), 'provider_unavailable'],
+      ] as [boolean, CustomKeyReason][]
+    ).find(([matched]) => matched)?.[1] || 'unknown_custom_key_failure';
     return {
+      ...common,
       category: 'CUSTOM_KEY_FAILED',
       title: isEn ? 'Personal API key unavailable' : 'Không thể sử dụng khóa API cá nhân',
-      message: options.userMessage || failureSpecificMsg,
+      message: options.userMessage || CUSTOM_REASON_MESSAGES[reasonCategory][isEn ? 'en' : 'vi'],
       details: isEn
         ? 'You can retry with your personal key or start a new analysis using the application\'s API credentials.'
         : 'Bạn có thể thử lại với khóa cá nhân hoặc chuyển sang khóa API của ứng dụng cho lần phân tích mới.',
       actionType: 'SHOW_BYOK_MODAL',
       reasonCategory,
-      rawMessage,
-      stack,
-      timestamp,
-      context,
     };
   }
 
-  // 2. Explicit System Trial Quota Exhausted
-  if (
-    options.isAllExhausted ||
-    options.isQuotaExhausted ||
-    options.status === 429 ||
-    rawMessage.includes('429') ||
-    rawMessage.includes('RESOURCE_EXHAUSTED') ||
-    rawMessage.includes('quota') ||
-    rawMessage.includes('Hạn mức')
-  ) {
+  if (options.isAllExhausted || options.isQuotaExhausted || statusCategory === 'QUOTA_EXHAUSTED' || includesAny(rawMessage, QUOTA_MARKERS)) {
     const resetNotice = options.resetNotice || (isEn ? '1 minute' : '1 phút');
     return {
+      ...common,
       category: 'QUOTA_EXHAUSTED',
       title: isEn ? 'AI System Quota Limit' : 'Hạn Mức AI Hệ Thống',
       message:
@@ -200,22 +174,12 @@ export function classifyAndFormatAIError(
         : 'Bạn có thể chờ hệ thống làm mới hoặc sử dụng khóa API cá nhân (BYOK) để tiếp tục phân tích ngay.',
       actionType: options.isAllExhausted ? 'SHOW_SYSTEM_NOTICE' : 'SET_QUOTA_LOCKED',
       resetNotice,
-      rawMessage,
-      stack,
-      timestamp,
-      context,
     };
   }
 
-  // 3. Non-Dental / Non-Periapical Image
-  if (
-    rawMessage.includes('not_periapical') ||
-    rawMessage.includes('non_dental') ||
-    options.errorCode === 'NOT_PERIAPICAL' ||
-    rawMessage.includes('Không phải phim cận chóp') ||
-    rawMessage.includes('Not a periapical')
-  ) {
+  if (codeCategory === 'NON_DENTAL' || includesAny(rawMessage, ['not_periapical', 'non_dental', 'Không phải phim cận chóp', 'Not a periapical'])) {
     return {
+      ...common,
       category: 'NON_DENTAL',
       title: isEn ? 'Invalid Radiograph' : 'Ảnh Không Hợp Lệ',
       message: isEn
@@ -226,14 +190,9 @@ export function classifyAndFormatAIError(
         : 'Vui lòng kiểm tra và tải lên đúng ảnh chụp X-quang răng cận chóp tiêu chuẩn (định dạng JPEG, PNG, WebP hoặc DICOM).',
       actionType: 'SHOW_ALERT',
       technicalKey: 'not_periapical',
-      rawMessage,
-      stack,
-      timestamp,
-      context,
     };
   }
 
-  // 4. Check for Technical Radiographic Failures via TECH_FAILURE_DICT
   const matchedKey = options.errorCode || options.errorNotice || rawMessage;
   const normalizedKey = normalizeTechFailureKey(matchedKey);
 
@@ -243,6 +202,7 @@ export function classifyAndFormatAIError(
     const remediation = getRemediationText(normalizedKey, language);
 
     return {
+      ...common,
       category: 'TECHNICAL_FAILURE',
       title: label,
       message: description || label,
@@ -250,63 +210,39 @@ export function classifyAndFormatAIError(
       remediation: remediation || undefined,
       details: remediation ? (isEn ? `Remediation: ${remediation}` : `Khắc phục: ${remediation}`) : undefined,
       actionType: 'SHOW_ALERT',
-      rawMessage,
-      stack,
-      timestamp,
-      context,
     };
   }
 
-  // 5. Network Timeout / Abort
-  if (name === 'AbortError' || rawMessage.includes('timeout') || rawMessage.includes('timed out') || rawMessage.includes('hết thời gian')) {
+  if (name === 'AbortError' || includesAny(rawMessage, TIMEOUT_MARKERS)) {
     return {
+      ...common,
       category: 'TIMEOUT',
       title: isEn ? 'Request Timed Out' : 'Hết Thời Gian Chờ',
       message: isEn
         ? 'The AI diagnostic server took too long to respond. Please verify your connection and try again.'
         : 'Thời gian phản hồi từ máy chủ AI vượt quá giới hạn cho phép. Vui lòng kiểm tra đường truyền và thử lại.',
       actionType: 'SHOW_ALERT',
-      rawMessage,
-      stack,
-      timestamp,
-      context,
     };
   }
 
-  // 6. Network or Server Connectivity Failures
-  if (
-    rawMessage.includes('Failed to fetch') ||
-    rawMessage.includes('NetworkError') ||
-    rawMessage.includes('ECONNREFUSED') ||
-    options.status === 500 ||
-    options.status === 502 ||
-    options.status === 503 ||
-    options.status === 504
-  ) {
+  if (statusCategory === 'SERVER_ERROR' || includesAny(rawMessage, SERVER_MARKERS)) {
     return {
+      ...common,
       category: 'SERVER_ERROR',
       title: isEn ? 'Server Connection Error' : 'Lỗi Kết Nối Máy Chủ',
       message: isEn
         ? 'Unable to connect to the diagnostic AI service. Please check your internet connection or try again shortly.'
         : 'Không thể kết nối đến máy chủ xử lý hình ảnh. Vui lòng kiểm tra mạng Internet hoặc thử lại sau ít phút.',
       actionType: 'SHOW_ALERT',
-      rawMessage,
-      stack,
-      timestamp,
-      context,
     };
   }
 
-  // 7. Generic / Fallback
   return {
+    ...common,
     category: 'UNKNOWN',
     title: isEn ? 'Analysis Error' : 'Lỗi Phân Tích',
     message: options.userMessage || options.errorNotice || rawMessage || (isEn ? 'An unexpected error occurred during processing.' : 'Đã có lỗi không mong muốn xảy ra trong quá trình xử lý.'),
     actionType: 'SHOW_ALERT',
-    rawMessage,
-    stack,
-    timestamp,
-    context,
   };
 }
 

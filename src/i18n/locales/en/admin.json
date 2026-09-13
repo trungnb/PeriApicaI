@@ -225,5 +225,7 @@
   "lastTooth": "Last tooth: ",
   "sessions6": "sessions",
   "completed2": "completed",
-  "close": "Close"
+  "close": "Close",
+  "all": "All",
+  "loading": "Loading data..."
 }

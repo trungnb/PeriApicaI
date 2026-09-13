@@ -573,24 +573,3 @@ export async function prepareAnalysisImage(
     wasCompressed: comp.width !== comp.originalWidth || comp.height !== comp.originalHeight || comp.compressionRatio > 0,
   };
 }
-
-let isDecoderPrimed = false;
-
-/**
- * Warms up the Base64 image decoding engine, WebP support check,
- * OffscreenCanvas, and Web Worker thread in the background.
- * Call this during Step 2 (ConfigurationScreen) to eliminate first-interaction latency in Step 3.
- */
-export async function warmupImageDecoder(): Promise<boolean> {
-  if (isDecoderPrimed) return true;
-  try {
-    checkWebPSupport();
-    const transparentPixel = 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7';
-    await compressImage(transparentPixel, { maxWidth: 5, maxHeight: 5, quality: 0.1 });
-    isDecoderPrimed = true;
-    return true;
-  } catch (err) {
-    console.debug('[imageCompressor] Warmup completed with note:', err);
-    return false;
-  }
-}

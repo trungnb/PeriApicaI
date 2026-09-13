@@ -25,19 +25,6 @@ export interface MetadataStoreState {
     filter?: { preset?: string; startDate?: string; endDate?: string }
   ) => Promise<SystemMetadata | null>;
 
-  // Selectors / helper getters
-  getTotalReports: () => number;
-  getTotalBugs: () => number;
-  getTotalPathology: () => number;
-  getAccuracyMetrics: () => {
-    exactMatchCount: number;
-    mostlyAccurateCount: number;
-    partiallyAccurateCount: number;
-    inaccurateCount: number;
-    exactMatchRate: number;
-    completedCount: number;
-    totalSessions: number;
-  };
 }
 
 export const useMetadataStore = create<MetadataStoreState>((set, get) => ({
@@ -99,40 +86,4 @@ export const useMetadataStore = create<MetadataStoreState>((set, get) => ({
     return get().fetchMetadata(activeAuthHeader, activeFilter || undefined);
   },
 
-  getTotalReports: () => {
-    const { systemMetrics } = get();
-    return systemMetrics?.reports?.totalSessions ?? 0;
-  },
-
-  getTotalBugs: () => {
-    const { systemMetrics } = get();
-    return systemMetrics?.bugs?.totalBugs ?? 0;
-  },
-
-  getTotalPathology: () => {
-    const { systemMetrics } = get();
-    return systemMetrics?.pathology?.totalPathologyLogs ?? 0;
-  },
-
-  getAccuracyMetrics: () => {
-    const { systemMetrics } = get();
-    const rep = systemMetrics?.reports;
-    const totalSessions = rep?.totalSessions ?? 0;
-    const completedCount = rep?.completedCount ?? 0;
-    const exactMatchCount = rep?.accuracyCounts?.EXACT_MATCH ?? 0;
-    const mostlyAccurateCount = rep?.accuracyCounts?.MOSTLY_ACCURATE ?? 0;
-    const partiallyAccurateCount = rep?.accuracyCounts?.PARTIALLY_ACCURATE ?? 0;
-    const inaccurateCount = rep?.accuracyCounts?.INACCURATE ?? 0;
-    const exactMatchRate = completedCount > 0 ? Math.round((exactMatchCount / completedCount) * 100) : 0;
-
-    return {
-      exactMatchCount,
-      mostlyAccurateCount,
-      partiallyAccurateCount,
-      inaccurateCount,
-      exactMatchRate,
-      completedCount,
-      totalSessions,
-    };
-  },
 }));

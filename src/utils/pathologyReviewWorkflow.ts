@@ -1,10 +1,6 @@
 import { PATHOLOGY_DICT } from '../constants/dictionaries';
 import type { AIDetection, ConfirmedPathology, PathologyKey } from '../types/dental';
 
-function clone<T>(value: T): T {
-  return structuredClone(value);
-}
-
 /** Turns one immutable AI lesion instance into an independently editable review finding. */
 export function makeConfirmedPathology(
   detection: AIDetection,
@@ -12,7 +8,7 @@ export function makeConfirmedPathology(
 ): ConfirmedPathology {
   const taxonomy = PATHOLOGY_DICT[detection.pathologyKey];
   return {
-    ...clone(detection),
+    ...structuredClone(detection),
     origin: detection.origin ?? 'ai',
     label: taxonomy?.label ?? detection.pathologyKey,
     labelEn: taxonomy?.labelEn ?? detection.pathologyKey,
@@ -67,9 +63,9 @@ export function mergeReviewCandidates(
   reviewedFindings: ConfirmedPathology[],
 ): ConfirmedPathology[] {
   const reviewedById = new Map(reviewedFindings.map((finding) => [finding.id, finding]));
-  const candidates = aiSnapshot.map((prediction) => clone(reviewedById.get(prediction.id) ?? makeConfirmedPathology(prediction)));
+  const candidates = aiSnapshot.map((prediction) => structuredClone(reviewedById.get(prediction.id) ?? makeConfirmedPathology(prediction)));
   for (const finding of reviewedFindings) {
-    if (!aiSnapshot.some((prediction) => prediction.id === finding.id)) candidates.push(clone(finding));
+    if (!aiSnapshot.some((prediction) => prediction.id === finding.id)) candidates.push(structuredClone(finding));
   }
   return candidates;
 }
@@ -84,7 +80,7 @@ export function selectReviewFindingsById(
   return candidates
     .filter((finding) => selected.has(finding.id))
     .map((finding) => ({
-      ...clone(finding),
+      ...structuredClone(finding),
       geminiVerified: options.geminiVerified ?? finding.geminiVerified,
       isUserEdited: options.isUserEdited ?? finding.isUserEdited,
       humanReviewed: options.humanReviewed ?? finding.humanReviewed,

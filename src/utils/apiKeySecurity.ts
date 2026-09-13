@@ -79,26 +79,46 @@ export function sanitizeCredentialString(input: string): string {
     .replace(BEARER_CREDENTIAL, '$1***REDACTED***');
 }
 
+const MAX_REDACT_DEPTH = 5;
+const MAX_REDACT_KEYS = 50;
+const MAX_REDACT_ARRAY_LENGTH = 50;
+const MAX_REDACT_STRING_LENGTH = 2000;
+
 /**
- * Recursively deep-redacts sensitive credential fields and values in objects before logging or saving.
+ * Recursively deep-redacts sensitive credential fields and values in objects before logging or saving,
+ * bounded by strict depth, key-count, and array-length limits.
  */
-export function redactObjectSecrets<T = any>(obj: T): T {
+export function redactObjectSecrets<T = any>(obj: T, depth = 0): T {
   if (obj === null || obj === undefined) return obj;
+  if (depth > MAX_REDACT_DEPTH) {
+    return '[Truncated: Depth Limit]' as unknown as T;
+  }
   if (typeof obj === 'string') {
-    return sanitizeCredentialString(obj) as unknown as T;
+    const capped = obj.length > MAX_REDACT_STRING_LENGTH ? obj.slice(0, MAX_REDACT_STRING_LENGTH) + '...[Truncated]' : obj;
+    return sanitizeCredentialString(capped) as unknown as T;
+  }
+  if (typeof obj === 'number' || typeof obj === 'boolean') {
+    return obj;
   }
   if (Array.isArray(obj)) {
-    return obj.map(item => redactObjectSecrets(item)) as unknown as T;
+    const sliced = obj.length > MAX_REDACT_ARRAY_LENGTH ? obj.slice(0, MAX_REDACT_ARRAY_LENGTH) : obj;
+    return sliced.map(item => redactObjectSecrets(item, depth + 1)) as unknown as T;
   }
   if (typeof obj === 'object') {
     const sensitiveKeys = ['apikey', 'customapikey', 'token', 'secret', 'password', 'authorization'];
     const result: Record<string, any> = {};
-    for (const [k, v] of Object.entries(obj as Record<string, any>)) {
+    const entries = Object.entries(obj as Record<string, any>);
+    const cappedEntries = entries.length > MAX_REDACT_KEYS ? entries.slice(0, MAX_REDACT_KEYS) : entries;
+
+    for (const [k, v] of cappedEntries) {
+      if (k === '__proto__' || k === 'constructor' || k === 'prototype') {
+        continue;
+      }
       const lowerKey = k.toLowerCase();
       if (lowerKey === 'key' || sensitiveKeys.some(sk => lowerKey.includes(sk))) {
         result[k] = '***REDACTED***';
       } else {
-        result[k] = redactObjectSecrets(v);
+        result[k] = redactObjectSecrets(v, depth + 1);
       }
     }
     return result as T;

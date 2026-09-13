@@ -20,11 +20,39 @@ import analysisEN from './locales/en/analysis.json';
 import adminEN from './locales/en/admin.json';
 import pathologyEN from './locales/en/pathology.json';
 
-// Initialize language from localStorage
-const getInitialLanguage = (): string => {
+// Initialize language from localStorage or auto-detect based on browser settings
+export const getInitialLanguage = (): 'vi' | 'en' => {
   if (typeof window !== 'undefined') {
-    const saved = localStorage.getItem('periapical_language');
-    if (saved === 'VI' || saved === 'EN') return saved.toLowerCase();
+    try {
+      const saved = localStorage.getItem('periapical_language');
+      if (saved) {
+        const upper = saved.toUpperCase();
+        if (upper === 'EN') return 'en';
+        if (upper === 'VI') return 'vi';
+      }
+    } catch {
+      // Ignore localStorage access errors (e.g., in private mode or restricted iframes)
+    }
+
+    // Auto-detect browser preferred language(s) in priority order
+    try {
+      const langs: readonly string[] =
+        typeof navigator !== 'undefined' && navigator.languages && navigator.languages.length
+          ? navigator.languages
+          : typeof navigator !== 'undefined' && (navigator.language || (navigator as any).userLanguage)
+            ? [navigator.language || (navigator as any).userLanguage]
+            : [];
+
+      for (const rawLang of langs) {
+        if (typeof rawLang === 'string') {
+          const lower = rawLang.toLowerCase();
+          if (lower.startsWith('vi')) return 'vi';
+          if (lower.startsWith('en')) return 'en';
+        }
+      }
+    } catch {
+      // Fallback safely if navigator inspection fails
+    }
   }
   return 'vi';
 };

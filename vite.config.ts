@@ -13,7 +13,7 @@ export default defineConfig(() => {
       dedupe: ['react', 'react-dom'],
     },
     optimizeDeps: {
-      include: ['react', 'react-dom', 'zustand', 'lucide-react', 'react-i18next', 'i18next', 'motion'],
+      include: ['react', 'react-dom', 'zustand', 'lucide-react', 'react-i18next', 'i18next'],
     },
     build: {
       target: 'esnext',
@@ -25,7 +25,6 @@ export default defineConfig(() => {
           manualChunks: {
             'react-vendor': ['react', 'react-dom', 'zustand'],
             'i18n-vendor': ['i18next', 'react-i18next'],
-            'motion-vendor': ['motion'],
             'icons-vendor': ['lucide-react'],
           },
         },

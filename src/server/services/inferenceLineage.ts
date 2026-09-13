@@ -39,18 +39,56 @@ function signature(value: Omit<InferenceLineage, 'attestation'>): string {
     .digest('base64url');
 }
 
+export function computeTechnicalResultDigest(findings: any[], overallQuality: string): string {
+  const safeFindings = Array.isArray(findings) ? findings : [];
+  const errors: { domainId: string; errorKey: string; errorName: string; confidence: number; clinicalObservation: string }[] = [];
+  for (const f of safeFindings) {
+    const domainId = String(f?.domainId || '');
+    const det = Array.isArray(f?.detectedErrors) ? f.detectedErrors : [];
+    for (const e of det) {
+      errors.push({
+        domainId,
+        errorKey: String(e?.errorKey || ''),
+        errorName: String(e?.errorName || ''),
+        confidence: typeof e?.confidence === 'number' ? e.confidence : 0,
+        clinicalObservation: String(e?.clinicalObservation || ''),
+      });
+    }
+  }
+  errors.sort((a, b) => `${a.domainId}:${a.errorKey}`.localeCompare(`${b.domainId}:${b.errorKey}`));
+  return crypto.createHash('sha256').update(JSON.stringify({ overallQuality: String(overallQuality || ''), errors })).digest('hex');
+}
+
+export function computePathologyResultDigest(pathologies: any[]): string {
+  const safePaths = Array.isArray(pathologies) ? pathologies : [];
+  const normalized = safePaths.map((p) => ({
+    key: String(p?.pathologyKey || p?.key || ''),
+    confidence: typeof p?.confidence === 'number' ? p.confidence : 0,
+    bbox: Array.isArray(p?.bbox) ? p.bbox : [],
+    polygonPoints: Array.isArray(p?.polygon_points || p?.polygonPoints) ? (p?.polygon_points || p?.polygonPoints) : [],
+  }));
+  normalized.sort((a, b) => `${a.key}:${a.confidence}`.localeCompare(`${b.key}:${b.confidence}`));
+  return crypto.createHash('sha256').update(JSON.stringify(normalized)).digest('hex');
+}
+
 export function createInferenceLineage(input: {
   modality: InferenceModality;
   executionMode: 'single' | 'dual';
   branches: ExecutedInferenceBranch[];
   consensusStatus: 'not_applicable' | 'consensus_synthesized' | 'partial_fallback';
   generatedAt?: string;
+  assessmentId?: string;
+  sourceImageDigest?: string;
+  resultDigest?: string;
 }): InferenceLineage {
   const isTechnical = input.modality === 'technical';
   const base: InferenceLineage = {
     schemaVersion: 1,
     status: 'available',
     lineageId: `inference_${crypto.randomUUID()}`,
+    ...(input.assessmentId ? { assessmentId: input.assessmentId } : {}),
+    ...(input.sourceImageDigest ? { sourceImageDigest: input.sourceImageDigest } : {}),
+    ...(input.resultDigest ? { resultDigest: input.resultDigest } : {}),
     modality: input.modality,
     workflow: isTechnical ? 'technical_quality_assessment' : 'pathology_segmentation',
     provider: 'google_gemini',

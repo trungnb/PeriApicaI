@@ -75,7 +75,7 @@ router.get('/api/health', async (req, res) => {
       },
     });
   } catch (err: any) {
-    res.status(500).json({ status: 'error', message: err?.message || 'Lỗi kiểm tra healthcheck' });
+    res.status(500).json({ status: 'error', message: 'Lỗi kiểm tra healthcheck' });
   }
 });
 

@@ -1,4 +1,4 @@
-# PeriApicAI (v2.9.0)
+# PeriApicAI (v2.9.1)
 
 > **AI-Assisted Dental Radiograph Quality & Pathology Assessment Prototype**
 
@@ -54,7 +54,7 @@ PeriApicAI is an experimental, web-based intelligent assistant designed to assis
 
 ## Technology Stack
 
-- **Frontend:** React 19, TypeScript, Tailwind CSS v4, Motion, Lucide React, i18next
+- **Frontend:** React 19, TypeScript, Tailwind CSS v4, Lucide React, i18next
 - **Backend:** Express, Node.js (`tsx`), Google Gen AI SDK (`@google/genai`)
 - **Persistence & Cloud:** Firebase Firestore / Admin SDK, resilient fallback local cache
 - **Build & Quality:** Vite, esbuild, Node test runner (`node:test`)
@@ -75,14 +75,23 @@ npm run dev
 # 3. Validate code and types
 npm run lint
 
-# 4. Run test suite
-npm test
-
-# 5. Build for production
+# 4. Build for production
 npm run build
 ```
 
-Configure environment credentials by copying `.env.example` to `.env` and setting your `GEMINI_API_KEY` and optional Firebase Admin configuration.
+Configure environment credentials by copying `.env.example` to `.env` and setting your `GEMINI_API_KEY` and optional Firebase Admin configuration. Never commit `.env` or service-account JSON files.
+
+## Google AI Studio / Cloud Run Deployment
+
+Import the repository from GitHub into Google AI Studio Build mode. This release ZIP is the source handoff for local development or other hosting. Configure `GEMINI_API_KEY` and any required signing/admin/Firebase values as server-side Secrets or hosting environment variables; do not put real credentials in `metadata.json`, the ZIP, or client-side code. Use **Publish** in AI Studio to deploy the full-stack app to Cloud Run. The app can run without Firebase, but local fallback data is transient in a container; configure Firebase Admin for durable shared persistence.
+
+For local deployment from the ZIP:
+
+```bash
+npm ci
+npm run build
+npm start
+```
 
 ---
 

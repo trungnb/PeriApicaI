@@ -63,6 +63,9 @@ export interface InferenceLineage {
   schemaVersion: 1;
   status: 'available';
   lineageId: string;
+  assessmentId?: string;
+  sourceImageDigest?: string;
+  resultDigest?: string;
   modality: InferenceModality;
   workflow: 'technical_quality_assessment' | 'pathology_segmentation';
   provider: 'google_gemini';
@@ -170,6 +173,7 @@ export type ValidityReceipt = string;
 /** Safe metadata derived from a verified receipt; it never contains the receipt or a secret. */
 export interface ValidityAuditMetadata {
   schemaVersion: 1;
+  assessmentId?: string;
   sourceImageDigest: string;
   validityDecision: 'valid' | 'user_confirmed' | 'prototype_override';
   targetFdi: string;

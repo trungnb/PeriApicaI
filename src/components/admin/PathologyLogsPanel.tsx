@@ -35,7 +35,8 @@ import {
   safeSetAdminSessionItem,
 } from '../../utils/adminSessionCache';
 import { createEvaluationExportBundle } from '../../utils/evaluationExport';
-import { isResearchImageStorageAvailable, getTrainingExportLockedMessage } from '../../utils/researchStorageCapability';
+
+const TRAINING_EXPORT_ENABLED = false;
 
 interface PathologyLogsPanelProps {
   pathologyLogs?: PathologyAssessmentLog[];
@@ -83,8 +84,8 @@ export const PathologyLogsPanel: React.FC<PathologyLogsPanelProps> = ({
   };
 
   const exportEvaluationJson = () => {
-    if (!isResearchImageStorageAvailable()) {
-      setToastMsg(getTrainingExportLockedMessage(language));
+    if (!TRAINING_EXPORT_ENABLED) {
+      setToastMsg(t('trainingExportLocked'));
       return;
     }
     const isPartial = filterType !== 'all' || statusFilter !== 'ALL' || (totalPathologyCount !== undefined && filteredLogs.length !== totalPathologyCount);
@@ -219,7 +220,7 @@ export const PathologyLogsPanel: React.FC<PathologyLogsPanelProps> = ({
   }, [logs, filterType, startDate, endDate, statusFilter]);
 
   // Reset pagination on filter change
-  const { currentPage, setCurrentPage, totalPages } = usePagination(filteredLogs, PAGE_SIZE, totalPathologyCount);
+  const { currentPage, setCurrentPage, totalPages } = usePagination(totalPathologyCount, PAGE_SIZE);
 
   useEffect(() => {
     if (currentPage > 1 && logs.length > 0 && currentPage * PAGE_SIZE >= logs.length && hasMore) {
@@ -568,29 +569,29 @@ export const PathologyLogsPanel: React.FC<PathologyLogsPanelProps> = ({
           <div className="flex flex-wrap items-center gap-2">
             <div
               className="relative inline-flex group cursor-not-allowed"
-              title={!isResearchImageStorageAvailable() ? getTrainingExportLockedMessage(language) : undefined}
+              title={!TRAINING_EXPORT_ENABLED ? t('trainingExportLocked') : undefined}
             >
               <button
                 type="button"
-                disabled={!isResearchImageStorageAvailable()}
+                disabled={!TRAINING_EXPORT_ENABLED}
                 onClick={exportEvaluationJson}
                 className={`flex items-center space-x-1.5 px-3 py-1.5 text-xs font-bold rounded-lg transition-all shadow-xs border ${
-                  isResearchImageStorageAvailable()
+                  TRAINING_EXPORT_ENABLED
                     ? 'bg-amber-500 hover:bg-amber-600 text-white cursor-pointer border-amber-400/30'
                     : 'bg-slate-200 dark:bg-slate-800 text-slate-400 dark:text-slate-500 border-slate-300 dark:border-slate-700 cursor-not-allowed opacity-75'
                 }`}
-                title={!isResearchImageStorageAvailable() ? getTrainingExportLockedMessage(language) : t('exportAnomaliesLabelledJson')}
+                title={!TRAINING_EXPORT_ENABLED ? t('trainingExportLocked') : t('exportAnomaliesLabelledJson')}
               >
-                {!isResearchImageStorageAvailable() ? <Lock className="w-3.5 h-3.5" /> : <FileCode className="w-3.5 h-3.5" />}
+                {!TRAINING_EXPORT_ENABLED ? <Lock className="w-3.5 h-3.5" /> : <FileCode className="w-3.5 h-3.5" />}
                 <span>{t('exportAiTrainingDataset')}</span>
               </button>
-              {!isResearchImageStorageAvailable() && (
+              {!TRAINING_EXPORT_ENABLED && (
                 <div
                   role="tooltip"
                   className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 hidden group-hover:flex flex-col items-center z-50 pointer-events-none"
                 >
                   <div className="bg-slate-900 text-white text-[11px] font-normal px-2.5 py-1.5 rounded-lg shadow-lg whitespace-nowrap border border-slate-700 max-w-xs text-center">
-                    {getTrainingExportLockedMessage(language)}
+                    {t('trainingExportLocked')}
                   </div>
                   <div className="w-2 h-2 bg-slate-900 rotate-45 -mt-1 border-r border-b border-slate-700" />
                 </div>

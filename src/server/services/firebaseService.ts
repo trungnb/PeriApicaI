@@ -3,7 +3,6 @@ import fs from 'fs';
 import { initializeApp, cert, getApps } from 'firebase-admin/app';
 import { getFirestore, Firestore } from 'firebase-admin/firestore';
 import { serverLog } from '../config/env';
-import { isStorageTestOfflineMode } from '../config/storagePaths';
 
 export function getServiceAccountCredentials(): any | null {
   try {
@@ -26,24 +25,8 @@ export function getServiceAccountCredentials(): any | null {
 }
 
 let firestoreDbInstance: Firestore | null = null;
-let storageTestFirestoreInstance: Firestore | null = null;
-
-export function configureFirestoreInstanceForStorageTests(instance: Firestore): void {
-  if (!isStorageTestOfflineMode()) {
-    throw new Error('Fake Firestore may only be configured inside an R17 offline storage sandbox.');
-  }
-  storageTestFirestoreInstance = instance;
-}
-
-export function resetFirestoreInstanceForStorageTests(): void {
-  if (!isStorageTestOfflineMode()) {
-    throw new Error('Fake Firestore may only be reset inside an R17 offline storage sandbox.');
-  }
-  storageTestFirestoreInstance = null;
-}
 
 export function getFirestoreInstance(): Firestore | null {
-  if (isStorageTestOfflineMode()) return storageTestFirestoreInstance;
   if (firestoreDbInstance) return firestoreDbInstance;
 
   try {

@@ -17,7 +17,6 @@ import { TAXONOMY_ERRORS, getTaxonomyLabel, getDomainMeta, getTechniqueDisplayNa
 import { formatDisplayTimestamp } from '../../../utils/dateUtils';
 import { isLogAdminVerified } from '../../../utils/reportUtils';
 import { verifyAssessmentLog } from '../../../services/apiService';
-import { imageBlobCache } from '../../../utils/imageBlobCache';
 import { useMetadataStore } from '../../../store/useMetadataStore';
 
 interface ReviewDetailModalProps {
@@ -54,9 +53,7 @@ export const ReviewDetailModal: React.FC<ReviewDetailModalProps> = ({
       return;
     }
 
-    // Resolve image from cache if available in current session
-    const cached = imageBlobCache.get(selectedLog.assessmentId);
-    const resolvedImageUrl = selectedLog.imageUrl || cached?.dataUrl || cached?.blobUrl || (selectedLog as any).imageDataUrl;
+    const resolvedImageUrl = selectedLog.imageUrl || (selectedLog as any).imageDataUrl;
 
     setModalLog({
       ...selectedLog,

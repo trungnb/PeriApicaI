@@ -20,22 +20,14 @@ import {
 } from '../types/dental';
 import { ALL_TEETH } from '../data/taxonomyData';
 import { PATHOLOGY_DICT } from '../constants/dictionaries';
-import { imageBlobCache } from '../utils/imageBlobCache';
 import { CompressionResult } from '../utils/imageCompressor';
 import { purgeLegacyApiKeyStorage } from '../utils/apiKeySecurity';
-import i18next from '../i18n';
+import i18next, { getInitialLanguage } from '../i18n';
 
 // R5 Mandate: Purge any legacy persistent personal API keys immediately on load
 purgeLegacyApiKeyStorage();
 
-
-const getInitialLanguage = (): Language => {
-  if (typeof window !== 'undefined') {
-    const saved = localStorage.getItem('periapical_language');
-    if (saved === 'VI' || saved === 'EN') return saved;
-  }
-  return 'VI';
-};
+const getStoreInitialLanguage = (): Language => (getInitialLanguage() === 'en' ? 'EN' : 'VI');
 
 export interface AppState {
   theme: 'dark' | 'light';
@@ -210,20 +202,9 @@ const getInitialApiKeyOption = (): 'system' | 'custom' => {
   return 'system';
 };
 
-const getInitialCustomApiKey = (): string => {
-  // R5 Mandate: Personal API keys are strictly volatile and memory-only.
-  return '';
-};
-
-const getInitialRememberCustomApiKey = (): boolean => {
-  // R5 Mandate: Key persistence disabled.
-  return false;
-};
-
-
 export const generateSessionId = (mode: AppEngineMode = 'classic'): string => {
   const prefix = mode === 'pathology_segmentation' ? 'pathology-session' : 'classic-session';
-  return `${prefix}-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`;
+  return `${prefix}-${globalThis.crypto.randomUUID()}`;
 };
 
 
@@ -239,12 +220,15 @@ const getInitialTheme = (): 'dark' | 'light' => {
 };
 
 export const useAppStore = create<AppState>((set, get) => ({
-  language: getInitialLanguage(),
+  language: getStoreInitialLanguage(),
   theme: getInitialTheme(),
   setTheme: (theme) => {
     if (typeof window !== 'undefined') {
-      localStorage.setItem('periapical_theme', theme);
-      localStorage.setItem('periapical_dark_mode', theme === 'dark' ? 'true' : 'false');
+      try {
+        localStorage.setItem('periapical_theme', theme);
+      } catch {
+        // Ignore storage errors in restricted contexts
+      }
       const root = document.documentElement;
       root.setAttribute('data-theme', theme);
       if (theme === 'dark') {
@@ -257,8 +241,8 @@ export const useAppStore = create<AppState>((set, get) => ({
   },
 
   apiKeyOption: getInitialApiKeyOption(),
-  customApiKey: getInitialCustomApiKey(),
-  rememberCustomApiKey: getInitialRememberCustomApiKey(),
+  customApiKey: '',
+  rememberCustomApiKey: false,
   systemApiAvailable: true,
   analysisMode: 'single',
   availableModels: [],
@@ -383,7 +367,11 @@ export const useAppStore = create<AppState>((set, get) => ({
 
   setLanguage: (lang) => {
     if (typeof window !== 'undefined') {
-      localStorage.setItem('periapical_language', lang);
+      try {
+        localStorage.setItem('periapical_language', lang);
+      } catch {
+        // Ignore storage errors in restricted contexts
+      }
     }
     i18next.changeLanguage(lang.toLowerCase());
     set({ language: lang });
@@ -392,7 +380,11 @@ export const useAppStore = create<AppState>((set, get) => ({
   toggleLanguage: () => {
     const nextLang = get().language === 'VI' ? 'EN' : 'VI';
     if (typeof window !== 'undefined') {
-      localStorage.setItem('periapical_language', nextLang);
+      try {
+        localStorage.setItem('periapical_language', nextLang);
+      } catch {
+        // Ignore storage errors in restricted contexts
+      }
     }
     i18next.changeLanguage(nextLang.toLowerCase());
     set({ language: nextLang });
@@ -498,9 +490,6 @@ export const useAppStore = create<AppState>((set, get) => ({
     if (state.imageDataUrl && state.imageDataUrl.startsWith('blob:')) {
       URL.revokeObjectURL(state.imageDataUrl);
     }
-    if (url && state.currentAssessmentId) {
-      imageBlobCache.set(state.currentAssessmentId, { blob: file || undefined, dataUrl: url });
-    }
     return {
       analysisGeneration: state.analysisGeneration + 1,
       activeAnalysisId: null,
@@ -587,9 +576,6 @@ export const useAppStore = create<AppState>((set, get) => ({
   startNewSession: () => set((state) => {
     if (state.imageDataUrl && state.imageDataUrl.startsWith('blob:')) {
       URL.revokeObjectURL(state.imageDataUrl);
-    }
-    if (state.currentAssessmentId) {
-      imageBlobCache.evictSessionImage(state.currentAssessmentId);
     }
     return {
       analysisGeneration: state.analysisGeneration + 1,

@@ -1,7 +1,10 @@
 {
   "name": "Remix PeriApical-v2",
-  "description": "An AI assistant for Oral Radiology.",
-  "requestFramePermissions": [],
+  "version": "2.9.1",
+  "description": "An AI-powered training and diagnostic platform for dental periapical radiography: technical error detection, remediation guidance, and pathology segmentation.",
+  "requestFramePermissions": [
+    "camera"
+  ],
   "majorCapabilities": [
     "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
   ]

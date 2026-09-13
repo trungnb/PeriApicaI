@@ -6,6 +6,7 @@ import {
   getCanonicalToothByFdi,
   isValidFdi,
   isValidBase64Image,
+  extractAndValidateImage,
   isValidReceptor,
   isValidTechnique,
 } from '../middleware/validation';
@@ -19,8 +20,7 @@ import {
   verifyValidityConfirmationToken,
   type ValidityReceiptBinding,
 } from '../services/validityReceipt';
-import { getOrCreateAssessmentSnapshot } from '../services/assessmentModelSnapshot';
-import '../services/modelResolverService';
+import { discoverAvailableVisionModels, getOrCreateAssessmentSnapshot } from '../services/modelManager';
 
 const router = Router();
 
@@ -89,7 +89,7 @@ router.post('/api/validate-image', requireUsableApiKeyMode, analyzeLimiter, asyn
       });
     }
 
-    let rawImage = req.body.imageBase64 || req.body.image;
+    const rawImage = req.body.imageBase64 || req.body.image;
     if (!rawImage || typeof rawImage !== 'string') {
       clearTimeout(timeout);
       return res.status(400).json({
@@ -99,26 +99,17 @@ router.post('/api/validate-image', requireUsableApiKeyMode, analyzeLimiter, asyn
       });
     }
 
-    let mimeType = 'image/jpeg';
-    let cleanBase64 = rawImage;
-    if (rawImage.startsWith('data:')) {
-      const match = rawImage.match(/^data:(image\/[a-zA-Z+]+);base64,(.+)$/);
-      if (match) {
-        mimeType = match[1];
-        cleanBase64 = match[2];
-      } else {
-        cleanBase64 = rawImage.replace(/^data:image\/[a-zA-Z+]+;base64,/, '');
-      }
-    }
-
-    if (!isValidBase64Image(cleanBase64)) {
+    const imageInfo = extractAndValidateImage(rawImage, req.body.mimeType);
+    if (!imageInfo) {
       clearTimeout(timeout);
       return res.status(400).json({
         success: false,
-        error: 'Corrupted or invalid Base64 image encoding',
+        error: 'Corrupted or invalid Base64 image encoding or mismatched MIME type',
         userMessage: 'Dữ liệu ảnh bị hỏng hoặc không đúng định dạng.',
       });
     }
+
+    const { cleanBase64, mimeType } = imageInfo;
 
     const { apiKeyOption, customApiKey } = res.locals.apiKeyMode;
     const effectiveCustomKey = apiKeyOption === 'custom' ? customApiKey : undefined;
@@ -128,10 +119,12 @@ router.post('/api/validate-image', requireUsableApiKeyMode, analyzeLimiter, asyn
     const language = isEn ? 'EN' : 'VI';
 
     // Per-assessment frozen snapshot resolution
+    await discoverAvailableVisionModels(effectiveCustomKey);
     const preferredInput = req.body.preferredModel || req.body.selectedModelA;
     const snapshot = getOrCreateAssessmentSnapshot(
       binding.assessmentId,
-      preferredInput ? { validity: preferredInput } : undefined
+      preferredInput ? { validity: preferredInput } : undefined,
+      effectiveCustomKey
     );
     const validityRole = snapshot.roles.validity;
     const preferredModel = validityRole.primaryModel;
@@ -182,7 +175,8 @@ router.post('/api/validate-image', requireUsableApiKeyMode, analyzeLimiter, asyn
     const isMalformed = Boolean(err.isMalformed);
     const isTransient = Boolean(err.isTransient);
 
-    return res.status(err.isCustomKeyFailed ? 400 : 200).json({
+    const httpStatus = isQuotaExhausted ? 429 : (isCustomKeyFailed || isMalformed ? 400 : 503);
+    return res.status(httpStatus).json({
       success: false,
       isUnavailable: true,
       errorType: isCustomKeyFailed
@@ -194,7 +188,7 @@ router.post('/api/validate-image', requireUsableApiKeyMode, analyzeLimiter, asyn
         : isTransient
         ? 'TRANSIENT_FAILURE'
         : 'VALIDITY_SERVICE_UNAVAILABLE',
-      error: err?.message || 'Validity service error',
+      error: 'Validity service error',
       userMessage: isCustomKeyFailed
         ? 'Khóa API cá nhân không thể xác thực kiểm tra ảnh.'
         : 'Không thể kết nối dịch vụ kiểm tra độ phù hợp của ảnh lúc này.',

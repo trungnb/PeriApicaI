@@ -73,5 +73,6 @@
   "changeImageModalTitle": "Thay đổi hình ảnh?",
   "changeImageModalDesc": "Tải ảnh mới sẽ xóa kết quả phân tích AI hiện tại. Bạn sẽ phải chạy phân tích lại từ đầu.",
   "cancelBtn": "Hủy bỏ",
-  "confirmChangeBtn": "Xác nhận thay đổi"
+  "confirmChangeBtn": "Xác nhận thay đổi",
+  "analyzePathologyBtn": "Bắt đầu Phân đoạn Bệnh lý AI"
 }

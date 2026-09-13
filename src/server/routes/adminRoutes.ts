@@ -22,16 +22,130 @@ import { getFirestoreInstance } from '../services/firebaseService';
 import { restorePathologyDocFromFirestore } from '../services/firestorePathologyService';
 import { FieldPath } from 'firebase-admin/firestore';
 import {
+  discoverAvailableVisionModels,
+  getControlPlaneState,
+  getDiscoveredModels,
   getSanitizedRegistrySummary,
-  refreshModelRegistry,
-} from '../services/modelRegistryService';
-import { resolveControlPlaneState } from '../services/modelResolverService';
-import { getAllHealthRecords } from '../services/modelHealthService';
-import { getGlobalPolicyTimestamp } from '../services/modelPolicyService';
-import { getAllCompatibilityRecords } from '../services/modelCompatibilityGate';
-import { getAllModelOperationalAvailabilityRecords } from '../services/modelAvailabilityService';
+} from '../services/modelManager';
+import {
+  parsePublicTechnicalSaveDto,
+  PublicPersistenceValidationError,
+} from '../middleware/publicPersistenceDto';
 
 const router = Router();
+
+const ADMIN_BACKUP_REPORT_FIELDS = new Set([
+  'assessmentId',
+  'userId',
+  'tooth',
+  'technique',
+  'receptorType',
+  'sessionStatus',
+  'lastCompletedStep',
+  'stage',
+  'stepStatus',
+  'aiAnalysis',
+  'userValidation',
+  'userNotes',
+  'finalConfirmedErrors',
+  'shareConsent',
+  'imageDataUrl',
+]);
+
+// These fields may exist in legacy exports, but are never restored from input.
+const ADMIN_BACKUP_IGNORED_FIELDS = new Set([
+  '_id',
+  'id',
+  'timestamp',
+  'imageUrl',
+  'imageStorageKey',
+  'storagePath',
+  'storageLocation',
+  'wasStored',
+  'createdAt',
+  'updatedAt',
+  'savedAt',
+  'collectionVersion',
+  'accuracyScore',
+  'aiDetectedErrorsSummary',
+  'finalConfirmedErrorsSummary',
+  'firestoreSynced',
+  'lastSyncedAt',
+  'syncRetryCount',
+  'userRole',
+  'verifiedBy',
+  'verifiedAt',
+  'verifiedNotes',
+  'verifiedErrors',
+  'isAdminVerified',
+  'isReviewedByAdmin',
+  'reviewedBy',
+  'reviewHistory',
+  'technicalEvaluation',
+  'adminReviewedAt',
+]);
+
+const ADMIN_BACKUP_BUG_FIELDS = new Set([
+  'bugId',
+  'timestamp',
+  'description',
+  'path',
+  'source',
+  'severity',
+  'status',
+  'errorDetails',
+]);
+
+function parseAdminBackupReport(item: unknown) {
+  if (!item || typeof item !== 'object' || Array.isArray(item)) {
+    throw new PublicPersistenceValidationError('Backup report must be an object.');
+  }
+
+  const input = item as Record<string, unknown>;
+  const payload: Record<string, unknown> = {};
+  let imageDataUrl: unknown;
+  for (const [field, value] of Object.entries(input)) {
+    if (field === 'imageDataUrl') {
+      imageDataUrl = value;
+    } else if (ADMIN_BACKUP_REPORT_FIELDS.has(field)) {
+      payload[field] = value;
+    } else if (!ADMIN_BACKUP_IGNORED_FIELDS.has(field)) {
+      throw new PublicPersistenceValidationError(`Backup field is not allowed: ${field}.`);
+    }
+  }
+
+  return parsePublicTechnicalSaveDto({ payload, imageDataUrl });
+}
+
+function parseAdminBackupBug(item: unknown): Record<string, unknown> {
+  if (!item || typeof item !== 'object' || Array.isArray(item)) {
+    throw new PublicPersistenceValidationError('Backup bug must be an object.');
+  }
+
+  const input = item as Record<string, unknown>;
+  const bug: Record<string, unknown> = {};
+  for (const [field, value] of Object.entries(input)) {
+    if (ADMIN_BACKUP_BUG_FIELDS.has(field)) {
+      bug[field] = value;
+    } else if (field !== '_id' && field !== 'firestoreSynced' && field !== 'lastSyncedAt') {
+      throw new PublicPersistenceValidationError(`Backup bug field is not allowed: ${field}.`);
+    }
+  }
+
+  if (bug.timestamp !== undefined && (typeof bug.timestamp !== 'string' || !Number.isFinite(Date.parse(bug.timestamp)))) {
+    throw new PublicPersistenceValidationError('Backup bug timestamp is invalid.');
+  }
+  for (const field of ['bugId', 'description', 'path', 'source', 'severity', 'status']) {
+    if (bug[field] !== undefined && (typeof bug[field] !== 'string' || bug[field].length > 5_000)) {
+      throw new PublicPersistenceValidationError(`Backup bug ${field} is invalid.`);
+    }
+  }
+  if (bug.errorDetails !== undefined && bug.errorDetails !== null && (typeof bug.errorDetails !== 'object' || Array.isArray(bug.errorDetails))) {
+    throw new PublicPersistenceValidationError('Backup bug errorDetails is invalid.');
+  }
+
+  return bug;
+}
 
 // Sync status inspection endpoint
 router.get('/api/admin/sync-status', adminAuth, (_req: Request, res: Response) => {
@@ -57,16 +171,13 @@ router.get('/api/admin/sync-status', adminAuth, (_req: Request, res: Response) =
 // Model discovery registry inspection endpoint
 router.get('/api/admin/models/registry', adminAuth, (_req: Request, res: Response) => {
   const summary = getSanitizedRegistrySummary();
-  const controlPlane = resolveControlPlaneState();
-  res.json({ success: true, ...summary, controlPlane });
+  res.json({ success: true, ...summary, models: getDiscoveredModels(), controlPlane: getControlPlaneState() });
 });
 
 // Full adaptive control-plane inspection endpoint
 router.get('/api/admin/models/control-plane', adminAuth, (_req: Request, res: Response) => {
-  const controlPlane = resolveControlPlaneState();
+  const controlPlane = getControlPlaneState();
   const registrySummary = getSanitizedRegistrySummary();
-  const healthRecords = getAllHealthRecords();
-  const policyTimestamp = getGlobalPolicyTimestamp();
 
   res.json({
     success: true,
@@ -85,26 +196,25 @@ router.get('/api/admin/models/control-plane', adminAuth, (_req: Request, res: Re
       primaryLastSuccess: registrySummary.sources.system_primary.lastSuccessfulCheckAt,
       backupLastSuccess: registrySummary.sources.system_backup.lastSuccessfulCheckAt,
     },
-    policyTimestamps: {
-      lastPolicyCheckAt: policyTimestamp,
-    },
+    policyTimestamps: { lastPolicyCheckAt: registrySummary.lastCheckedAt },
     candidates: controlPlane.candidates,
-    runtimeHealthSummary: healthRecords,
-    compatibility: getAllCompatibilityRecords(),
-    availability: getAllModelOperationalAvailabilityRecords(),
+    runtimeHealthSummary: [],
+    compatibility: [],
+    availability: [],
+    models: getDiscoveredModels(),
   });
 });
 
 // Manual model discovery refresh endpoint
 router.post('/api/admin/models/refresh', adminAuth, async (_req: Request, res: Response) => {
   try {
-    await refreshModelRegistry({ force: true, triggeredBy: 'admin_manual' });
+    await discoverAvailableVisionModels();
     const summary = getSanitizedRegistrySummary();
-    const controlPlane = resolveControlPlaneState();
-    res.json({ success: true, ...summary, controlPlane });
+    const controlPlane = getControlPlaneState();
+    res.json({ success: true, ...summary, models: getDiscoveredModels(), controlPlane });
   } catch (unknownError: unknown) {
     const err = unknownError instanceof Error ? unknownError : new Error(String(unknownError));
-    res.status(500).json({ success: false, error: err.message || 'Lỗi làm mới danh mục model' });
+    res.status(500).json({ success: false, error: 'Lỗi làm mới danh mục model' });
   }
 });
 
@@ -130,7 +240,7 @@ router.post('/api/admin/trigger-sync', adminAuth, async (_req: Request, res: Res
     });
   } catch (unknownError: unknown) {
     const err = unknownError instanceof Error ? unknownError : new Error(String(unknownError));
-    res.status(500).json({ success: false, error: err?.message || 'Lỗi kích hoạt đồng bộ' });
+    res.status(500).json({ success: false, error: 'Lỗi kích hoạt đồng bộ' });
   }
 });
 
@@ -412,7 +522,7 @@ router.get('/api/admin/users', adminAuth, async (req: Request, res: Response) =>
     }
   } catch (unknownError: unknown) {
     const err = unknownError instanceof Error ? unknownError : new Error(String(unknownError));
-    res.status(500).json({ success: false, error: err?.message || 'Lỗi nạp danh sách người dùng' });
+    res.status(500).json({ success: false, error: 'Lỗi nạp danh sách người dùng' });
   }
 });
 
@@ -453,9 +563,20 @@ router.get('/api/admin/summary-stats', adminAuth, async (_req: Request, res: Res
     });
   } catch (unknownError: unknown) {
     const err = unknownError instanceof Error ? unknownError : new Error(String(unknownError));
-    res.status(500).json({ success: false, error: err?.message || 'Lỗi hệ thống' });
+    res.status(500).json({ success: false, error: 'Lỗi hệ thống' });
   }
 });
+
+export function sanitizeSpreadsheetCell(val: unknown): string {
+  if (val === null || val === undefined) return '';
+  if (typeof val === 'number') return String(val);
+  const str = String(val);
+  const trimmed = str.trimStart();
+  if (/^[=+@\-\t\r]/.test(trimmed)) {
+    return `'${str}`;
+  }
+  return str;
+}
 
 async function handleFirestoreData(req: Request, res: Response, force: boolean) {
   try {
@@ -560,7 +681,7 @@ async function handleFirestoreData(req: Request, res: Response, force: boolean) 
     });
   } catch (unknownError: unknown) {
     const err = unknownError instanceof Error ? unknownError : new Error(String(unknownError));
-    return res.json({ success: false, error: err?.message || 'Lỗi nạp dữ liệu' });
+    return res.status(500).json({ success: false, error: 'Lỗi nạp dữ liệu' });
   }
 }
 
@@ -587,7 +708,7 @@ router.get('/api/admin/metadata', adminAuth, async (req: Request, res: Response)
     });
   } catch (unknownError: unknown) {
     const err = unknownError instanceof Error ? unknownError : new Error(String(unknownError));
-    return res.status(500).json({ success: false, error: err?.message || 'Lỗi lấy metadata' });
+    return res.status(500).json({ success: false, error: 'Lỗi lấy metadata' });
   }
 });
 
@@ -664,7 +785,7 @@ router.get('/api/admin/diagnose-drift', adminAuth, async (req: Request, res: Res
     });
   } catch (unknownError: unknown) {
     const err = unknownError instanceof Error ? unknownError : new Error(String(unknownError));
-    return res.status(500).json({ success: false, error: err?.message || 'Error diagnosing drift' });
+    return res.status(500).json({ success: false, error: 'Error diagnosing drift' });
   }
 });
 
@@ -691,7 +812,7 @@ router.get('/api/reports/:id', adminAuth, async (req: Request, res: Response) =>
     return res.json({ success: true, log });
   } catch (unknownError: unknown) {
     const err = unknownError instanceof Error ? unknownError : new Error(String(unknownError));
-    return res.status(500).json({ success: false, error: err?.message || 'Lỗi hệ thống' });
+    return res.status(500).json({ success: false, error: 'Lỗi hệ thống' });
   }
 });
 
@@ -717,7 +838,7 @@ router.get('/api/admin/log-detail', adminAuth, async (req: Request, res: Respons
     return res.json({ success: true, log });
   } catch (unknownError: unknown) {
     const err = unknownError instanceof Error ? unknownError : new Error(String(unknownError));
-    return res.status(500).json({ success: false, error: err?.message || 'Lỗi hệ thống' });
+    return res.status(500).json({ success: false, error: 'Lỗi hệ thống' });
   }
 });
 
@@ -791,7 +912,7 @@ router.post('/api/admin/delete-doc', adminAuth, adminDeleteLimiter, async (req: 
   } catch (unknownError: unknown) {
     const err = unknownError instanceof Error ? unknownError : new Error(String(unknownError));
     serverLog('ERROR', 'AdminRoute', '[Delete Document Error]:', err);
-    return res.status(500).json({ success: false, error: err?.message || 'Lỗi hệ thống khi xoá bản ghi' });
+    return res.status(500).json({ success: false, error: 'Lỗi hệ thống khi xoá bản ghi' });
   }
 });
 
@@ -821,7 +942,7 @@ router.post('/api/admin/delete-data', adminAuth, adminDeleteLimiter, async (req:
   } catch (unknownError: unknown) {
     const err = unknownError instanceof Error ? unknownError : new Error(String(unknownError));
     serverLog('ERROR', 'AdminRoute', '[Delete Data Error]:', err);
-    return res.status(500).json({ success: false, error: err?.message || 'Lỗi hệ thống khi xoá dữ liệu' });
+    return res.status(500).json({ success: false, error: 'Lỗi hệ thống khi xoá dữ liệu' });
   }
 });
 
@@ -843,7 +964,7 @@ router.get('/api/admin/export-backup', adminAuth, async (_req: Request, res: Res
     return res.status(404).json({ success: false, error: 'File backup chưa sẵn sàng.' });
   } catch (unknownError: unknown) {
     const err = unknownError instanceof Error ? unknownError : new Error(String(unknownError));
-    return res.status(500).json({ success: false, error: err?.message || 'Lỗi xuất file backup' });
+    return res.status(500).json({ success: false, error: 'Lỗi xuất file backup' });
   }
 });
 
@@ -927,7 +1048,7 @@ function buildAdminExportBundle(
     return {
       title: `PeriApical_AI_Assessment_Logs_${formattedDate}`,
       headers,
-      rows,
+      rows: rows.map(r => r.map(sanitizeSpreadsheetCell)),
     };
   }
 
@@ -984,7 +1105,7 @@ function buildAdminExportBundle(
     return {
       title: `PeriApical_Pathology_Logs_${formattedDate}`,
       headers,
-      rows,
+      rows: rows.map(r => r.map(sanitizeSpreadsheetCell)),
     };
   }
 
@@ -1001,7 +1122,7 @@ function buildAdminExportBundle(
   return {
     title: `PeriApical_AI_Bug_Reports_${formattedDate}`,
     headers,
-    rows,
+    rows: rows.map(r => r.map(sanitizeSpreadsheetCell)),
   };
 }
 
@@ -1120,7 +1241,7 @@ router.post('/api/admin/export', adminAuth, async (req: Request, res: Response) 
   } catch (unknownError: unknown) {
     const err = unknownError instanceof Error ? unknownError : new Error(String(unknownError));
     serverLog('ERROR', 'AdminExport', `Export query failed: ${err.message}`, err);
-    return res.status(500).json({ success: false, error: err?.message || 'Export failed' });
+    return res.status(500).json({ success: false, error: 'Export failed' });
   }
 });
 
@@ -1145,32 +1266,42 @@ router.post('/api/admin/restore-backup', adminAuth, async (req: Request, res: Re
 
     // Restore backup with batching to prevent OOM / connection exhaustion
     const BATCH_SIZE = 50;
+    const MAX_BACKUP_RECORDS = 1_000;
 
-    if (Array.isArray(collectionsData.reports)) {
-      for (let i = 0; i < collectionsData.reports.length; i += BATCH_SIZE) {
-        const batch = collectionsData.reports.slice(i, i + BATCH_SIZE);
-        await Promise.all(
-          batch.map(async (item: any) => {
-            const { _id, ...cleanReport } = item;
-            await storageAdapter.saveLog(cleanReport, cleanReport.imageUrl);
-          })
-        );
-      }
-      restoredReportsCount = collectionsData.reports.length;
+    if (collectionsData.reports !== undefined && !Array.isArray(collectionsData.reports)) {
+      return res.status(400).json({ success: false, error: 'Backup reports must be an array.' });
+    }
+    if (collectionsData.bugs !== undefined && !Array.isArray(collectionsData.bugs)) {
+      return res.status(400).json({ success: false, error: 'Backup bugs must be an array.' });
+    }
+    if (collectionsData.reports?.length > MAX_BACKUP_RECORDS) {
+      return res.status(400).json({ success: false, error: 'Backup contains too many reports.' });
+    }
+    if (collectionsData.bugs?.length > MAX_BACKUP_RECORDS) {
+      return res.status(400).json({ success: false, error: 'Backup contains too many bugs.' });
     }
 
-    if (Array.isArray(collectionsData.bugs)) {
-      for (let i = 0; i < collectionsData.bugs.length; i += BATCH_SIZE) {
-        const batch = collectionsData.bugs.slice(i, i + BATCH_SIZE);
-        await Promise.all(
-          batch.map(async (item: any) => {
-            const { _id, ...cleanBug } = item;
-            await storageAdapter.saveBug(cleanBug);
-          })
-        );
-      }
-      restoredBugsCount = collectionsData.bugs.length;
+    // Validate every record before writing any of them, avoiding partial restores.
+    const reports = Array.isArray(collectionsData.reports)
+      ? collectionsData.reports.map(parseAdminBackupReport)
+      : [];
+    const bugs = Array.isArray(collectionsData.bugs)
+      ? collectionsData.bugs.map(parseAdminBackupBug)
+      : [];
+
+    for (let i = 0; i < reports.length; i += BATCH_SIZE) {
+      const batch = reports.slice(i, i + BATCH_SIZE);
+      await Promise.all(
+        batch.map(async ({ record, imageDataUrl }) => storageAdapter.saveLog(record, imageDataUrl))
+      );
     }
+    restoredReportsCount = reports.length;
+
+    for (let i = 0; i < bugs.length; i += BATCH_SIZE) {
+      const batch = bugs.slice(i, i + BATCH_SIZE);
+      await Promise.all(batch.map(async (bug) => storageAdapter.saveBug(bug)));
+    }
+    restoredBugsCount = bugs.length;
 
     return res.json({
       success: true,
@@ -1181,7 +1312,10 @@ router.post('/api/admin/restore-backup', adminAuth, async (req: Request, res: Re
   } catch (unknownError: unknown) {
     const err = unknownError instanceof Error ? unknownError : new Error(String(unknownError));
     serverLog('ERROR', 'AdminRoute', '[Restore Backup Error]:', err);
-    return res.status(500).json({ success: false, error: err?.message || 'Lỗi khi khôi phục dữ liệu' });
+    if (err instanceof PublicPersistenceValidationError) {
+      return res.status(400).json({ success: false, error: err.message });
+    }
+    return res.status(500).json({ success: false, error: 'Lỗi khi khôi phục dữ liệu' });
   }
 });
 
@@ -1196,7 +1330,7 @@ router.post('/api/admin/rebuild-stats', adminAuth, async (_req: Request, res: Re
     return res.json({ success: true, result });
   } catch (error: any) {
     serverLog('ERROR', 'AdminRoute', '[Rebuild Stats Error]:', error);
-    return res.status(500).json({ success: false, error: error?.message || 'Lỗi hệ thống khi rebuild stats' });
+    return res.status(500).json({ success: false, error: 'Lỗi hệ thống khi rebuild stats' });
   }
 });
 

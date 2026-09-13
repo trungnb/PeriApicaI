@@ -28,5 +28,8 @@
   "confirmedSummary": "Confirmed Errors Summary ({{count}}):",
   "noErrorsSummary": "✓ Radiograph meets diagnostic criteria with no technical errors detected.",
   "back": "Back",
-  "proceedToRemediation": "Confirm & View Remediation Guide"
+  "proceedToRemediation": "Confirm & View Remediation Guide",
+  "imagingTechnique": "Imaging Technique",
+  "receptorType": "Receptor Type",
+  "targetTooth": "Target Tooth"
 }

@@ -152,6 +152,10 @@ export const ALL_TAXONOMY_ERRORS: BilingualTaxonomyErrorItem[] = [
   ...LEGACY_TAXONOMY_ERRORS,
 ];
 
+export const CANONICAL_TECHNICAL_ERROR_KEYS = ALL_TAXONOMY_ERRORS.map((e) => e.key);
+export const CANONICAL_TECHNICAL_KEYS_SET = new Set<string>(CANONICAL_TECHNICAL_ERROR_KEYS);
+
+
 export const DOMAIN_TITLES: Record<ErrorDomainId, { name: string; description: string; nameEn?: string; descriptionEn?: string }> = {
   domain_1: {
     name: 'Miền 1: Lỗi đặt bộ nhận ảnh',
@@ -315,13 +319,6 @@ export function getDomainMeta(domainId: string, lang: 'VI' | 'EN' = 'VI'): { nam
     name: lang === 'EN' ? (domain.nameEn || domain.name) : domain.name,
     description: lang === 'EN' ? (domain.descriptionEn || domain.description) : domain.description,
   };
-}
-
-export function getDomainTitle(domainId: string, lang: 'VI' | 'EN' = 'VI'): string {
-  const normalizedDomainId = domainId.toLowerCase().replace(' ', '_');
-  const domain = DOMAIN_TITLES[normalizedDomainId as ErrorDomainId];
-  if (!domain) return domainId;
-  return lang === 'EN' ? (domain.nameEn || domain.name) : domain.name;
 }
 
 export function getToothDisplayName(tooth: ToothInfo, lang: 'VI' | 'EN' = 'VI'): string {

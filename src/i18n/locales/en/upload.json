@@ -73,5 +73,6 @@
   "changeImageModalTitle": "Change Image?",
   "changeImageModalDesc": "Uploading a new image will clear your current AI analysis results. You will need to re-analyze.",
   "cancelBtn": "Cancel",
-  "confirmChangeBtn": "Confirm Change"
+  "confirmChangeBtn": "Confirm Change",
+  "analyzePathologyBtn": "Start Pathology AI Segmentation"
 }

@@ -16,5 +16,8 @@
   "notesLabel": "Clinical Notes / Instructor Evaluation:",
   "notesPlaceholder": "Enter additional clinical notes, e.g., Patient with deep palate, place cotton roll on bite block...",
   "backToAnalysis": "Back to Analysis & Verification",
-  "finishAndReturnHome": "Finish Session & Return to Home"
+  "finishAndReturnHome": "Finish Session & Return to Home",
+  "imagingTechnique": "Imaging Technique",
+  "receptorType": "Receptor Type",
+  "targetTooth": "Target Tooth"
 }

@@ -6,7 +6,6 @@ import {
   assertStoragePathSafe,
   getCacheFilePath,
   getStorageRoot,
-  isStorageTestOfflineMode,
 } from '../config/storagePaths';
 import { getFirestoreInstance } from './firebaseService';
 import {
@@ -315,7 +314,7 @@ export function getOrInitServerCache(): ServerCacheStructure {
           : Array.isArray(parsed.segReports)
           ? parsed.segReports
           : [];
-        serverTempCache.bugs = Array.isArray(parsed.bugs) ? parsed.bugs : [];
+        serverTempCache.bugs = Array.isArray(parsed.bugs) ? parsed.bugs.map(sanitizeBugEntry) : [];
         serverTempCache.systemMetrics = parsed.systemMetrics || undefined;
         serverTempCache.lastUpdated = parsed.lastUpdated || new Date().toISOString();
         serverTempCache.isCacheDirty = false;
@@ -332,7 +331,6 @@ export function getOrInitServerCache(): ServerCacheStructure {
 
 let isSavingCache = false;
 let activeCacheWrite: Promise<void> | null = null;
-let storageTestWriteFile: ((filePath: string, data: string) => Promise<void>) | null = null;
 
 /** Marks a local cache mutation for disk persistence. Remote sync state is separate. */
 export function markServerCacheDirty(cache = getOrInitServerCache()): void {
@@ -340,46 +338,7 @@ export function markServerCacheDirty(cache = getOrInitServerCache()): void {
   cache.isCacheDirty = true;
 }
 
-export function configureCacheWriteForStorageTests(writer: (filePath: string, data: string) => Promise<void>): void {
-  if (!isStorageTestOfflineMode()) {
-    throw new Error('Controlled cache writes are available only inside an R17 offline sandbox.');
-  }
-  storageTestWriteFile = writer;
-}
-
-export function resetCacheWriteForStorageTests(): void {
-  if (!isStorageTestOfflineMode()) {
-    throw new Error('Controlled cache writes are available only inside an R17 offline sandbox.');
-  }
-  storageTestWriteFile = null;
-}
-
-export function getDiskPersistenceStateForTests(): { dirty: boolean; mutationGeneration: number; persistedGeneration: number } {
-  if (!isStorageTestOfflineMode()) {
-    throw new Error('Disk persistence state is available only inside an R17 offline sandbox.');
-  }
-  const cache = getOrInitServerCache();
-  return {
-    dirty: cache.isCacheDirty,
-    mutationGeneration: cache.diskMutationGeneration,
-    persistedGeneration: cache.diskPersistedGeneration,
-  };
-}
-
-function isTestExecutionActive(): boolean {
-  return (
-    process.env.NODE_ENV === "test" ||
-    process.execArgv.includes("--test") ||
-    process.argv.some((a) => a === "--test" || a.includes(".test.") || a.includes("test/"))
-  );
-}
-
 export function saveServerCacheToDisk(force = false, sync = false) {
-  // CRITICAL: Prevent unisolated test execution from mutating production workspace temp_cache.json
-  if (isTestExecutionActive() && !isStorageTestOfflineMode()) {
-    return;
-  }
-
   const cache = getOrInitServerCache();
   if (!force && !cache.isCacheDirty) return; // Skip disk I/O if cache is clean
   if (isSavingCache) return; // The active owner drains newer generations, including sync triggers.
@@ -407,9 +366,7 @@ export function saveServerCacheToDisk(force = false, sync = false) {
     } else {
       isSavingCache = true;
       let committed = false;
-      const write = storageTestWriteFile
-        ? storageTestWriteFile(temporaryFile, data)
-        : fs.promises.writeFile(temporaryFile, data, { encoding: 'utf8', flag: 'wx' });
+      const write = fs.promises.writeFile(temporaryFile, data, { encoding: 'utf8', flag: 'wx' });
       activeCacheWrite = write
         .then(() => fs.promises.rename(temporaryFile, tempCacheFile))
         .then(() => {
@@ -438,30 +395,6 @@ export function saveServerCacheToDisk(force = false, sync = false) {
   }
 }
 
-export async function waitForStorageIdleForTests(): Promise<void> {
-  if (!isStorageTestOfflineMode()) {
-    throw new Error('Storage-idle test helper is available only inside an R17 offline sandbox.');
-  }
-  while (activeCacheWrite) {
-    await activeCacheWrite;
-  }
-}
-
-export function resetStorageStateForTests(): void {
-  if (!isStorageTestOfflineMode()) {
-    throw new Error('Storage reset is available only inside an R17 offline sandbox.');
-  }
-  if (activeCacheWrite) {
-    throw new Error('Wait for sandbox storage to become idle before resetting test state.');
-  }
-  serverTempCache = null;
-  serverTempCacheRoot = null;
-  isSavingCache = false;
-  storageTestWriteFile = null;
-  currentStorageAdapter = null;
-  currentStorageAdapterKey = null;
-}
-
 // Flush RAM cache to disk on graceful server shutdown
 export async function flushCacheOnShutdown() {
   // Do not race a synchronous replacement against an in-flight async writer.
@@ -475,6 +408,22 @@ export async function flushCacheOnShutdown() {
 }
 
 // In-Memory Storage Adapter Implementation
+export function sanitizeBugErrorDetails(value: unknown): Record<string, unknown> | null {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+
+  const input = value as Record<string, unknown>;
+  const details: Record<string, unknown> = {};
+  for (const field of ['endpoint', 'errorType', 'errorMessage']) {
+    if (typeof input[field] === 'string') details[field] = input[field].slice(0, 2_000);
+  }
+  if (Number.isInteger(input.statusCode)) details.statusCode = input.statusCode;
+  return details;
+}
+
+function sanitizeBugEntry<T extends Record<string, any>>(bug: T): T {
+  return { ...bug, errorDetails: sanitizeBugErrorDetails(bug.errorDetails) };
+}
+
 export class InMemoryStorageAdapter implements IStorageAdapter {
   type = 'in_memory';
 
@@ -613,7 +562,7 @@ export class InMemoryStorageAdapter implements IStorageAdapter {
       source: bugData.source || 'USER_SUBMITTED',
       severity: bugData.severity || 'ERROR',
       status: bugData.status || 'OPEN',
-      errorDetails: bugData.errorDetails || null,
+      errorDetails: sanitizeBugErrorDetails(bugData.errorDetails),
       firestoreSynced: false,
     };
     const existingIndex = cache.bugs.findIndex((bug) => bug.bugId === bugId);
@@ -633,7 +582,7 @@ export class InMemoryStorageAdapter implements IStorageAdapter {
     if (limitCount && limitCount > 0) {
       bugs = bugs.slice(0, limitCount);
     }
-    return bugs;
+    return bugs.map(sanitizeBugEntry);
   }
 
   async verifyAssessment(
@@ -896,7 +845,7 @@ export class FirebaseStorageAdapter extends InMemoryStorageAdapter {
   async getBugs(limitCount: number = 100) {
     const cache = getOrInitServerCache();
     if (cache.bugs && cache.bugs.length > 0) {
-      return cache.bugs.slice(0, limitCount);
+      return cache.bugs.slice(0, limitCount).map(sanitizeBugEntry);
     }
     const db = getFirestoreInstance();
     if (db) {
@@ -908,13 +857,13 @@ export class FirebaseStorageAdapter extends InMemoryStorageAdapter {
           const id = data.bugId || doc.id;
           docs.push({ ...data, bugId: id, firestoreSynced: true });
         });
-        cache.bugs = docs;
-        return docs;
+        cache.bugs = docs.map(sanitizeBugEntry);
+        return docs.map(sanitizeBugEntry);
       } catch (err: any) {
         serverLog('WARN', 'StorageAdapter', 'Failed to fetch bugs from Firestore', err?.message || err);
       }
     }
-    return (cache.bugs || []).slice(0, limitCount);
+    return (cache.bugs || []).slice(0, limitCount).map(sanitizeBugEntry);
   }
 
   async verifyAssessment(
@@ -1034,7 +983,7 @@ export class FirebaseStorageAdapter extends InMemoryStorageAdapter {
         return {
           success: false,
           deletedCount: memoryResult.deletedCount,
-          message: `Lỗi xóa tài liệu trên Firestore: ${err?.message || err}`,
+          message: 'Không thể xóa tài liệu khỏi Firestore.',
         };
       }
     }
@@ -1053,15 +1002,9 @@ let currentStorageAdapter: IStorageAdapter | null = null;
 let currentStorageAdapterKey: string | null = null;
 
 export function getStorageAdapter(): IStorageAdapter {
-  const offline = isStorageTestOfflineMode();
-  const adapterKey = `${getStorageRoot()}::${offline ? 'offline' : 'normal'}`;
+  const adapterKey = getStorageRoot();
   if (!currentStorageAdapter || currentStorageAdapterKey !== adapterKey) {
     currentStorageAdapterKey = adapterKey;
-    if (offline) {
-      currentStorageAdapter = new InMemoryStorageAdapter();
-      serverLog('INFO', 'StorageAdapter', 'Kích hoạt R17 Offline Test Storage Adapter');
-      return currentStorageAdapter;
-    }
     const firestore = getFirestoreInstance();
     if (firestore) {
       currentStorageAdapter = new FirebaseStorageAdapter();

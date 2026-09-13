@@ -136,7 +136,7 @@ export async function savePathologyLog(
 ): Promise<{ success: boolean; assessmentId: string; imageUrl?: string; firestoreSynced: boolean }> {
   const db = getFirestoreInstance();
   const cache = getOrInitServerCache();
-  const assessmentId = payload.assessmentId ?? `pathology-session-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
+  const assessmentId = payload.assessmentId ?? `pathology-session-${globalThis.crypto.randomUUID()}`;
   const existingIdx = cache.seg_reports.findIndex((r: any) => r.assessmentId === assessmentId);
   const previousRecord = existingIdx >= 0
     ? structuredClone(cache.seg_reports[existingIdx])

@@ -1,5 +1,4 @@
 import React, { useEffect, useState, useRef, Suspense, lazy } from 'react';
-import { motion, AnimatePresence } from 'motion/react';
 import { useTranslation } from 'react-i18next';
 import { ThemeProvider } from './theme/ThemeProvider';
 import { Header } from './components/Header';
@@ -8,7 +7,6 @@ import { ErrorBoundary } from './components/ErrorBoundary';
 import { MainScreenSkeleton, ModalSkeleton } from './components/SkeletonLoaders';
 import { useAppStore } from './store/appStore';
 import { flushPendingLogs, flushPendingPathologyLogs } from './services/apiService';
-import { usePredictivePrefetch } from './hooks/usePredictivePrefetch';
 import { useRadiographAnalysis } from './hooks/useRadiographAnalysis';
 import { useAssessmentSession } from './hooks/useAssessmentSession';
 import { purgeLegacyApiKeyStorage } from './utils/apiKeySecurity';
@@ -41,27 +39,6 @@ const SystemNoticeModal = lazyWithRetry(() => import('./components/SystemNoticeM
 const DisclaimerModal = lazyWithRetry(() => import('./components/DisclaimerModal').then(module => ({ default: module.DisclaimerModal })));
 const ImageValidityModal = lazyWithRetry(() => import('./components/ImageValidityModal').then(module => ({ default: module.ImageValidityModal })));
 
-const pageVariants = {
-  initial: (direction: 'forward' | 'backward') => ({
-    opacity: 0,
-    x: direction === 'forward' ? 20 : -20,
-  }),
-  in: {
-    opacity: 1,
-    x: 0,
-  },
-  out: (direction: 'forward' | 'backward') => ({
-    opacity: 0,
-    x: direction === 'forward' ? -20 : 20,
-  }),
-};
-
-const pageTransition: any = {
-  type: "tween",
-  ease: [0.2, 0.8, 0.2, 1],
-  duration: 0.35,
-};
-
 export default function App() {
   return (
     <ThemeProvider>
@@ -71,8 +48,6 @@ export default function App() {
 }
 
 function AppContent() {
-  usePredictivePrefetch(); // Enable Phase 4 Predictive Prefetching
-
   const { t: tCommon } = useTranslation('common');
   const { t: tConfig } = useTranslation('config');
   const { t: tUpload } = useTranslation('upload');
@@ -296,17 +271,10 @@ function AppContent() {
       <Header />
 
       <main className="flex-1 w-full relative flex flex-col min-h-0 overflow-hidden">
-          <AnimatePresence mode="wait" custom={direction}>
-            <motion.div 
-              key={currentStep} 
-              custom={direction}
-              initial="initial"
-              animate="in"
-              exit="out"
-              variants={pageVariants}
-              transition={pageTransition}
-              className="flex-1 flex flex-col min-h-0 w-full"
-            >
+          <div
+            key={currentStep}
+            className={`flex-1 flex flex-col min-h-0 w-full transition-all duration-300 opacity-100 animate-in fade-in ${direction === 'forward' ? 'slide-in-from-right-5' : 'slide-in-from-left-5'}`}
+          >
               <ErrorBoundary><Suspense fallback={<MainScreenSkeleton />}>
                 {currentStep === 1 && <WelcomeScreen />}
                 {currentStep === 2 && <ConfigurationScreen />}
@@ -316,8 +284,7 @@ function AppContent() {
                 {currentStep === 5 && appEngineMode !== 'pathology_segmentation' && <ValidationScreen />}
                 {currentStep === 5 && appEngineMode === 'pathology_segmentation' && <TreatmentRecommendationScreen />}
               </Suspense></ErrorBoundary>
-            </motion.div>
-          </AnimatePresence>
+          </div>
           {bottomNavNode}
       </main>
 

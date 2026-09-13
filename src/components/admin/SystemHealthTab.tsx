@@ -120,6 +120,41 @@ export const SystemHealthTab: React.FC<SystemHealthTabProps> = ({ getAuthHeader,
   const [lastFetchTime, setLastFetchTime] = useState<Date | null>(initialData ? new Date() : null);
 
   const inFlightCpFetchRef = useRef<Promise<void> | null>(null);
+  const [isRefreshingModels, setIsRefreshingModels] = useState<boolean>(false);
+  const [modelRefreshSuccessMsg, setModelRefreshSuccessMsg] = useState<string | null>(null);
+
+  const handleRefreshModels = async () => {
+    if (isRefreshingModels) return;
+    setIsRefreshingModels(true);
+    setModelRefreshSuccessMsg(null);
+    setModelRuntimeError(null);
+    try {
+      const res = await fetch('/api/admin/models/refresh', {
+        method: 'POST',
+        headers: getAuthHeader(),
+      });
+      if (!res.ok) {
+        const errorData = await res.json().catch(() => ({}));
+        throw new Error(errorData.error || `HTTP Error ${res.status}`);
+      }
+      const data = await res.json();
+      if (data.controlPlane) {
+        setModelRuntime(data.controlPlane);
+      } else {
+        await fetchControlPlane();
+      }
+      setModelRefreshSuccessMsg(
+        isEn
+          ? 'Available models discovery & Google policy refreshed successfully!'
+          : 'Đã quét lại danh mục model Google và cập nhật thang bậc thành công!'
+      );
+      setTimeout(() => setModelRefreshSuccessMsg(null), 5000);
+    } catch (err: any) {
+      setModelRuntimeError(err?.message || (isEn ? 'Failed to refresh models' : 'Lỗi làm mới danh mục model'));
+    } finally {
+      setIsRefreshingModels(false);
+    }
+  };
 
   const fetchControlPlane = async () => {
     if (inFlightCpFetchRef.current) {
@@ -440,11 +475,8 @@ export const SystemHealthTab: React.FC<SystemHealthTabProps> = ({ getAuthHeader,
                   <Sparkles className="w-4 h-4" />
                 </div>
                 <div>
-                  <h5 className="font-bold text-xs text-slate-800 dark:text-slate-200 uppercase tracking-wide flex items-center gap-2">
-                    <span>{isEn ? 'AI Model Runtime' : 'Vận hành Mô hình AI'}</span>
-                    <span className="text-[10px] font-mono font-normal text-slate-400 dark:text-blue-300/60 lowercase">
-                      (R35 Control Plane)
-                    </span>
+                  <h5 className="font-bold text-xs text-slate-800 dark:text-slate-200 uppercase tracking-wide">
+                    {isEn ? 'AI Model Runtime' : 'Vận hành Mô hình AI'}
                   </h5>
                   <p className="text-[11px] text-slate-500 dark:text-blue-300/70">
                     {isEn ? 'Active matrix and role assignments driven by Gemini control plane' : 'Ma trận mô hình hoạt động và phân bổ vai trò từ Gemini control plane'}
@@ -452,35 +484,42 @@ export const SystemHealthTab: React.FC<SystemHealthTabProps> = ({ getAuthHeader,
                 </div>
               </div>
 
-              {/* Status Badges */}
+              {/* Controls & Badges */}
               <div className="flex items-center space-x-2">
-                {modelRuntime?.controlPlane?.policyMode ? (
-                  <span className={`px-2.5 py-0.5 text-[11px] font-bold rounded-full border ${
-                    modelRuntime.controlPlane.policyMode === 'cohort_frozen'
-                      ? 'bg-blue-50 dark:bg-blue-900/60 text-blue-700 dark:text-blue-300 border-blue-200 dark:border-blue-700'
-                      : 'bg-emerald-50 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 border-emerald-200 dark:border-emerald-700'
-                  }`}>
-                    {modelRuntime.controlPlane.policyMode === 'cohort_frozen'
-                      ? `Cohort Frozen (${modelRuntime.controlPlane.cohortId || 'incumbent'})`
-                      : 'Adaptive'}
+                <button
+                  type="button"
+                  onClick={handleRefreshModels}
+                  disabled={isRefreshingModels || isModelRuntimeLoading}
+                  title={
+                    isEn
+                      ? 'Re-scan Google Gemini available models catalogue and reset 72h discovery window'
+                      : 'Quét lại toàn bộ danh mục mô hình Gemini và đặt lại chu kỳ 72h'
+                  }
+                  className="flex items-center space-x-1.5 px-2.5 py-1 text-[11px] font-semibold rounded-lg bg-indigo-50 dark:bg-indigo-950/60 hover:bg-indigo-100 dark:hover:bg-indigo-900/60 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-700/70 transition-all shadow-2xs disabled:opacity-50 cursor-pointer"
+                >
+                  <RefreshCw className={`w-3.5 h-3.5 ${isRefreshingModels ? 'animate-spin' : ''}`} />
+                  <span>
+                    {isRefreshingModels
+                      ? (isEn ? 'Scanning Models...' : 'Đang quét models...')
+                      : (isEn ? 'Reset Available Models (72h)' : 'Làm mới Models (Chu kỳ 72h)')}
                   </span>
-                ) : (
-                  <span className="px-2.5 py-0.5 text-[11px] font-bold rounded-full bg-amber-50 dark:bg-amber-950/60 text-amber-700 dark:text-amber-300 border border-amber-200 dark:border-amber-700">
-                    {isEn ? 'Not resolved yet' : 'Chưa phân giải'}
-                  </span>
-                )}
+                </button>
 
-                {modelRuntime?.controlPlane?.matrixRevision ? (
-                  <span className="font-mono text-[11px] bg-slate-100 dark:bg-blue-900/60 text-slate-700 dark:text-blue-200 px-2.5 py-0.5 rounded border border-slate-200 dark:border-blue-800/60">
+                {modelRuntime?.controlPlane?.matrixRevision && (
+                  <span className="font-mono text-[10px] bg-slate-100 dark:bg-blue-900/60 text-slate-500 dark:text-blue-300/80 px-2 py-0.5 rounded border border-slate-200 dark:border-blue-800/60" title={`Matrix Revision: ${modelRuntime.controlPlane.matrixRevision}`}>
                     rev-{modelRuntime.controlPlane.matrixRevision.slice(0, 8)}
-                  </span>
-                ) : (
-                  <span className="font-mono text-[11px] text-slate-400 dark:text-blue-400">
-                    {isEn ? 'Revision: Not resolved yet' : 'Revision: Chưa phân giải'}
                   </span>
                 )}
               </div>
             </div>
+
+            {/* Success toast after refresh */}
+            {modelRefreshSuccessMsg && (
+              <div className="bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-700/60 text-emerald-800 dark:text-emerald-200 p-2.5 rounded-lg text-xs flex items-center space-x-2">
+                <CheckCircle2 className="w-4 h-4 text-emerald-600 dark:text-emerald-400 shrink-0" />
+                <span>{modelRefreshSuccessMsg}</span>
+              </div>
+            )}
 
             {/* Error banner if model runtime failed */}
             {modelRuntimeError && (
@@ -506,7 +545,6 @@ export const SystemHealthTab: React.FC<SystemHealthTabProps> = ({ getAuthHeader,
                     <thead className="bg-slate-50 dark:bg-blue-900/40 text-slate-500 dark:text-blue-300/80 font-semibold uppercase text-[10px] border-b border-slate-200 dark:border-blue-800/60">
                       <tr>
                         <th className="px-3 py-2.5">{isEn ? 'Analysis Role' : 'Vai Trò Phân Tích'}</th>
-                        <th className="px-3 py-2.5">{isEn ? 'Primary Model' : 'Mô Hình Chính'}</th>
                         <th className="px-3 py-2.5">{isEn ? 'Ordered Model Ladder' : 'Thang Bậc Mô Hình'}</th>
                         <th className="px-3 py-2.5">{isEn ? 'Credential Affinity' : 'Độ Ưu Tiên Khoá'}</th>
                         <th className="px-3 py-2.5">{isEn ? 'Role Status' : 'Trạng Thái'}</th>
@@ -520,26 +558,36 @@ export const SystemHealthTab: React.FC<SystemHealthTabProps> = ({ getAuthHeader,
                         { key: 'pathology_branch_a', label: isEn ? 'Pathology Branch A' : 'Bệnh lý — Nhánh A' },
                         { key: 'pathology_branch_b', label: isEn ? 'Pathology Branch B' : 'Bệnh lý — Nhánh B' },
                       ].map(roleDef => {
-                        const activeMatrix = modelRuntime.controlPlane!.activeMatrix || {};
                         const roleAssignments = modelRuntime.controlPlane!.roleAssignments || {};
                         const roleLadders = (modelRuntime as any).roleLadders || (modelRuntime.controlPlane as any)?.roleLadders || {};
                         const assignment = roleAssignments[roleDef.key];
-                        const primaryModel = assignment?.primaryModel || activeMatrix[roleDef.key] || 'N/A';
-                        const ladder = roleLadders[roleDef.key] || assignment?.modelLadder || [primaryModel, ...(assignment?.fallbackModels || [])];
-                        const ladderDisplay = ladder.length > 0 ? ladder.join(' → ') : (assignment?.fallbackModels?.join(', ') || 'N/A');
+                        const rawLadder: string[] = roleLadders[roleDef.key] || assignment?.modelLadder || [];
+                        const ladder = rawLadder.filter((m: string) => typeof m === 'string' && m.trim().length > 0);
+                        const isFallback = ladder.length > 0 && ladder.every((m: string) => m.endsWith('-latest'));
+                        const sourceLabel = isFallback ? 'FALLBACK' : 'RUNTIME';
                         const credential = assignment?.credentialPreference ? assignment.credentialPreference.join(' → ') : 'system_primary';
-                        const compat = assignment?.compatibilityStatus || 'LEGACY_UNVERIFIED';
+                        const compat = assignment?.compatibilityStatus || (isFallback ? 'STATIC_FALLBACK' : 'RUNTIME_DISCOVERED');
 
                         return (
                           <tr key={roleDef.key} className="hover:bg-slate-50/50 dark:hover:bg-blue-900/20">
                             <td className="px-3 py-2 font-medium text-slate-800 dark:text-slate-200">
                               {roleDef.label}
                             </td>
-                            <td className="px-3 py-2 font-mono font-semibold text-indigo-600 dark:text-indigo-400">
-                              {primaryModel}
-                            </td>
-                            <td className="px-3 py-2 font-mono text-[11px] text-slate-600 dark:text-blue-300/80 max-w-[280px] truncate" title={ladder.join(' → ')}>
-                              {ladderDisplay}
+                            <td className="px-3 py-2 font-mono text-[11px] text-slate-600 dark:text-blue-300/80 max-w-[360px]" title={ladder.join(' → ')}>
+                              {ladder.length > 0 ? (
+                                <div className="flex items-center space-x-1.5 overflow-hidden">
+                                  <span className="font-semibold text-indigo-600 dark:text-indigo-400 shrink-0">
+                                    {ladder[0]}
+                                  </span>
+                                  {ladder.length > 1 && (
+                                    <span className="text-slate-400 dark:text-slate-500 truncate text-[10px]">
+                                      → {ladder.slice(1).join(' → ')}
+                                    </span>
+                                  )}
+                                </div>
+                              ) : (
+                                <span className="text-slate-400">N/A</span>
+                              )}
                             </td>
                             <td className="px-3 py-2">
                               <span className="px-2 py-0.5 font-mono text-[10px] rounded bg-slate-100 dark:bg-blue-900/60 text-slate-700 dark:text-blue-300 border border-slate-200 dark:border-blue-800">
@@ -548,8 +596,12 @@ export const SystemHealthTab: React.FC<SystemHealthTabProps> = ({ getAuthHeader,
                             </td>
                             <td className="px-3 py-2">
                               <div className="flex items-center space-x-1.5">
-                                <span className="px-1.5 py-0.5 text-[9px] font-bold rounded bg-emerald-50 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800">
-                                  ACTIVE
+                                <span className={`px-1.5 py-0.5 text-[9px] font-bold rounded border ${
+                                  isFallback
+                                    ? 'bg-amber-50 dark:bg-amber-950/60 text-amber-700 dark:text-amber-300 border-amber-200 dark:border-amber-800'
+                                    : 'bg-emerald-50 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 border-emerald-200 dark:border-emerald-800'
+                                }`}>
+                                  {sourceLabel}
                                 </span>
                                 <span className={`px-1.5 py-0.5 text-[9px] font-bold rounded border ${
                                   compat === 'COMPATIBILITY_VERIFIED'

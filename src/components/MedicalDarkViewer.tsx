@@ -31,7 +31,7 @@ export const MedicalDarkViewer: React.FC<MedicalDarkViewerProps> = React.memo(({
               src={imageDataUrl}
               alt="Dental Radiograph"
               referrerPolicy="no-referrer"
-              className="max-h-full max-w-full object-contain pointer-events-none"
+              className="w-full h-full object-contain pointer-events-none"
             />
           </div>
         ) : (

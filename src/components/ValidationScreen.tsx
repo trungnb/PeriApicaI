@@ -77,10 +77,10 @@ export const ValidationScreen: React.FC = React.memo(() => {
       <div className="shrink-0 bg-white dark:bg-slate-800/90 text-slate-800 dark:text-slate-100 rounded-2xl p-4 sm:p-5 border border-slate-200/80 dark:border-slate-700/80 shadow-xs flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div className="space-y-1">
           <p className="text-base font-bold text-slate-900 dark:text-slate-100">
-            {t('common:targetTooth')}: {selectedTooth?.fdiNumber} - {selectedTooth ? getToothDisplayName(selectedTooth, language) : ''} {selectedTooth ? `(${getArchDisplayName(selectedTooth.arch, language)})` : ''}
+            {language === 'EN' ? 'Target Tooth' : 'Răng mục tiêu'}: {selectedTooth?.fdiNumber} - {selectedTooth ? getToothDisplayName(selectedTooth, language) : ''} {selectedTooth ? `(${getArchDisplayName(selectedTooth.arch, language)})` : ''}
           </p>
           <p className="text-xs text-slate-600 dark:text-slate-400">
-            {t('imagingTechnique')}: <strong className="font-semibold text-blue-700 dark:text-sky-400">{techniqueText}</strong> • {t('receptorType')}: <strong className="font-semibold text-blue-700 dark:text-sky-400">{receptorText}</strong>
+            {language === 'EN' ? 'Imaging Technique' : 'Kỹ thuật chụp'}: <strong className="font-semibold text-blue-700 dark:text-sky-400">{techniqueText}</strong> • {language === 'EN' ? 'Receptor Type' : 'Bộ nhận ảnh'}: <strong className="font-semibold text-blue-700 dark:text-sky-400">{receptorText}</strong>
           </p>
         </div>
       </div>

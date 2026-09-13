@@ -90,140 +90,8 @@ export interface UnifiedAnalysisResult {
   userMessage?: string;
 }
 
-// ─────────────────────────────────────────────────────────────
-// SCHEMA VALIDATION & CLIENT-SIDE TAXONOMY MAPPING
-// ─────────────────────────────────────────────────────────────
-
 /**
- * Explicitly checks if a string or object contains a valid JSON structure (object or array) before parsing.
- */
-export function isValidJsonStructure(input: any): boolean {
-  if (!input) return false;
-  if (typeof input === 'object') return true;
-  if (typeof input !== 'string') return false;
-
-  let cleaned = input.trim();
-  if (cleaned.startsWith('```')) {
-    cleaned = cleaned.replace(/^```[a-z]*\n?/i, '').replace(/\n?```$/i, '').trim();
-  }
-
-  if (cleaned.length === 0) return false;
-
-  // Quick structural check
-  const hasValidBrackets =
-    (cleaned.startsWith('{') && cleaned.endsWith('}')) ||
-    (cleaned.startsWith('[') && cleaned.endsWith(']')) ||
-    /\{[\s\S]*\}|\[[\s\S]*\]/.test(cleaned);
-
-  if (!hasValidBrackets) return false;
-
-  try {
-    const parsed = JSON.parse(cleaned);
-    return parsed !== null && typeof parsed === 'object';
-  } catch {
-    const match = cleaned.match(/(\{[\s\S]*\}|\[[\s\S]*\])/);
-    if (match) {
-      try {
-        const parsed = JSON.parse(match[1]);
-        return parsed !== null && typeof parsed === 'object';
-      } catch {
-        return false;
-      }
-    }
-    return false;
-  }
-}
-
-/**
- * Safely parses string or object payload into a raw JSON object.
- * Strips markdown formatting (```json ... ```) and handles regex extraction if needed.
- */
-export function extractJsonObject(input: any): any | null {
-  if (!input) return null;
-  if (typeof input === 'object') return input;
-  if (!isValidJsonStructure(input)) return null;
-
-  let cleaned = (input as string).trim();
-  if (cleaned.startsWith('```')) {
-    cleaned = cleaned.replace(/^```[a-z]*\n?/i, '').replace(/\n?```$/i, '').trim();
-  }
-
-  try {
-    return JSON.parse(cleaned);
-  } catch {
-    const match = cleaned.match(/(\{[\s\S]*\}|\[[\s\S]*\])/);
-    if (match) {
-      try {
-        return JSON.parse(match[1]);
-      } catch {
-        return null;
-      }
-    }
-    return null;
-  }
-}
-
-/**
- * Validates that an object strictly adheres to DENTAL_ANALYSIS_SCHEMA structure.
- */
-export function validateDentalAnalysisSchema(data: any): { isValid: boolean; parsedData?: any; errorReason?: string } {
-  const obj = extractJsonObject(data);
-  if (!obj || typeof obj !== 'object' || Array.isArray(obj)) {
-    return { isValid: false, errorReason: 'AI response is not a valid JSON object' };
-  }
-
-  const analysisCandidate = obj.analysis || obj.result || obj;
-  if (!analysisCandidate || typeof analysisCandidate !== 'object') {
-    return { isValid: false, errorReason: 'Missing analysis object body' };
-  }
-
-  const hasPeriapical =
-    typeof analysisCandidate.isPeriapicalRadiograph === 'boolean' ||
-    typeof analysisCandidate.not_periapical === 'boolean' ||
-    typeof analysisCandidate.isPeriapicalRadiograph === 'string';
-
-  const hasQuality =
-    typeof analysisCandidate.overallQuality === 'string' &&
-    ['Diagnostic', 'Needs Retake', 'Unsatisfactory'].includes(analysisCandidate.overallQuality.trim());
-
-  const hasErrors = Array.isArray(analysisCandidate.errors) || Array.isArray(analysisCandidate.findings);
-
-  if (!hasPeriapical && !hasQuality && !hasErrors) {
-    return {
-      isValid: false,
-      errorReason: 'Output lacks essential DENTAL_ANALYSIS_SCHEMA fields (isPeriapicalRadiograph, overallQuality, errors/findings)',
-    };
-  }
-
-  return { isValid: true, parsedData: analysisCandidate };
-}
-
-/**
- * Validates that an object adheres to PathologySegmentResult structure.
- */
-export function validatePathologySchema(data: any): { isValid: boolean; parsedData?: any; errorReason?: string } {
-  const obj = extractJsonObject(data);
-  if (!obj || typeof obj !== 'object' || Array.isArray(obj)) {
-    return { isValid: false, errorReason: 'Pathology response is not a valid JSON object' };
-  }
-
-  const resultCandidate = obj.result || obj.pathologyResult || obj;
-  if (!resultCandidate || typeof resultCandidate !== 'object') {
-    return { isValid: false, errorReason: 'Missing pathology result body' };
-  }
-
-  const hasPathologies = Array.isArray(resultCandidate.pathologies);
-  const hasSummary = typeof resultCandidate.overallSummary === 'string' || typeof resultCandidate.overallSummaryEn === 'string';
-
-  if (!hasPathologies && !hasSummary) {
-    return { isValid: false, errorReason: 'Output lacks essential Pathology schema fields (pathologies, overallSummary)' };
-  }
-
-  return { isValid: true, parsedData: resultCandidate };
-}
-
-/**
- * Validates and normalizes classic radiograph quality analysis against TECH_FAILURE_DICT.
+ * Normalizes classic radiograph quality analysis against TECH_FAILURE_DICT.
  * Transforms raw error codes (e.g., CONE_CUT, DBL_EXP) and flat findings into robust UI-ready structures.
  */
 export function validateAndNormalizeClassicSchema(
@@ -382,7 +250,7 @@ export function validateAndNormalizeClassicSchema(
 }
 
 /**
- * Validates and normalizes pathology 2D segmentation result against PATHOLOGY_DICT.
+ * Normalizes pathology 2D segmentation result against PATHOLOGY_DICT.
  * Ensures polygon points are clamped in [0, 1000] and clinical recommendations are populated.
  */
 export function validateAndNormalizePathologySchema(
@@ -575,21 +443,11 @@ async function processStreamData(
           errorMsg = parsed.userMessage || parsed.error || parsed.errorNotice || 'Analysis failed.';
         }
 
-        // Extract and validate candidate payload against schema
-        const candidatePayload = parsed.result || parsed.analysis || parsed.text || parsed;
-        const validation =
-          type === 'classic'
-            ? validateDentalAnalysisSchema(candidatePayload)
-            : validatePathologySchema(candidatePayload);
-
-        if (validation.isValid && validation.parsedData) {
-          finalData = validation.parsedData;
+        const candidatePayload = parsed.result || parsed.analysis ||
+          (typeof parsed.text === 'string' ? JSON.parse(parsed.text) : parsed.text);
+        if (candidatePayload && typeof candidatePayload === 'object' && !Array.isArray(candidatePayload)) {
+          finalData = candidatePayload;
           if (parsed.usedModel) usedModel = parsed.usedModel;
-        } else if (parsed.text || parsed.result || parsed.analysis) {
-          console.debug('[aiService] Debug: Malformed SSE payload received:', {
-            reason: validation.errorReason,
-            rawPayload: candidatePayload,
-          });
         }
         } catch (e) {
           if (!(e instanceof SyntaxError)) throw e;
@@ -604,13 +462,10 @@ async function processStreamData(
       try {
         const parsed = JSON.parse(rawData);
         if (parsed.isCached) isCached = true;
-        const candidatePayload = parsed.result || parsed.analysis || parsed.text || parsed;
-        const validation =
-          type === 'classic'
-            ? validateDentalAnalysisSchema(candidatePayload)
-            : validatePathologySchema(candidatePayload);
-        if (validation.isValid && validation.parsedData) {
-          finalData = validation.parsedData;
+        const candidatePayload = parsed.result || parsed.analysis ||
+          (typeof parsed.text === 'string' ? JSON.parse(parsed.text) : parsed.text);
+        if (candidatePayload && typeof candidatePayload === 'object' && !Array.isArray(candidatePayload)) {
+          finalData = candidatePayload;
         }
       } catch {
         // ignore
@@ -679,7 +534,7 @@ async function processStreamData(
 
 /**
  * Unified radiograph analysis pipeline for Classic Quality Assessment or Pathology 2D Segmentation.
- * Encapsulates automatic retries, fallback handling, stream parsing, and schema validation.
+ * Encapsulates automatic retries, fallback handling, and stream parsing.
  */
 export async function analyzeRadiograph(
   image: string,
@@ -885,25 +740,10 @@ export async function analyzeRadiograph(
         };
       }
 
-      // Validate JSON payload
       const payloadCandidate = data.analysis || data.result || data;
-      const jsonValidation =
-        type === 'classic'
-          ? validateDentalAnalysisSchema(payloadCandidate)
-          : validatePathologySchema(payloadCandidate);
-
-      if (!jsonValidation.isValid && attempt <= maxRetries) {
-        onStatusUpdate?.(
-          isEn
-            ? `🔄 Retrying analysis...`
-            : `🔄 Đang tự động thử lại...`
-        );
-        await new Promise((res) => setTimeout(res, 500));
-        continue;
-      }
 
       if (type === 'classic') {
-        const validated = validateAndNormalizeClassicSchema(jsonValidation.parsedData || data.analysis || data, language);
+        const validated = validateAndNormalizeClassicSchema(payloadCandidate, language);
         return {
           success: true,
           type: 'classic',
@@ -913,7 +753,7 @@ export async function analyzeRadiograph(
           isFallback: Boolean(data.isFallback),
         };
       } else {
-        const validated = validateAndNormalizePathologySchema(jsonValidation.parsedData || data.result || data, language);
+        const validated = validateAndNormalizePathologySchema(payloadCandidate, language);
         return {
           success: true,
           type: 'pathology',

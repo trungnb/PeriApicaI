@@ -143,7 +143,7 @@ export function useAssessmentSession() {
     });
 
     const payload: AssessmentLogPayload = {
-      assessmentId: currentAssessmentId || `perio_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
+      assessmentId: currentAssessmentId || `perio_${globalThis.crypto.randomUUID()}`,
       timestamp: new Date().toISOString(),
       tooth: selectedTooth,
       technique: selectedTechnique,

@@ -119,10 +119,19 @@ export const ExportDropdown: React.FC<ExportDropdownProps> = ({
         throw new Error(t('noDataAvailableTo', 'Không có dữ liệu phù hợp để xuất.'));
       }
 
-      // Convert to CSV with UTF-8 BOM
+      // Convert to CSV with UTF-8 BOM and formula injection protection
+      const sanitizeCsvCell = (cell: unknown): string => {
+        if (cell === null || cell === undefined) return '""';
+        if (typeof cell === 'number') return `"${cell}"`;
+        const str = String(cell);
+        const trimmed = str.trimStart();
+        const safe = /^[=+@\-\t\r]/.test(trimmed) ? `'${str}` : str;
+        return `"${safe.replace(/"/g, '""')}"`;
+      };
+
       const csvContent = '\uFEFF' + [
         headers.map(h => `"${String(h).replace(/"/g, '""')}"`).join(','),
-        ...rows.map(row => row.map(cell => `"${String(cell ?? '').replace(/"/g, '""')}"`).join(','))
+        ...rows.map(row => row.map(sanitizeCsvCell).join(','))
       ].join('\n');
 
       const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });

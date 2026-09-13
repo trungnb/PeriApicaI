@@ -1,12 +1,5 @@
 const CLIENT_ID = ((import.meta as any).env?.VITE_GOOGLE_CLIENT_ID as string) || '';
 
-let testClientIdOverride: string | null = null;
-
-/** Test seam only; production always reads the Vite public client ID. */
-export function configureGoogleSheetsServiceForTests(clientId: string | null = null): void {
-  testClientIdOverride = clientId;
-}
-
 /**
  * Loads the Google Identity Services (GIS) client library dynamically.
  */
@@ -33,13 +26,12 @@ export async function getGoogleAccessToken(): Promise<string> {
 
   return new Promise((resolve, reject) => {
     try {
-      const clientId = testClientIdOverride ?? CLIENT_ID;
-      if (!clientId) {
+      if (!CLIENT_ID) {
         return reject(new Error('Chưa cấu hình Google Client ID (VITE_GOOGLE_CLIENT_ID).'));
       }
 
       const client = (window as any).google.accounts.oauth2.initTokenClient({
-        client_id: clientId,
+        client_id: CLIENT_ID,
         scope: 'https://www.googleapis.com/auth/drive.file https://www.googleapis.com/auth/spreadsheets',
         callback: (response: any) => {
           if (response.error) {
@@ -161,7 +153,7 @@ export async function exportDataToGoogleSheets(
     const CHUNK_SIZE = 2000;
     for (let i = 0; i < rows.length; i += CHUNK_SIZE) {
       const chunk = rows.slice(i, i + CHUNK_SIZE);
-      const appendUrl = `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/Sheet1!A2:append?valueInputOption=USER_ENTERED`;
+      const appendUrl = `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/Sheet1!A2:append?valueInputOption=RAW`;
       const appendRes = await fetch(appendUrl, {
         method: 'POST',
         headers: {

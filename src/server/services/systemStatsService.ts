@@ -1,7 +1,12 @@
 import { Firestore, FieldValue } from 'firebase-admin/firestore';
 import { serverLog } from '../config/env';
 import { determineAccuracyCategory, isLogIncompleteHelper, isLogErrorHelper, getDateKeyFromLog } from '../utils/metadataHelpers';
+import { CANONICAL_TECHNICAL_KEYS_SET } from '../../data/taxonomyData';
+import { CANONICAL_PATHOLOGY_KEYS } from '../../utils/semanticValidation';
 export { getDateKeyFromLog };
+
+const CANONICAL_PATHOLOGY_KEYS_SET = new Set<string>(CANONICAL_PATHOLOGY_KEYS);
+
 
 export const STATS_COLLECTION = 'system_stats';
 export const USER_STATS_COLLECTION = 'user_stats';
@@ -284,7 +289,7 @@ export function reportContributions(log: any): MetricContributions {
     result['reports.completedCount'] = 1;
     result[`reports.accuracyCounts.${determineAccuracyCategory(log)}`] = 1;
     for (const key of log.finalConfirmedErrors || []) {
-      if (key && key !== 'not_periapical') {
+      if (key && key !== 'not_periapical' && CANONICAL_TECHNICAL_KEYS_SET.has(key)) {
         result[`reports.errorDistribution.${key}`] = (result[`reports.errorDistribution.${key}`] || 0) + 1;
       }
     }
@@ -313,11 +318,12 @@ export function pathologyContributions(log: any): MetricContributions {
 
   const pathologies = log.finalConfirmedPathologies || log.confirmedPathologies || log.detectedPathologies || [];
   for (const pathology of pathologies) {
-    const key = pathology?.key || pathology?.label;
-    if (key) {
+    const key = pathology?.pathologyKey || pathology?.key;
+    if (key && CANONICAL_PATHOLOGY_KEYS_SET.has(key)) {
       result[`pathology.pathologyDistribution.${key}`] = (result[`pathology.pathologyDistribution.${key}`] || 0) + 1;
     }
   }
+
   if (log.tooth?.fdiNumber) {
     result[`pathology.toothDistribution.${String(log.tooth.fdiNumber)}`] = 1;
   }

@@ -17,6 +17,7 @@ function signature(value: Omit<ValidityAuditMetadata, 'attestation'>): string {
 export function createValidityAudit(receipt: ValidityReceiptPayload): ValidityAuditMetadata {
   const metadata: Omit<ValidityAuditMetadata, 'attestation'> = {
     schemaVersion: 1,
+    assessmentId: receipt.assessmentId,
     sourceImageDigest: receipt.imageDigest,
     validityDecision: receipt.decision as ValidityAuditMetadata['validityDecision'],
     targetFdi: receipt.toothFdi,
@@ -33,6 +34,7 @@ export function verifyAttestedValidityAudit(value: unknown): ValidityAuditMetada
   if (!value || typeof value !== 'object' || Array.isArray(value)) return undefined;
   const candidate = value as Record<string, unknown>;
   const valid = candidate.schemaVersion === 1
+    && typeof candidate.assessmentId === 'string' && candidate.assessmentId.trim().length > 0
     && typeof candidate.sourceImageDigest === 'string' && /^[a-f0-9]{64}$/.test(candidate.sourceImageDigest)
     && ['valid', 'user_confirmed', 'prototype_override'].includes(String(candidate.validityDecision))
     && typeof candidate.targetFdi === 'string' && /^\d{2}$/.test(candidate.targetFdi)

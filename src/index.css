@@ -101,4 +101,19 @@ nav,
   .dark button:focus-visible, .dark a:focus-visible, .dark input:focus-visible, .dark select:focus-visible, .dark textarea:focus-visible, .dark [role="switch"]:focus-visible, .dark [role="button"]:focus-visible, .dark [tabindex="0"]:focus-visible {
     outline-color: #60a5fa !important;
   }
+
+  /* Prevent browser-default file input widget or button text leak */
+  input[type="file"].hidden,
+  input[type="file"].sr-only,
+  input[type="file"][hidden] {
+    display: none !important;
+    position: absolute !important;
+    top: -9999px !important;
+    left: -9999px !important;
+    width: 0 !important;
+    height: 0 !important;
+    opacity: 0 !important;
+    pointer-events: none !important;
+    clip: rect(0, 0, 0, 0) !important;
+  }
 }

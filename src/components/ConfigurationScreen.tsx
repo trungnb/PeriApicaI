@@ -4,7 +4,6 @@ import { ALL_TEETH, getToothDisplayName, getArchDisplayName, getToothTypeDisplay
 import { Check, HardDrive, Compass, Target, Sparkles } from 'lucide-react';
 import { useAppStore } from '../store/appStore';
 import { useTranslation } from 'react-i18next';
-import { prefetchStep2AIModules } from '../hooks/usePredictivePrefetch';
 
 const q1Teeth = ALL_TEETH.filter((t) => t.quadrant === 1);
 const q2Teeth = ALL_TEETH.filter((t) => t.quadrant === 2);
@@ -16,11 +15,6 @@ export const ConfigurationScreen: React.FC = React.memo(() => {
   const language = useAppStore(state => state.language);
   const appEngineMode = useAppStore(state => state.appEngineMode);
   const isPathology = appEngineMode === 'pathology_segmentation';
-
-  // Proactively prime and prefetch AI modules and base64 decoder as soon as Step 2 mounts
-  React.useEffect(() => {
-    prefetchStep2AIModules();
-  }, []);
 
   const hasAnalysisResult = useAppStore(state => !!state.analysisResult);
   const [pendingChange, setPendingChange] = React.useState<(() => void) | null>(null);

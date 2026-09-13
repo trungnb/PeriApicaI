@@ -204,11 +204,6 @@ export function getTreatmentText(key: string, language: 'VI' | 'EN' = 'VI'): str
   return language === 'EN' ? item.protocol.primaryTreatmentEn : item.protocol.primaryTreatment;
 }
 
-export function getPathologyColor(key: string): { color: string; fillColor: string } {
-  const item = PATHOLOGY_DICT[key];
-  return { color: item?.color ?? '#94a3b8', fillColor: item?.fillColor ?? 'rgba(148,163,184,0.22)' };
-}
-
 export const URGENCY_BADGE: Record<TreatmentProtocol['urgency'], { label: string; labelEn: string; className: string }> = {
   routine:   { label: 'Định kỳ',   labelEn: 'Routine',   className: 'bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-400' },
   soon:      { label: 'Sớm',      labelEn: 'Soon',      className: 'bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300' },

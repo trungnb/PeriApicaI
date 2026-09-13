@@ -2,7 +2,7 @@
 
 ## Current Baseline
 
-Application version: **2.9.0**.
+Application version: **2.9.1**.
 
 PeriApicAI is an experimental research prototype for dental periapical radiograph analysis. It has not been clinically validated and is not a substitute for professional diagnosis, treatment planning, or clinical judgment.
 
@@ -22,6 +22,9 @@ The current architecture provides:
 - Paginated `user_stats` for the Admin user directory.
 - Filter-scoped full Admin exports independent of table pagination.
 - Production client/server build separation.
+- Server-side image validation, persistence DTO allowlisting, and signed lineage/validity attestations.
+- Hardened Admin restore/delete flows, login lockout behavior, proxy trust parsing, generic error responses, CSP, and stack-trace redaction.
+- Added focused security regression coverage and a Google AI Studio / Cloud Run release package with secret-safe metadata and environment template.
 
 Current production prompt lineage labels remain:
 
@@ -31,6 +34,32 @@ Current production prompt lineage labels remain:
 The Pathology `v2` lineage label predates the R39 prompt experiment and does **not** mean the R39 Pathology V2 candidate was adopted.
 
 R39 Technical V2 and Pathology V2 remained experimental benchmark candidates only. Neither was adopted. Current production prompt builders remain authoritative.
+
+---
+
+## v2.9.1 — Security hardening and Google AI Studio release packaging (September 2026)
+
+This release updates the v2.9.0 deployment baseline with security hardening, focused regression coverage, and a reproducible package for Google AI Studio Build mode and Cloud Run.
+
+### Changes from v2.9.0
+
+- Hardened Admin backup restore: validate the complete payload before writing, cap restored collections, allowlist public persistence fields, and exclude server-owned review/sync state.
+- Removed the rate-limit validation bypass and made `TRUST_PROXY` explicit and bounded.
+- Replaced client-facing raw error details with generic responses while preserving server logs for diagnosis.
+- Removed `unsafe-eval` and `unsafe-inline` from the CSP `script-src`; retained inline styles required by the current React UI.
+- Redacted stack traces and sensitive error details from automatic bug logs and legacy persistence reads.
+- Added regression tests covering lockout, restore payloads, destructive-action authorization, image validation, error sanitization, CSP, and proxy configuration.
+- Added release metadata, `.env.example`, deployment instructions, and `periapical.zip`; the package excludes secrets, runtime data, caches, dependencies, and generated build output.
+
+### Release verification
+
+- `npm test -- --silent`
+- `npm run lint`
+- `npm run build`
+- `git diff --check`
+- ZIP integrity and archive-content checks
+
+This is the current release baseline. Firebase Admin remains optional for local operation but is recommended for durable shared Cloud Run persistence.
 
 ---
 
@@ -97,7 +126,7 @@ R39 Technical V2 and Pathology V2 remained experimental benchmark candidates onl
 
 ### Deployment status
 
-**v2.9.0 is the current deployment-ready application baseline.**
+**v2.9.0 was the deployment-ready application baseline before the v2.9.1 security release.**
 
 The deployment-readiness pass completed with:
 
@@ -412,7 +441,7 @@ R40/R40C descriptions are historical engineering context and no longer represent
 
 ## Current Status
 
-**Current application version: 2.9.0**
+**Current application version: 2.9.1**
 
 PeriApicAI is:
 

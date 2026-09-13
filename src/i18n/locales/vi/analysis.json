@@ -28,5 +28,8 @@
   "confirmedSummary": "Tổng hợp lỗi chốt ({{count}}):",
   "noErrorsSummary": "✓ Phim đạt chuẩn chẩn đoán, không có lỗi kỹ thuật nào.",
   "back": "Quay lại",
-  "proceedToRemediation": "Chốt lỗi & Sang Hướng dẫn khắc phục"
+  "proceedToRemediation": "Chốt lỗi & Sang Hướng dẫn khắc phục",
+  "imagingTechnique": "Kỹ thuật chụp",
+  "receptorType": "Bộ nhận ảnh",
+  "targetTooth": "Răng mục tiêu"
 }

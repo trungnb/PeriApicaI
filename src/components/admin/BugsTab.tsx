@@ -96,7 +96,7 @@ export const BugsTab: React.FC<BugsTabProps> = ({ bugsList, systemMetrics: propS
       });
   }, [bugsList, filterType, sourceFilter, startDate, endDate]);
 
-  const { currentPage, setCurrentPage, totalPages } = usePagination(filteredBugs, PAGE_SIZE, totalBugsCount);
+  const { currentPage, setCurrentPage, totalPages } = usePagination(totalBugsCount, PAGE_SIZE);
 
   useEffect(() => {
     if (currentPage > 1 && bugsList.length > 0 && currentPage * PAGE_SIZE >= bugsList.length && hasMore) {
