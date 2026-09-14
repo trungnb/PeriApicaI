@@ -160,7 +160,10 @@ function parseSessionStatus(value: unknown) {
   return value as 'INCOMPLETE' | 'COMPLETED' | 'FAILED_NON_DENTAL';
 }
 
-function parseLastCompletedStep(value: unknown): number {
+function parseLastCompletedStep(value: unknown, sessionStatus: unknown): number {
+  if (sessionStatus === 'COMPLETED' && value !== 5) {
+    fail('Completed assessments require lastCompletedStep 5.');
+  }
   if (typeof value !== 'number' || !Number.isInteger(value) || value < 0 || value > 5) {
     fail('lastCompletedStep must be an integer from 0 through 5.');
   }
@@ -385,30 +388,46 @@ export function parsePublicTechnicalSaveDto(body: unknown, serverTimestamp = new
 
   const imageDataUrl = parseImageDataUrl(envelope.imageDataUrl);
   const shareConsent = parseConsent(payload.shareConsent);
-  const aiAnalysis = parseTechnicalAnalysis(payload.aiAnalysis);
+  const lastCompletedStep = parseLastCompletedStep(payload.lastCompletedStep, payload.sessionStatus);
+  const aiAnalysis = payload.aiAnalysis === undefined ? undefined : parseTechnicalAnalysis(payload.aiAnalysis);
 
-  if (!aiAnalysis.inferenceLineage) {
-    fail('Public technical assessment requires a valid attested inference lineage envelope.');
+  if (lastCompletedStep >= 4) {
+    if (!aiAnalysis) {
+      fail('Public technical assessment requires aiAnalysis for step 4+.');
+    }
+    if (!aiAnalysis.inferenceLineage) {
+      fail('Public technical assessment requires a valid attested inference lineage envelope for step 4+.');
+    }
+    if (!aiAnalysis.validityAudit) {
+      fail('Public technical assessment requires a valid attested validity audit envelope for step 4+.');
+    }
   }
-  if (!aiAnalysis.validityAudit) {
-    fail('Public technical assessment requires a valid attested validity audit envelope.');
+
+  if (lastCompletedStep >= 5) {
+    if (payload.userValidation === undefined) {
+      fail('Public technical assessment requires userValidation for step 5.');
+    }
   }
 
   const assessmentId = parseAssessmentId(payload.assessmentId);
 
-  if (!aiAnalysis.validityAudit.assessmentId || aiAnalysis.validityAudit.assessmentId !== assessmentId) {
-    fail('Validity audit assessment ID does not match assessment ID.');
+  if (aiAnalysis && aiAnalysis.validityAudit) {
+    if (!aiAnalysis.validityAudit.assessmentId || aiAnalysis.validityAudit.assessmentId !== assessmentId) {
+      fail('Validity audit assessment ID does not match assessment ID.');
+    }
   }
-  if (!aiAnalysis.inferenceLineage.assessmentId || aiAnalysis.inferenceLineage.assessmentId !== assessmentId) {
-    fail('Inference lineage assessment ID does not match assessment ID.');
-  }
-  if (aiAnalysis.inferenceLineage.sourceImageDigest && aiAnalysis.inferenceLineage.sourceImageDigest !== aiAnalysis.validityAudit.sourceImageDigest) {
-    fail('Inference lineage image digest does not match validity audit image digest.');
-  }
-  if (aiAnalysis.inferenceLineage.resultDigest) {
-    const computedDigest = computeTechnicalResultDigest(aiAnalysis.findings, aiAnalysis.overallQuality);
-    if (computedDigest !== aiAnalysis.inferenceLineage.resultDigest) {
-      fail('Analysis findings do not match attested inference lineage result digest.');
+  if (aiAnalysis && aiAnalysis.inferenceLineage) {
+    if (!aiAnalysis.inferenceLineage.assessmentId || aiAnalysis.inferenceLineage.assessmentId !== assessmentId) {
+      fail('Inference lineage assessment ID does not match assessment ID.');
+    }
+    if (aiAnalysis.validityAudit && aiAnalysis.inferenceLineage.sourceImageDigest && aiAnalysis.inferenceLineage.sourceImageDigest !== aiAnalysis.validityAudit.sourceImageDigest) {
+      fail('Inference lineage image digest does not match validity audit image digest.');
+    }
+    if (aiAnalysis.inferenceLineage.resultDigest) {
+      const computedDigest = computeTechnicalResultDigest(aiAnalysis.findings, aiAnalysis.overallQuality);
+      if (computedDigest !== aiAnalysis.inferenceLineage.resultDigest) {
+        fail('Analysis findings do not match attested inference lineage result digest.');
+      }
     }
   }
 
@@ -416,16 +435,19 @@ export function parsePublicTechnicalSaveDto(body: unknown, serverTimestamp = new
   const technique = parseTechnique(payload.technique);
   const receptorType = parseReceptor(payload.receptorType);
 
-  if (aiAnalysis.validityAudit.targetFdi !== tooth.fdiNumber) {
-    fail('Validity audit target FDI does not match assessment tooth FDI.');
+  if (aiAnalysis && aiAnalysis.validityAudit) {
+    if (aiAnalysis.validityAudit.targetFdi !== tooth.fdiNumber) {
+      fail('Validity audit target FDI does not match assessment tooth FDI.');
+    }
+    if (aiAnalysis.validityAudit.technique !== technique) {
+      fail('Validity audit technique does not match assessment technique.');
+    }
+    if (aiAnalysis.validityAudit.receptorType !== receptorType) {
+      fail('Validity audit receptorType does not match assessment receptorType.');
+    }
   }
-  if (aiAnalysis.validityAudit.technique !== technique) {
-    fail('Validity audit technique does not match assessment technique.');
-  }
-  if (aiAnalysis.validityAudit.receptorType !== receptorType) {
-    fail('Validity audit receptorType does not match assessment receptorType.');
-  }
-  if (imageDataUrl) {
+
+  if (imageDataUrl && aiAnalysis && aiAnalysis.validityAudit) {
     const computedDigest = digestValidityImage(imageDataUrl);
     if (computedDigest && computedDigest !== aiAnalysis.validityAudit.sourceImageDigest) {
       fail('Image digest does not match attested validity audit.');
@@ -447,13 +469,15 @@ export function parsePublicTechnicalSaveDto(body: unknown, serverTimestamp = new
     technique,
     receptorType,
     sessionStatus: parseSessionStatus(payload.sessionStatus),
-    lastCompletedStep: parseLastCompletedStep(payload.lastCompletedStep),
+    lastCompletedStep: parseLastCompletedStep(payload.lastCompletedStep, payload.sessionStatus),
     ...(payload.stage === undefined ? {} : { stage: optionalString(payload.stage, 'stage', MAX_SHORT_TEXT_LENGTH) }),
     ...(payload.stepStatus === undefined ? {} : { stepStatus: parseStepStatus(payload.stepStatus) }),
-    aiAnalysis,
-    validityAudit: aiAnalysis.validityAudit,
-    technicalEvaluation: createUnreviewedTechnicalEvaluation(aiAnalysis),
-    userValidation: parseUserValidation(payload.userValidation),
+    ...(aiAnalysis === undefined ? {} : {
+      aiAnalysis,
+      validityAudit: aiAnalysis.validityAudit,
+      technicalEvaluation: createUnreviewedTechnicalEvaluation(aiAnalysis),
+    }),
+    ...(payload.userValidation === undefined ? {} : { userValidation: parseUserValidation(payload.userValidation) }),
     ...(payload.userNotes === undefined ? {} : { userNotes: optionalString(payload.userNotes, 'userNotes', MAX_TEXT_LENGTH) }),
     finalConfirmedErrors: rawFinalErrors,
     shareConsent,
@@ -480,39 +504,50 @@ export function parsePublicPathologySaveDto(body: unknown, serverTimestamp = new
   const inferenceLineage = parseAttestedInferenceLineage(payload.inferenceLineage, 'pathology');
   const validityAudit = parseAttestedValidityAudit(payload.validityAudit);
 
-  if (!inferenceLineage) {
-    fail('Public pathology assessment requires a valid attested inference lineage envelope.');
-  }
-  if (!validityAudit) {
-    fail('Public pathology assessment requires a valid attested validity audit envelope.');
+  const lastCompletedStep = parseLastCompletedStep(payload.lastCompletedStep, payload.sessionStatus);
+
+  if (lastCompletedStep >= 4) {
+    if (!inferenceLineage) {
+      fail('Public pathology assessment requires a valid attested inference lineage envelope for step 4+.');
+    }
+    if (!validityAudit) {
+      fail('Public pathology assessment requires a valid attested validity audit envelope for step 4+.');
+    }
   }
 
   const assessmentId = parseAssessmentId(payload.assessmentId);
 
-  if (!validityAudit.assessmentId || validityAudit.assessmentId !== assessmentId) {
-    fail('Validity audit assessment ID does not match assessment ID.');
+  if (validityAudit) {
+    if (!validityAudit.assessmentId || validityAudit.assessmentId !== assessmentId) {
+      fail('Validity audit assessment ID does not match assessment ID.');
+    }
   }
-  if (!inferenceLineage.assessmentId || inferenceLineage.assessmentId !== assessmentId) {
-    fail('Inference lineage assessment ID does not match assessment ID.');
-  }
-  if (inferenceLineage.sourceImageDigest && inferenceLineage.sourceImageDigest !== validityAudit.sourceImageDigest) {
-    fail('Inference lineage image digest does not match validity audit image digest.');
+  if (inferenceLineage) {
+    if (!inferenceLineage.assessmentId || inferenceLineage.assessmentId !== assessmentId) {
+      fail('Inference lineage assessment ID does not match assessment ID.');
+    }
+    if (validityAudit && inferenceLineage.sourceImageDigest && inferenceLineage.sourceImageDigest !== validityAudit.sourceImageDigest) {
+      fail('Inference lineage image digest does not match validity audit image digest.');
+    }
   }
 
   const tooth = parseTooth(payload.tooth);
   const technique = parseTechnique(payload.technique);
   const receptorType = parseReceptor(payload.receptorType);
 
-  if (validityAudit.targetFdi !== tooth.fdiNumber) {
-    fail('Validity audit target FDI does not match assessment tooth FDI.');
+  if (validityAudit) {
+    if (validityAudit.targetFdi !== tooth.fdiNumber) {
+      fail('Validity audit target FDI does not match assessment tooth FDI.');
+    }
+    if (validityAudit.technique !== technique) {
+      fail('Validity audit technique does not match assessment technique.');
+    }
+    if (validityAudit.receptorType !== receptorType) {
+      fail('Validity audit receptorType does not match assessment receptorType.');
+    }
   }
-  if (validityAudit.technique !== technique) {
-    fail('Validity audit technique does not match assessment technique.');
-  }
-  if (validityAudit.receptorType !== receptorType) {
-    fail('Validity audit receptorType does not match assessment receptorType.');
-  }
-  if (imageDataUrl) {
+
+  if (imageDataUrl && validityAudit) {
     const computedDigest = digestValidityImage(imageDataUrl);
     if (computedDigest && computedDigest !== validityAudit.sourceImageDigest) {
       fail('Image digest does not match attested validity audit.');
@@ -521,7 +556,7 @@ export function parsePublicPathologySaveDto(body: unknown, serverTimestamp = new
 
   const detectedPathologies = parsePathologyArray(payload.detectedPathologies, 'detectedPathologies');
 
-  if (inferenceLineage.resultDigest) {
+  if (inferenceLineage && inferenceLineage.resultDigest) {
     const computedDigest = computePathologyResultDigest(detectedPathologies);
     if (computedDigest !== inferenceLineage.resultDigest) {
       fail('Detected pathologies do not match attested inference lineage result digest.');
@@ -530,7 +565,6 @@ export function parsePublicPathologySaveDto(body: unknown, serverTimestamp = new
 
   const userId = payload.userId === undefined ? undefined : parseUserId(payload.userId);
   const sessionStatus = parseSessionStatus(payload.sessionStatus);
-  const lastCompletedStep = parseLastCompletedStep(payload.lastCompletedStep);
   const confirmedPathologies = parsePathologyArray(payload.confirmedPathologies, 'confirmedPathologies');
   const unreviewedEvaluation = parsePublicPathologyEvaluation(payload.pathologyEvaluation, detectedPathologies);
   // The public client may submit its lesion selections, but it never writes a
@@ -552,8 +586,8 @@ export function parsePublicPathologySaveDto(body: unknown, serverTimestamp = new
     receptorType,
     ...(payload.aiModel === undefined ? {} : { aiModel: optionalString(payload.aiModel, 'aiModel', 100) }),
     ...(analysisMode === undefined ? {} : { analysisMode }),
-    inferenceLineage,
-    validityAudit,
+    ...(inferenceLineage === undefined ? {} : { inferenceLineage }),
+    ...(validityAudit === undefined ? {} : { validityAudit }),
     sessionStatus,
     lastCompletedStep,
     ...(payload.stage === undefined ? {} : { stage: optionalString(payload.stage, 'stage', MAX_SHORT_TEXT_LENGTH) }),

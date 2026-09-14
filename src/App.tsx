@@ -5,6 +5,10 @@ import { Header } from './components/Header';
 import { StickyBottomNav } from './components/StickyBottomNav';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { MainScreenSkeleton, ModalSkeleton } from './components/SkeletonLoaders';
+import { GlobalAlertModal } from './components/GlobalAlertModal';
+import { SystemNoticeModal } from './components/SystemNoticeModal';
+import { ImageValidityModal } from './components/ImageValidityModal';
+import { DisclaimerModal } from './components/DisclaimerModal';
 import { useAppStore } from './store/appStore';
 import { flushPendingLogs, flushPendingPathologyLogs } from './services/apiService';
 import { useRadiographAnalysis } from './hooks/useRadiographAnalysis';
@@ -34,10 +38,6 @@ const ValidationScreen = lazyWithRetry(() => import('./components/ValidationScre
 const TreatmentRecommendationScreen = lazyWithRetry(() => import('./components/TreatmentRecommendationScreen').then(module => ({ default: module.TreatmentRecommendationScreen })));
 const AdminPortalModal = lazyWithRetry(() => import('./components/AdminPortalModal').then(module => ({ default: module.AdminPortalModal })));
 const ReportBugModal = lazyWithRetry(() => import('./components/ReportBugModal').then(module => ({ default: module.ReportBugModal })));
-const GlobalAlertModal = lazyWithRetry(() => import('./components/GlobalAlertModal').then(module => ({ default: module.GlobalAlertModal })));
-const SystemNoticeModal = lazyWithRetry(() => import('./components/SystemNoticeModal').then(module => ({ default: module.SystemNoticeModal })));
-const DisclaimerModal = lazyWithRetry(() => import('./components/DisclaimerModal').then(module => ({ default: module.DisclaimerModal })));
-const ImageValidityModal = lazyWithRetry(() => import('./components/ImageValidityModal').then(module => ({ default: module.ImageValidityModal })));
 
 export default function App() {
   return (

@@ -646,7 +646,7 @@ export const SystemHealthTab: React.FC<SystemHealthTabProps> = ({ getAuthHeader,
                       {isEn ? 'Analysis Config Version' : 'Phiên bản cấu hình'}
                     </span>
                     <span className="font-mono font-bold text-slate-800 dark:text-slate-200">
-                      {modelRuntime.controlPlane?.analysisConfigVersion || '2.9.0'}
+                      {modelRuntime.controlPlane?.analysisConfigVersion || '2.9.1'}
                     </span>
                   </div>
                 </div>

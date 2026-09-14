@@ -79,21 +79,6 @@ npm run lint
 npm run build
 ```
 
-Configure server-side Secrets from `.env.example`. AI Studio/Cloud Run needs `GEMINI_API_KEY`, `INFERENCE_LINEAGE_SIGNING_SECRET`, and `VALIDITY_RECEIPT_SIGNING_SECRET`; set `ADMIN_PASSWORD`, `PILOT_REVIEWER_IDS`, and `DEL_PASSWORD` to enable Admin features. `FIREBASE_SERVICE_ACCOUNT` is optional for durable shared persistence. Never commit `.env` or service-account JSON files.
-
-Do not manually set `PORT` or `NODE_ENV` in Cloud Run; the platform supplies runtime values. `DISABLE_HMR`, `DEPLOYMENT_ENV`, `TRUST_PROXY`, and prototype override flags are not needed for the published app.
-
-## Google AI Studio / Cloud Run Deployment
-
-Import the repository from GitHub into Google AI Studio Build mode. This release ZIP is the source handoff for local development or other hosting. Configure `GEMINI_API_KEY` and any required signing/admin/Firebase values as server-side Secrets or hosting environment variables; do not put real credentials in `metadata.json`, the ZIP, or client-side code. Use **Publish** in AI Studio to deploy the full-stack app to Cloud Run. The app can run without Firebase, but local fallback data is transient in a container; configure Firebase Admin for durable shared persistence.
-
-For local deployment from the ZIP:
-
-```bash
-npm ci
-npm run build
-npm start
-```
 
 ---
 

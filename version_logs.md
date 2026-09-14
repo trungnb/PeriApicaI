@@ -33,10 +33,6 @@ Current production prompt lineage labels remain:
 - `technical-quality-prompt-v1`
 - `pathology-segmentation-prompt-v2`
 
-The Pathology `v2` lineage label predates the R39 prompt experiment and does **not** mean the R39 Pathology V2 candidate was adopted.
-
-R39 Technical V2 and Pathology V2 remained experimental benchmark candidates only. Neither was adopted. Current production prompt builders remain authoritative.
-
 ---
 
 ## v2.9.1 — Security hardening and Google AI Studio release packaging (September 2026)
@@ -51,15 +47,8 @@ This release updates the v2.9.0 deployment baseline with security hardening, foc
 - Removed `unsafe-eval` and `unsafe-inline` from the CSP `script-src`; retained inline styles required by the current React UI.
 - Redacted stack traces and sensitive error details from automatic bug logs and legacy persistence reads.
 - Added regression tests covering lockout, restore payloads, destructive-action authorization, image validation, error sanitization, CSP, and proxy configuration.
-- Added release metadata, `.env.example`, deployment instructions, and `periapical.zip`; the package excludes secrets, runtime data, caches, dependencies, and generated build output.
 
-### Release verification
 
-- `npm test -- --silent`
-- `npm run lint`
-- `npm run build`
-- `git diff --check`
-- ZIP integrity and archive-content checks
 
 This is the current release baseline. Firebase Admin remains optional for local operation but is recommended for durable shared Cloud Run persistence.
 

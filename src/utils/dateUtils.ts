@@ -21,7 +21,7 @@ export function parseTimestampToMs(
   for (const value of [updatedAt, createdAt, timestamp]) {
     if (!value) continue;
     const ms = parseDateValue(value);
-    if (Number.isFinite(ms) && ms > 0) return ms;
+    if (Number.isFinite(ms) && ms > 0 && Number.isFinite(new Date(ms).getTime())) return ms;
   }
   return 0;
 }

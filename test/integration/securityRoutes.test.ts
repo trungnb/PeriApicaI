@@ -163,3 +163,45 @@ test('TRUST_PROXY accepts an explicit hop count only', async () => {
   if (previous === undefined) delete process.env.TRUST_PROXY;
   else process.env.TRUST_PROXY = previous;
 });
+
+test('IPv6 addresses in the same subnet share the login limit', async () => {
+  const { adminAuthLimiter } = await import('../../src/server/config/limiter');
+  const limitedApp = express();
+  limitedApp.set('trust proxy', 1);
+  limitedApp.get('/', adminAuthLimiter, (_req, res) => res.sendStatus(200));
+  const listener = limitedApp.listen(0, '127.0.0.1');
+  await once(listener, 'listening');
+  const address = listener.address();
+  assert.ok(address && typeof address !== 'string');
+  try {
+    for (let attempt = 1; attempt <= 16; attempt++) {
+      const response = await fetch(`http://127.0.0.1:${address.port}/`, {
+        headers: { 'x-forwarded-for': `2001:db8:abcd:12::${attempt.toString(16)}` },
+      });
+      assert.equal(response.status, attempt <= 15 ? 200 : 429);
+    }
+  } finally {
+    await new Promise<void>((resolve) => listener.close(() => resolve()));
+  }
+});
+
+test('unconfigured proxy trust ignores a forged client address', async () => {
+  const { createApp } = await import('../../server');
+  const previous = process.env.TRUST_PROXY;
+  delete process.env.TRUST_PROXY;
+  const directApp = createApp();
+  if (previous !== undefined) process.env.TRUST_PROXY = previous;
+  directApp.get('/client-ip', (req, res) => res.json({ ip: req.ip }));
+  const listener = directApp.listen(0, '127.0.0.1');
+  await once(listener, 'listening');
+  const address = listener.address();
+  assert.ok(address && typeof address !== 'string');
+  try {
+    const response = await fetch(`http://127.0.0.1:${address.port}/client-ip`, {
+      headers: { 'x-forwarded-for': '203.0.113.7' },
+    });
+    assert.deepEqual(await response.json(), { ip: '127.0.0.1' });
+  } finally {
+    await new Promise<void>((resolve) => listener.close(() => resolve()));
+  }
+});
