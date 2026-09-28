@@ -50,11 +50,11 @@ export const DisclaimerModal: React.FC<Props> = ({ onClose }) => {
           {/* Top Decorative Header Accent */}
           <div className="h-2 bg-gradient-to-r from-amber-500 via-sky-500 to-teal-400 shrink-0" />
 
-          <div className="p-4 sm:p-7 overflow-y-auto flex-1 flex flex-col justify-between">
+          <div className="p-4 sm:p-6 landscape:p-3.5 overflow-y-auto flex-1 flex flex-col justify-between">
             <div>
               {/* Badge & Icon Header */}
-              <div className="flex items-center gap-3 mb-3 sm:mb-4">
-                <div className="w-9 h-9 sm:w-10 sm:h-10 rounded-xl bg-amber-500/10 dark:bg-amber-400/15 border border-amber-500/20 dark:border-amber-400/30 flex items-center justify-center text-amber-600 dark:text-amber-400 shrink-0 shadow-xs">
+              <div className="flex items-center gap-2.5 sm:gap-3 mb-2.5 sm:mb-4">
+                <div className="w-8 h-8 sm:w-10 sm:h-10 rounded-xl bg-amber-500/10 dark:bg-amber-400/15 border border-amber-500/20 dark:border-amber-400/30 flex items-center justify-center text-amber-600 dark:text-amber-400 shrink-0 shadow-xs">
                   <AlertTriangle className="w-4 h-4 sm:w-5 sm:h-5" aria-hidden="true" />
                 </div>
                 <div>
@@ -62,18 +62,18 @@ export const DisclaimerModal: React.FC<Props> = ({ onClose }) => {
                     <Sparkles className="w-3 h-3 text-amber-500" aria-hidden="true" />
                     {t('disclaimerBadge')}
                   </span>
-                  <h3 id="disclaimer-modal-title" className="text-base sm:text-xl font-extrabold text-slate-900 dark:text-slate-100 tracking-tight mt-0.5 sm:mt-1">
+                  <h3 id="disclaimer-modal-title" className="text-sm sm:text-xl font-extrabold text-slate-900 dark:text-slate-100 tracking-tight mt-0.5 sm:mt-1">
                     {t('disclaimerTitle')}
                   </h3>
                 </div>
               </div>
 
               {/* Description Body */}
-              <div className="space-y-2 sm:space-y-3.5 text-xs sm:text-sm text-slate-600 dark:text-slate-300 leading-relaxed bg-slate-50 dark:bg-slate-800/50 p-3 sm:p-4 rounded-xl border border-slate-200/80 dark:border-slate-700/60">
+              <div className="space-y-2 sm:space-y-3.5 text-xs sm:text-sm text-slate-600 dark:text-slate-300 leading-relaxed bg-slate-50 dark:bg-slate-800/50 p-2.5 sm:p-4 rounded-xl border border-slate-200/80 dark:border-slate-700/60">
                 <p className="font-medium text-slate-800 dark:text-slate-200">
                   {t('disclaimerDesc')}
                 </p>
-                <div className="pt-2 border-t border-slate-200/60 dark:border-slate-700/60 text-xs text-slate-500 dark:text-slate-400 flex items-start gap-2">
+                <div className="pt-2 border-t border-slate-200/60 dark:border-slate-700/60 text-[11px] sm:text-xs text-slate-500 dark:text-slate-400 flex items-start gap-2">
                   <ShieldAlert className="w-4 h-4 text-amber-500 shrink-0 mt-0.5" />
                   <span>{t('disclaimerAdvice')}</span>
                 </div>
@@ -81,7 +81,7 @@ export const DisclaimerModal: React.FC<Props> = ({ onClose }) => {
             </div>
 
             {/* Footer Action Button - Sole Acknowledgement Path */}
-            <div className="mt-4 sm:mt-6 pt-2 flex justify-end shrink-0">
+            <div className="mt-3 sm:mt-6 landscape:mt-2.5 pt-2 flex justify-end shrink-0">
               <button
                 ref={confirmButtonRef}
                 type="button"

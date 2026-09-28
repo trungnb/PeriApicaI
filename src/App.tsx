@@ -38,6 +38,7 @@ const ValidationScreen = lazyWithRetry(() => import('./components/ValidationScre
 const TreatmentRecommendationScreen = lazyWithRetry(() => import('./components/TreatmentRecommendationScreen').then(module => ({ default: module.TreatmentRecommendationScreen })));
 const AdminPortalModal = lazyWithRetry(() => import('./components/AdminPortalModal').then(module => ({ default: module.AdminPortalModal })));
 const ReportBugModal = lazyWithRetry(() => import('./components/ReportBugModal').then(module => ({ default: module.ReportBugModal })));
+const CertificateModal = lazyWithRetry(() => import('./components/CertificateModal').then(module => ({ default: module.CertificateModal })));
 
 export default function App() {
   return (
@@ -299,24 +300,37 @@ function AppContent() {
         {globalError && <GlobalAlertModal />}
         {systemNoticeModal?.isOpen && <SystemNoticeModal />}
         <ImageValidityModal />
+        <CertificateModal />
         {isDisclaimerOpen && <DisclaimerModal onClose={handleCloseDisclaimer} />}
       </Suspense>
 
-      <footer className="shrink-0 bg-white dark:bg-slate-900 border-t border-slate-200 dark:border-slate-800 text-slate-500 dark:text-slate-400 py-2.5 px-3 sm:py-3 sm:px-4 text-xs">
-        <div className="max-w-7xl mx-auto flex flex-col sm:flex-row items-center justify-between space-y-1.5 sm:space-y-0">
-          <p className="text-[11px] text-slate-500 dark:text-slate-400 leading-tight">
+      <footer className="shrink-0 bg-white dark:bg-slate-900 border-t border-slate-200 dark:border-slate-800 text-slate-500 dark:text-slate-400 py-1.5 sm:py-2 landscape:py-1 px-3 sm:px-4 text-xs">
+        <div className="max-w-7xl mx-auto flex flex-col sm:flex-row items-center justify-between space-y-1 sm:space-y-0">
+          <p className="text-[10px] sm:text-[11px] text-slate-500 dark:text-slate-400 leading-tight">
             {tCommon('disclaimer')}
           </p>
-          <div className="flex items-center space-x-1 text-slate-400/80 dark:text-slate-500 text-[10px] uppercase tracking-widest">
-            <span>By</span>
-            <a 
-              href="https://trungnb.github.io" 
-              target="_blank" 
-              rel="noopener noreferrer"
-              className="font-semibold text-slate-400 dark:text-slate-400 hover:text-indigo-600 dark:hover:text-indigo-400 transition-colors"
+          <div className="flex items-center space-x-2.5 sm:space-x-3 text-slate-400/80 dark:text-slate-500 text-[10px]">
+            <button
+              type="button"
+              onClick={() => useAppStore.getState().setIsCertModalOpen(true)}
+              className="inline-flex items-center gap-1 hover:text-blue-600 dark:hover:text-blue-400 transition-colors cursor-pointer"
+              title="Dự án Top 500 AI Riser - Bấm xem chứng nhận"
             >
-              NBTrung
-            </a>
+              <img src="/gemini-svg.svg" alt="Top 500" className="w-3.5 h-3.5" />
+              <span className="font-semibold">Top 500 AI Riser</span>
+            </button>
+            <span>•</span>
+            <div className="flex items-center space-x-1 uppercase tracking-widest">
+              <span>By</span>
+              <a
+                href="https://trungnb.github.io"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="font-semibold text-slate-400 dark:text-slate-400 hover:text-indigo-600 dark:hover:text-indigo-400 transition-colors"
+              >
+                NBTrung
+              </a>
+            </div>
           </div>
         </div>
       </footer>

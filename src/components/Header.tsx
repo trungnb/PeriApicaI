@@ -38,7 +38,7 @@ export const Header: React.FC = React.memo(() => {
 
   return (
     <header className="shrink-0 bg-slate-50/95 dark:bg-slate-950/95 border-b border-slate-200 dark:border-slate-800 text-slate-900 dark:text-slate-100 sticky top-0 z-40 backdrop-blur-md shadow-2xs">
-      <div className="max-w-7xl mx-auto px-2 sm:px-4 lg:px-8 py-2.5">
+      <div className="max-w-7xl mx-auto px-2 sm:px-4 lg:px-8 py-1.5 sm:py-2 landscape:py-1.5">
         <div className="flex items-center justify-between gap-1.5 lg:gap-3 flex-nowrap">
           {/* Brand Logo & Name (Hành Kim sinh Thủy - Bạch Kim Platinum + Đen Thạch Anh) */}
           <div
@@ -58,7 +58,7 @@ export const Header: React.FC = React.memo(() => {
 
               {/* Inner Logo Box */}
               <div
-                className={`relative z-10 w-8 h-8 sm:w-9 sm:h-9 rounded-xl bg-slate-900 flex items-center justify-center shrink-0 overflow-hidden border transition-all duration-300 ${
+                className={`relative z-10 w-7 h-7 sm:w-9 sm:h-9 rounded-xl bg-slate-900 flex items-center justify-center shrink-0 overflow-hidden border transition-all duration-300 ${
                   isPathology
                     ? 'border-teal-500/60 shadow-[0_0_8px_rgba(20,184,166,0.3)]'
                     : 'border-sky-500/60 shadow-[0_0_8px_rgba(56,189,248,0.3)]'
@@ -72,8 +72,9 @@ export const Header: React.FC = React.memo(() => {
               </div>
             </div>
 
-            <div className="hidden sm:block">
-              <h1 className="text-base sm:text-lg lg:text-xl font-extrabold text-slate-900 dark:text-slate-100 tracking-tight flex items-center gap-1.5 sm:gap-2">
+            {/* Brand Title + Step-aware Lockup (Fully responsive on mobile and desktop) */}
+            <div className="flex items-center">
+              <h1 className="text-xs sm:text-base lg:text-xl font-extrabold text-slate-900 dark:text-slate-100 tracking-tight flex items-center gap-1 sm:gap-2">
                 <span className="flex items-center">
                   PeriApic
                   <span
@@ -86,9 +87,40 @@ export const Header: React.FC = React.memo(() => {
                     aI
                   </span>
                 </span>
-                <span className="inline-flex items-center text-[9px] font-mono font-bold tracking-tight text-slate-600 dark:text-slate-300 bg-slate-200/90 dark:bg-slate-800/90 px-1.5 py-0.5 rounded-full border border-slate-300/80 dark:border-slate-700/80 leading-none shadow-2xs self-baseline sm:self-center">
-                  {t('version')}
-                </span>
+
+                {/* Step 1 (Welcome Screen): Display Version Badge */}
+                {currentStep === 1 && (
+                  <span className="hidden xs:inline-flex items-center text-[8px] sm:text-[9px] font-mono font-bold tracking-tight text-slate-600 dark:text-slate-300 bg-slate-200/90 dark:bg-slate-800/90 px-1 sm:px-1.5 py-0.5 rounded-full border border-slate-300/80 dark:border-slate-700/80 leading-none shadow-2xs self-baseline sm:self-center">
+                    {t('version')}
+                  </span>
+                )}
+
+                {/* Step 2 onwards: Show Transparent AI Riser Logo + Overlapping Top 500 Badge (No version, No border box) */}
+                {currentStep > 1 && (
+                  <div
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      useAppStore.getState().setIsCertModalOpen(true);
+                    }}
+                    title="Dự án Top 500 AI Riser - Bấm để xem chứng nhận"
+                    className="relative inline-flex items-center cursor-pointer group/cert ml-0.5 sm:ml-1 pl-0.5 pr-2 sm:pr-2.5 py-0.5 select-none transition-transform hover:scale-105"
+                  >
+                    {/* Transparent AI Riser Logo */}
+                    <img
+                      src="/airiser-logo.png"
+                      alt="AI Riser"
+                      className="h-3.5 sm:h-5 w-auto object-contain select-none filter drop-shadow-2xs"
+                    />
+                    {/* Overlapping Top 500 Badge at Top-Right */}
+                    <div className="absolute -top-1.5 -right-1 w-4 h-4 sm:w-5.5 sm:h-5.5 drop-shadow-[0_2px_4px_rgba(0,0,0,0.22)] transition-transform duration-200 group-hover/cert:scale-115">
+                      <img
+                        src="/gemini-svg.svg"
+                        alt="Top 500"
+                        className="w-full h-full object-contain"
+                      />
+                    </div>
+                  </div>
+                )}
               </h1>
             </div>
           </div>
@@ -96,7 +128,7 @@ export const Header: React.FC = React.memo(() => {
           {/* Workflow Steps Navigator (Ánh sáng kim loại Platinum slate-200 / Đen Thạch Anh slate-900) */}
           <nav
             aria-label="Progress Stepper"
-            className="flex items-center space-x-0.5 md:space-x-1 bg-slate-200/90 dark:bg-slate-900/90 p-1 rounded-xl border border-slate-300/80 dark:border-slate-800 shadow-inner shrink-0"
+            className="flex items-center space-x-0.5 md:space-x-1 bg-slate-200/90 dark:bg-slate-900/90 p-0.5 sm:p-1 rounded-xl border border-slate-300/80 dark:border-slate-800 shadow-inner shrink-0"
           >
             {steps.map((s, idx) => {
               const isActive = currentStep === s.num;
@@ -137,17 +169,17 @@ export const Header: React.FC = React.memo(() => {
                           ? `${t('switchTo')} ${s.label}`
                           : `${t('notAvailable')} (${s.label})`
                     }
-                    className={`flex items-center justify-center py-1 rounded-lg text-xs transition-all ${
+                    className={`flex items-center justify-center py-0.5 sm:py-1 rounded-lg text-xs transition-all ${
                       isActive
-                        ? "px-1.5 lg:px-2.5 bg-slate-900 dark:bg-slate-100 text-white dark:text-slate-900 font-bold shadow-xs border border-slate-950 dark:border-white cursor-default"
+                        ? "px-1 sm:px-1.5 lg:px-2.5 bg-slate-900 dark:bg-slate-100 text-white dark:text-slate-900 font-bold shadow-xs border border-slate-950 dark:border-white cursor-default"
                         : isClickable
-                          ? "px-1.5 lg:px-2.5 text-slate-700 dark:text-slate-200 font-semibold hover:bg-slate-300/80 dark:hover:bg-slate-700 hover:text-slate-900 dark:hover:text-white cursor-pointer active:scale-95"
-                          : "px-1.5 lg:px-2.5 text-slate-400 dark:text-slate-500 font-medium cursor-not-allowed opacity-60"
+                          ? "px-1 sm:px-1.5 lg:px-2.5 text-slate-700 dark:text-slate-200 font-semibold hover:bg-slate-300/80 dark:hover:bg-slate-700 hover:text-slate-900 dark:hover:text-white cursor-pointer active:scale-95"
+                          : "px-1 sm:px-1.5 lg:px-2.5 text-slate-400 dark:text-slate-500 font-medium cursor-not-allowed opacity-60"
                     }`}
                   >
                     {/* Circle Indicator: Number or Checkmark */}
                     <span
-                      className={`w-4 h-4 rounded-full flex items-center justify-center text-[10px] font-bold shrink-0 transition-all ${
+                      className={`w-3.5 h-3.5 sm:w-4 sm:h-4 rounded-full flex items-center justify-center text-[9px] sm:text-[10px] font-bold shrink-0 transition-all ${
                         isActive
                           ? "bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100 font-black shadow-xs"
                           : isPassed
@@ -242,7 +274,7 @@ export const Header: React.FC = React.memo(() => {
                 if (currentStep === 1) toggleLanguage();
               }}
               disabled={currentStep !== 1}
-              className={`lg:hidden flex items-center justify-center w-8 h-8 rounded-xl border shadow-inner select-none transition-all shrink-0 active:scale-95 text-[11px] font-extrabold tracking-wide ${
+              className={`lg:hidden flex items-center justify-center w-7 h-7 sm:w-8 sm:h-8 rounded-xl border shadow-inner select-none transition-all shrink-0 active:scale-95 text-[10px] sm:text-[11px] font-extrabold tracking-wide ${
                 currentStep === 1
                   ? "bg-slate-200/90 dark:bg-slate-800 hover:bg-slate-300 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 border-slate-300/80 dark:border-slate-700 cursor-pointer"
                   : "bg-slate-100 dark:bg-slate-800 text-slate-400 dark:text-slate-600 border-slate-200 dark:border-slate-700 cursor-not-allowed opacity-60"
@@ -294,26 +326,26 @@ export const Header: React.FC = React.memo(() => {
             <button
               type="button"
               onClick={toggleTheme}
-              className="lg:hidden flex items-center justify-center w-8 h-8 rounded-xl border shadow-inner select-none transition-all shrink-0 cursor-pointer active:scale-95 bg-slate-200/90 dark:bg-slate-800 hover:bg-slate-300 dark:hover:bg-slate-700 border-slate-300/80 dark:border-slate-700"
+              className="lg:hidden flex items-center justify-center w-7 h-7 sm:w-8 sm:h-8 rounded-xl border shadow-inner select-none transition-all shrink-0 cursor-pointer active:scale-95 bg-slate-200/90 dark:bg-slate-800 hover:bg-slate-300 dark:hover:bg-slate-700 border-slate-300/80 dark:border-slate-700"
               title={t('darkModeTooltip')}
               role="switch"
               aria-checked={isDark}
               aria-label="Toggle Theme"
             >
               {isDark ? (
-                <Moon className="w-4 h-4 text-sky-400" />
+                <Moon className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-sky-400" />
               ) : (
-                <Sun className="w-4 h-4 text-amber-500" />
+                <Sun className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-amber-500" />
               )}
             </button>
 
             {/* Bug Report Button */}
             <button
               onClick={onOpenBugModal}
-              className="flex items-center justify-center p-1.5 lg:px-2.5 h-8 rounded-xl bg-rose-50 hover:bg-rose-100 text-rose-700 dark:bg-rose-950/40 dark:hover:bg-rose-900/50 dark:text-rose-300 dark:border-rose-800/60 font-semibold text-xs transition-all shadow-xs border border-rose-200 shrink-0 cursor-pointer active:scale-95 w-8 lg:w-[115px]"
+              className="flex items-center justify-center p-1 sm:p-1.5 lg:px-2.5 h-7 sm:h-8 rounded-xl bg-rose-50 hover:bg-rose-100 text-rose-700 dark:bg-rose-950/40 dark:hover:bg-rose-900/50 dark:text-rose-300 dark:border-rose-800/60 font-semibold text-xs transition-all shadow-xs border border-rose-200 shrink-0 cursor-pointer active:scale-95 w-7 sm:w-8 lg:w-[115px]"
               title={t('reportBugTitle')}
             >
-              <Bug className="w-4 h-4 lg:w-3.5 lg:h-3.5 text-rose-500 dark:text-rose-400 shrink-0" />
+              <Bug className="w-3.5 h-3.5 sm:w-4 sm:h-4 lg:w-3.5 lg:h-3.5 text-rose-500 dark:text-rose-400 shrink-0" />
               <span className="hidden lg:inline ml-1.5 whitespace-nowrap">{t('reportBug')}</span>
             </button>
 
@@ -323,10 +355,10 @@ export const Header: React.FC = React.memo(() => {
               onMouseEnter={prefetchAdminModal}
               onFocus={prefetchAdminModal}
               onTouchStart={prefetchAdminModal}
-              className="flex items-center justify-center p-1.5 lg:px-2.5 h-8 rounded-xl bg-slate-900 hover:bg-slate-800 text-white dark:bg-slate-100 dark:hover:bg-white dark:text-slate-900 font-bold text-xs transition-all shadow-xs shrink-0 cursor-pointer active:scale-95 w-8 lg:w-[115px] border border-slate-950 dark:border-white"
+              className="flex items-center justify-center p-1 sm:p-1.5 lg:px-2.5 h-7 sm:h-8 rounded-xl bg-slate-900 hover:bg-slate-800 text-white dark:bg-slate-100 dark:hover:bg-white dark:text-slate-900 font-bold text-xs transition-all shadow-xs shrink-0 cursor-pointer active:scale-95 w-7 sm:w-8 lg:w-[115px] border border-slate-950 dark:border-white"
               title={t('adminTitle')}
             >
-              <ShieldCheck className="w-4 h-4 lg:w-3.5 lg:h-3.5 shrink-0 text-white dark:text-slate-900" />
+              <ShieldCheck className="w-3.5 h-3.5 sm:w-4 sm:h-4 lg:w-3.5 lg:h-3.5 shrink-0 text-white dark:text-slate-900" />
               <span className="hidden lg:inline ml-1.5 whitespace-nowrap">{t('admin')}</span>
             </button>
           </div>

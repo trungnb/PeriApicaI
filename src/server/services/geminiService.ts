@@ -98,7 +98,11 @@ export class ExecutionBudget {
   getRemaining(branchId: string = 'default'): number {
     const globalRemaining = this.maxAttempts - this.attempts;
     const branchRemaining = this.maxPerBranchAttempts - (this.branchAttempts[branchId] || 0);
-    return Math.min(globalRemaining, branchRemaining);
+    return Math.max(Math.min(globalRemaining, branchRemaining), 0);
+  }
+
+  getMaxBudget(branchId: string = 'default'): number {
+    return Math.min(this.maxAttempts, this.maxPerBranchAttempts);
   }
 
   checkSignal() {
@@ -196,55 +200,15 @@ export function isTransientError(err: any): boolean {
   );
 }
 
-async function executeRunnerWithRetry<T>(
+async function executeRunnerWithinBudget<T>(
   runner: (aiClient: GoogleGenAI, modelName: string) => Promise<T>,
   aiClient: GoogleGenAI,
   model: string,
   budget: ExecutionBudget,
-  onStatusUpdate?: (status: string) => void,
-  branchId: string = 'default',
-  byok = false
+  branchId: string = 'default'
 ): Promise<T> {
-  let transientRetries = 0;
-  while (true) {
-    try {
-      budget.consume(branchId);
-      return await runWithinBudget(budget, () => runner(aiClient, model));
-    } catch (err: any) {
-      budget.checkSignal();
-      if (byok) {
-        const access = classifyByokAccessFailure(err);
-        if (access.modelAccess || access.credentialInvalid) throw err;
-      }
-      const str = err?.message?.toLowerCase() || '';
-      const isInvalidKey = isInvalidApiKeyError(err);
-      const isQuota = isRateLimitOrQuotaError(err);
-      const isMalformedOutput = str.includes('malformed ai output');
-      const isValidationError = (str.includes('400') || str.includes('invalid argument')) && !isMalformedOutput;
-      const isParseError = str.includes('json') || str.includes('schema');
-      const isBudgetOrCancel = err.isAllExhausted || str.includes('budget exhausted') || str.includes('cancelled');
-      
-      // Do not retry these at the model loop level
-      if (isTerminalExecutionError(err) || !isTransientError(err) || isInvalidKey || isQuota || isValidationError || isParseError || isMalformedOutput || isBudgetOrCancel) {
-        throw err;
-      }
-      
-      // Bound same-candidate retries
-      // If we only have 1 attempt left, save it for the next candidate (fallback model or backup key)
-      // rather than wasting it on a retry of the same failing candidate.
-      if (transientRetries >= 1 || budget.getRemaining(branchId) <= 1) {
-        throw err; // Give up on this specific candidate, let executeWithFailover try the next model/key
-      }
-      transientRetries++;
-      
-      const jitterMs = 200 + Math.floor(Math.random() * 200);
-      const msg = `⚠️ Model [${model}] tạm bận, thử lại...`;
-      serverLog('WARN', 'GeminiService', `Transient error on model [${model}]. Retrying in ${jitterMs}ms...`);
-      onStatusUpdate?.(msg);
-      await runWithinBudget(budget, () => new Promise((resolve) => setTimeout(resolve, jitterMs)));
-      budget.checkSignal();
-    }
-  }
+  budget.consume(branchId);
+  return runWithinBudget(budget, () => runner(aiClient, model));
 }
 
 /** BYOK may change models, never credentials. Generic permission failures fail closed. */
@@ -314,37 +278,53 @@ export async function executeWithFailover<T>(
     let lastError: any = null;
     let wasQuota = false;
     let wasInvalidKey = false;
-    for (let i = 0; i < ladder.length; i++) {
-      const model = ladder[i];
-      if (isCircuitOpen(model, 'custom')) continue;
-      try {
-        onStatusUpdate?.(`🔬 Đang phân tích bằng API Key cá nhân [${model}]...`);
-        const result = await executeRunnerWithRetry(runner, aiClient, model, budget, onStatusUpdate, branchId, true);
-        return { result, usedModel: model, usedKeyType: 'custom_byok' };
-      } catch (err: any) {
-        budget.checkSignal();
-        if (isTerminalExecutionError(err)) {
-          if (!err.code || err.code === 499 || err.code === '499') err.code = 'CANCELLED';
-          throw err;
+
+    while (budget.getRemaining(branchId) > 0) {
+      let passAttempts = 0;
+      for (let i = 0; i < ladder.length; i++) {
+        if (budget.getRemaining(branchId) === 0) break;
+        const model = ladder[i];
+        if (isCircuitOpen(model, 'custom')) continue;
+        passAttempts++;
+        try {
+          if (budget.getRemaining(branchId) < budget.getMaxBudget(branchId)) {
+            onStatusUpdate?.(`⚠️ Model [${model}] tạm bận, đang thử lại...`);
+          } else {
+            onStatusUpdate?.(`🔬 Đang phân tích bằng API Key cá nhân [${model}]...`);
+          }
+          const result = await executeRunnerWithinBudget(runner, aiClient, model, budget, branchId);
+          return { result, usedModel: model, usedKeyType: 'custom_byok' };
+        } catch (err: any) {
+          budget.checkSignal();
+          if (isTerminalExecutionError(err)) {
+            if (!err.code || err.code === 499 || err.code === '499') err.code = 'CANCELLED';
+            throw err;
+          }
+          lastError = err;
+          const access = classifyByokAccessFailure(err);
+          if (access.credentialInvalid) {
+            wasInvalidKey = true;
+            break; // Stop immediately on invalid key
+          }
+          const isQuota = isRateLimitOrQuotaError(err);
+          const isTransient = isTransientError(err);
+          const malformed = /json|schema|malformed|empty response/i.test(err?.message || '');
+          if (!isQuota && !isTransient && !access.modelAccess && !malformed) throw err;
+          if (isQuota || err?.status === 503 || err?.statusCode === 503 || err?.code === 503) {
+            wasQuota ||= isQuota;
+            recordFailure(model, 'custom');
+          }
+          const nextModel = ladder[i + 1];
+          if (nextModel && budget.getRemaining(branchId) > 0) onStatusUpdate?.(`🔄 Model [${model}] không khả dụng, chuyển sang [${nextModel}]...`);
         }
-        lastError = err;
-        const access = classifyByokAccessFailure(err);
-        if (access.credentialInvalid) {
-          wasInvalidKey = true;
-          break;
-        }
-        const isQuota = isRateLimitOrQuotaError(err);
-        const isTransient = isTransientError(err);
-        const malformed = /json|schema|malformed|empty response/i.test(err?.message || '');
-        if (!isQuota && !isTransient && !access.modelAccess && !malformed) throw err;
-        if (isQuota || err?.status === 503 || err?.statusCode === 503 || err?.code === 503) {
-          wasQuota ||= isQuota;
-          recordFailure(model, 'custom');
-        }
-        const nextModel = ladder[i + 1];
-        if (nextModel) onStatusUpdate?.(`🔄 Model [${model}] không khả dụng, chuyển sang [${nextModel}]...`);
+      }
+      if (wasInvalidKey) break;
+      if (passAttempts === 0) break; // All circuit broken or no models
+      if (budget.getRemaining(branchId) > 0) {
+        await new Promise(r => setTimeout(r, 500));
       }
     }
+
     const customErr: any = new Error(
       wasInvalidKey
         ? 'CUSTOM_KEY_INVALID: API Key cá nhân không hợp lệ.'
@@ -373,39 +353,55 @@ export async function executeWithFailover<T>(
   let lastError: any = null;
   let allQuotaExhausted = true;
   const invalidKeys = new Set<SafeCredentialSource>();
-  for (let i = 0; i < ladder.length; i++) {
-    const model = ladder[i];
-    for (const source of keySources) {
-      const keyLabel = source.isBackup ? 'GEMINI_API_KEY (Backup)' : 'zknjght_key (Primary)';
-      const keyId: SafeCredentialSource = source.isBackup ? 'system_backup' : 'system_primary';
-      if (invalidKeys.has(keyId)) continue;
-      if (isCircuitOpen(model, keyId)) continue;
-      const aiClient = createAiClient(source.key);
-      try {
-        onStatusUpdate?.(`🔬 Đang kết nối tới AI Model [${model}]...`);
-        const result = await executeRunnerWithRetry(runner, aiClient, model, budget, onStatusUpdate, branchId);
-        return { result, usedModel: model, usedKeyType: keyLabel };
-      } catch (err: any) {
-        budget.checkSignal();
-        if (isTerminalExecutionError(err)) {
-          if (!err.code || err.code === 499 || err.code === '499') err.code = 'CANCELLED';
-          throw err;
+
+  while (budget.getRemaining(branchId) > 0) {
+    let passAttempts = 0;
+    for (let i = 0; i < ladder.length; i++) {
+      if (budget.getRemaining(branchId) === 0) break;
+      const model = ladder[i];
+      for (const source of keySources) {
+        if (budget.getRemaining(branchId) === 0) break;
+        const keyLabel = source.isBackup ? 'GEMINI_API_KEY (Backup)' : 'zknjght_key (Primary)';
+        const keyId: SafeCredentialSource = source.isBackup ? 'system_backup' : 'system_primary';
+        if (invalidKeys.has(keyId)) continue;
+        if (isCircuitOpen(model, keyId)) continue;
+
+        passAttempts++;
+        const aiClient = createAiClient(source.key);
+        try {
+          if (budget.getRemaining(branchId) < budget.getMaxBudget(branchId)) {
+            onStatusUpdate?.(`⚠️ Đang thử lại AI Model [${model}]...`);
+          } else {
+            onStatusUpdate?.(`🔬 Đang kết nối tới AI Model [${model}]...`);
+          }
+          const result = await executeRunnerWithinBudget(runner, aiClient, model, budget, branchId);
+          return { result, usedModel: model, usedKeyType: keyLabel };
+        } catch (err: any) {
+          budget.checkSignal();
+          if (isTerminalExecutionError(err)) {
+            if (!err.code || err.code === 499 || err.code === '499') err.code = 'CANCELLED';
+            throw err;
+          }
+          if (err.isAllExhausted) throw err;
+          lastError = err;
+          const isQuota = isRateLimitOrQuotaError(err);
+          const isInvalidKey = isInvalidApiKeyError(err);
+          const isTransient = isTransientError(err);
+          const malformed = /json|schema|malformed|empty response/i.test(err?.message || '');
+          const is404 = err?.status === 404 || err?.statusCode === 404 || err?.code === 404 || err?.code === '404' || /not found/i.test(err?.message || '');
+          if (!isQuota && !isInvalidKey && !isTransient && !is404 && !malformed) throw err;
+          if (isQuota || err?.status === 503 || err?.statusCode === 503 || err?.code === 503) recordFailure(model, keyId);
+          if (!isQuota) allQuotaExhausted = false;
+          if (isInvalidKey) invalidKeys.add(keyId);
         }
-        if (err.isAllExhausted) throw err;
-        lastError = err;
-        const isQuota = isRateLimitOrQuotaError(err);
-        const isInvalidKey = isInvalidApiKeyError(err);
-        const isTransient = isTransientError(err);
-        const malformed = /json|schema|malformed|empty response/i.test(err?.message || '');
-        const is404 = err?.status === 404 || err?.statusCode === 404 || err?.code === 404 || err?.code === '404' || /not found/i.test(err?.message || '');
-        if (!isQuota && !isInvalidKey && !isTransient && !is404 && !malformed) throw err;
-        if (isQuota || err?.status === 503 || err?.statusCode === 503 || err?.code === 503) recordFailure(model, keyId);
-        if (!isQuota) allQuotaExhausted = false;
-        if (isInvalidKey) invalidKeys.add(keyId);
       }
+      const nextModel = ladder[i + 1];
+      if (nextModel && budget.getRemaining(branchId) > 0) onStatusUpdate?.(`🔄 Model [${model}] không khả dụng, tự động chuyển sang [${nextModel}]...`);
     }
-    const nextModel = ladder[i + 1];
-    if (nextModel) onStatusUpdate?.(`🔄 Model [${model}] không khả dụng, tự động chuyển sang [${nextModel}]...`);
+    if (passAttempts === 0) break; // All circuit broken or exhausted
+    if (budget.getRemaining(branchId) > 0) {
+      await new Promise(r => setTimeout(r, 500));
+    }
   }
 
   const overallErr: any = new Error(

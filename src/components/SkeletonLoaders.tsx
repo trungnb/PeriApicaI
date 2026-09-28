@@ -7,8 +7,8 @@ import React from 'react';
 export const MainScreenSkeleton: React.FC = () => {
   return (
     <div className="flex flex-col h-full w-full relative">
-      <div className="flex-1 overflow-y-auto custom-scrollbar w-full px-3 sm:px-6 lg:px-8 py-4 sm:py-6 flex flex-col justify-center">
-        <div className="w-full max-w-5xl xl:max-w-6xl mx-auto my-auto space-y-4 sm:space-y-6">
+      <div className="flex-1 overflow-y-auto custom-scrollbar w-full px-3 sm:px-6 lg:px-8 py-4 sm:py-6 flex flex-col justify-start">
+        <div className="w-full max-w-5xl xl:max-w-6xl mx-auto my-0 space-y-4 sm:space-y-6">
           
           {/* Hero / Main Card Skeleton */}
           <div className="bg-white dark:bg-slate-900/90 rounded-2xl p-4 sm:p-6 border border-slate-200/80 dark:border-slate-800 shadow-xs space-y-4">

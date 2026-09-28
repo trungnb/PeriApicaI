@@ -14,15 +14,42 @@ export const WelcomeScreen: React.FC = React.memo(() => {
 
   return (
     <div className="flex flex-col h-full w-full relative">
-      <div className="flex-1 overflow-y-auto custom-scrollbar w-full px-3 sm:px-6 lg:px-8 py-3 sm:py-4 lg:py-5 flex flex-col justify-center">
-        <div className="w-full max-w-5xl xl:max-w-6xl mx-auto my-auto space-y-3 sm:space-y-4 lg:space-y-4.5">
+      <div className="flex-1 overflow-y-auto custom-scrollbar w-full px-3 sm:px-6 lg:px-8 py-3 sm:py-4 lg:py-5 flex flex-col justify-start">
+        <div className="w-full max-w-5xl xl:max-w-6xl mx-auto my-0 space-y-3 sm:space-y-4 lg:space-y-4.5">
           
           {/* Main Hero Card */}
-          <div className="bg-white dark:bg-slate-800/90 rounded-2xl p-4 sm:p-5 lg:p-6 border border-slate-200/80 dark:border-slate-700/80 shadow-xs space-y-3 sm:space-y-3.5 relative overflow-hidden transition-all">
+          <div className="bg-white dark:bg-slate-800/90 rounded-2xl p-3.5 sm:p-5 lg:p-6 border border-slate-200/80 dark:border-slate-700/80 shadow-xs space-y-3 sm:space-y-3.5 relative overflow-hidden transition-all">
             <div className="space-y-2 sm:space-y-2.5 relative z-10">
-              <h2 className="text-lg sm:text-2xl lg:text-[26px] font-bold tracking-tight text-slate-900 dark:text-slate-100 leading-tight">
-                {t('title')}
-              </h2>
+              <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2.5 sm:gap-4">
+                <h2 className="text-base sm:landscape:text-xl sm:text-2xl lg:text-[26px] font-bold tracking-tight text-slate-900 dark:text-slate-100 leading-tight">
+                  {t('title')}
+                </h2>
+
+                {/* Award Lockup Badge (AI Riser + Overlapping Top 500 Rosette - Responsive, Transparent) */}
+                <button
+                  type="button"
+                  onClick={() => useAppStore.getState().setIsCertModalOpen(true)}
+                  className="group/cert inline-flex items-center self-start sm:self-auto cursor-pointer focus:outline-none rounded-lg p-0.5 sm:p-1 shrink-0"
+                  title="Dự án lọt Top 500 AI Riser - Bấm để xem chi tiết chứng nhận"
+                >
+                  <div className="relative inline-flex items-center select-none py-1 sm:py-1.5 pl-0.5 sm:pl-1 pr-3.5 sm:pr-5">
+                    {/* Transparent AI Riser Logo */}
+                    <img
+                      src="/airiser-logo.png"
+                      alt="AI Riser"
+                      className="h-8 sm:landscape:h-9 sm:h-11 lg:h-13 w-auto object-contain select-none transition-transform duration-200 group-hover/cert:scale-105 filter drop-shadow-xs"
+                    />
+                    {/* Overlapping Top 500 Badge at Top-Right */}
+                    <div className="absolute -top-2.5 sm:landscape:-top-2.5 sm:-top-3.5 -right-1.5 sm:landscape:-right-2 sm:-right-2.5 w-8 h-8 sm:landscape:w-9 sm:landscape:h-9 sm:w-12 sm:h-12 lg:w-14 lg:h-14 drop-shadow-[0_4px_10px_rgba(0,0,0,0.25)] transition-transform duration-200 group-hover/cert:scale-115 group-hover/cert:rotate-6">
+                      <img
+                        src="/gemini-svg.svg"
+                        alt="Top 500 Badge"
+                        className="w-full h-full object-contain"
+                      />
+                    </div>
+                  </div>
+                </button>
+              </div>
 
               <p className="text-slate-600 dark:text-slate-300 text-xs sm:text-sm md:text-base leading-relaxed w-full">
                 {t('descriptionIntro')} <strong className={`font-semibold ${isPathology ? 'text-teal-700 dark:text-teal-400' : 'text-blue-700 dark:text-sky-400'}`}>{t('descriptionPeriapical')}</strong>{t('descriptionMiddle')} <strong className="text-slate-800 dark:text-slate-200 font-semibold">{t('descriptionAnalytics')}</strong>{t('descriptionEnd')}

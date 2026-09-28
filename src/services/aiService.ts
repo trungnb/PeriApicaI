@@ -494,14 +494,23 @@ async function processStreamData(
     }
 
     if (finalData) {
-    if (isCached && typeof finalData === 'object') {
-      finalData.isCached = true;
+      if (isCached && typeof finalData === 'object') {
+        finalData.isCached = true;
+      }
+      return {
+        success: true,
+        data: finalData,
+        usedModel: finalData.usedModel || usedModel,
+      };
     }
-    return {
-      success: true,
-      data: finalData,
-      usedModel: finalData.usedModel || usedModel,
-    };
+
+    if (errorMsg || userErrMsg) {
+      return {
+        success: false,
+        isMalformedOutput: false,
+        userMessage: userErrMsg || undefined,
+        errorNotice: errorMsg || 'Stream error received',
+      };
     }
 
     console.debug('[aiService] Debug: Stream finished without valid structured AI output. Buffer content:', streamBuffer);
@@ -509,8 +518,8 @@ async function processStreamData(
     return {
       success: false,
       isMalformedOutput: true,
-      userMessage: userErrMsg || undefined,
-      errorNotice: errorMsg || 'No structured output received from AI.',
+      userMessage: undefined,
+      errorNotice: 'Stream ended without a terminal payload',
     };
   } finally {
     // A stream can end with [DONE], EOF, timeout, or external cancellation.

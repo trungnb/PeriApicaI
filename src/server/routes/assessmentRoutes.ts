@@ -456,13 +456,18 @@ router.post('/api/analyze-radiograph', requireUsableApiKeyMode, validateRadiogra
     clearTimeout(deadlineTimer);
     const err = unknownError as any;
     if (isTerminalExecutionError(err)) {
-      if (!res.destroyed) {
+      if (!res.destroyed && !res.writableEnded) {
+        const errorMsg = err.code === 'EXECUTION_DEADLINE' ? 'Request timed out' : (err.code === 'ATTEMPT_BUDGET_EXHAUSTED' ? 'AI attempt budget exhausted.' : 'Request cancelled');
         const payload = {
           success: false,
           errorType: err.code || 'CANCELLED',
-          error: err.code === 'EXECUTION_DEADLINE' ? 'Request timed out' : 'Request cancelled',
+          error: errorMsg,
         };
-        if (res.headersSent) { res.write(`data: ${JSON.stringify(payload)}\n\n`); res.end(); }
+        if (res.headersSent) {
+          res.write(`data: ${JSON.stringify(payload)}\n\n`);
+          res.write('data: [DONE]\n\n');
+          res.end();
+        }
         else res.status(err.code === 'EXECUTION_DEADLINE' ? 504 : 499).json(payload);
       }
       return;
@@ -509,6 +514,24 @@ router.post('/api/analyze-radiograph', requireUsableApiKeyMode, validateRadiogra
         : 'Có lỗi xảy ra trong quá trình phân tích AI. Vui lòng thử lại.';
     }
 
+    const systemApiAvailable = getApiKeySources().length > 0;
+    if (!res.destroyed && !res.writableEnded) {
+      if (res.headersSent) {
+        res.write(`data: ${JSON.stringify({ success: false, errorType, userMessage, isCustomKeyFailed, isQuotaExhausted, systemApiAvailable })}\n\n`);
+        res.write('data: [DONE]\n\n');
+        res.end();
+      } else {
+        res.status(isQuotaExhausted ? 429 : 500).json({
+          success: false,
+          errorType,
+          userMessage,
+          isCustomKeyFailed,
+          isQuotaExhausted,
+          systemApiAvailable,
+        });
+      }
+    }
+
     if (!isCustomKeyFailed && !isQuotaExhausted && errorType !== 'ALL_EXHAUSTED') {
       try {
         const nowStr = new Date().toISOString();
@@ -528,22 +551,6 @@ router.post('/api/analyze-radiograph', requireUsableApiKeyMode, validateRadiogra
       } catch (logErr) {
         serverLog('ERROR', 'AssessmentAPI', 'Failed to auto-log bug', logErr);
       }
-    }
-
-    const systemApiAvailable = getApiKeySources().length > 0;
-    if (res.headersSent && !res.writableEnded) {
-      res.write(`data: ${JSON.stringify({ errorType, userMessage, isCustomKeyFailed, isQuotaExhausted, systemApiAvailable })}\n\n`);
-      res.write('data: [DONE]\n\n');
-      return res.end();
-    } else if (!res.writableEnded) {
-      return res.status(isQuotaExhausted ? 429 : 500).json({
-        success: false,
-        errorType,
-        userMessage,
-        isCustomKeyFailed,
-        isQuotaExhausted,
-        systemApiAvailable,
-      });
     }
   }
 });

@@ -49,6 +49,7 @@ export interface AppState {
   logs: AssessmentLogPayload[];
   isAdminModalOpen: boolean;
   isBugModalOpen: boolean;
+  isCertModalOpen: boolean;
   globalError: string | null;
   systemNoticeModal: { isOpen: boolean; title?: string; message: string; type?: 'warning' | 'info' } | null;
   customKeyErrorModal: {
@@ -150,6 +151,7 @@ export interface AppState {
   clearLogs: () => void;
   setIsAdminModalOpen: (isOpen: boolean) => void;
   setIsBugModalOpen: (isOpen: boolean) => void;
+  setIsCertModalOpen: (isOpen: boolean) => void;
   setQuotaExhausted: (isExhausted: boolean, notice?: string | null) => void;
   setUserConcurred: (concurred: boolean | null) => void;
   setSelectedOverrideKeys: (keys: string[]) => void;
@@ -266,6 +268,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   logs: [],
   isAdminModalOpen: false,
   isBugModalOpen: false,
+  isCertModalOpen: false,
   globalError: null,
   systemNoticeModal: null,
   customKeyErrorModal: null,
@@ -565,6 +568,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   clearLogs: () => set({ logs: [] }),
   setIsAdminModalOpen: (isOpen) => set({ isAdminModalOpen: isOpen }),
   setIsBugModalOpen: (isOpen) => set({ isBugModalOpen: isOpen }),
+  setIsCertModalOpen: (isOpen) => set({ isCertModalOpen: isOpen }),
   setQuotaExhausted: (isExhausted, notice) => set({
     isQuotaExhausted: isExhausted,
     quotaResetNotice: notice || (isExhausted ? '1 phút (Giả lập thử nghiệm)' : null),

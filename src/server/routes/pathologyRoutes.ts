@@ -233,13 +233,18 @@ router.post('/api/segment-pathology', requireUsableApiKeyMode, validatePathology
   } catch (err: any) {
     clearTimeout(deadlineTimer);
     if (isTerminalExecutionError(err)) {
-      if (!res.destroyed) {
+      if (!res.destroyed && !res.writableEnded) {
+        const errorMsg = err.code === 'EXECUTION_DEADLINE' ? 'Request timed out' : (err.code === 'ATTEMPT_BUDGET_EXHAUSTED' ? 'AI attempt budget exhausted.' : 'Request cancelled');
         const payload = {
           success: false,
           errorType: err.code || 'CANCELLED',
-          error: err.code === 'EXECUTION_DEADLINE' ? 'Request timed out' : 'Request cancelled',
+          error: errorMsg,
         };
-        if (res.headersSent) { res.write(`data: ${JSON.stringify(payload)}\n\n`); res.end(); }
+        if (res.headersSent) {
+          res.write(`data: ${JSON.stringify(payload)}\n\n`);
+          res.write('data: [DONE]\n\n');
+          res.end();
+        }
         else res.status(err.code === 'EXECUTION_DEADLINE' ? 504 : 499).json(payload);
       }
       return;
