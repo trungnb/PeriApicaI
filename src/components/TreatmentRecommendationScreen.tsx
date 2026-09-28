@@ -99,13 +99,13 @@ export const TreatmentRecommendationScreen: React.FC = React.memo(() => {
               <div className="space-y-2 pt-2 border-t border-slate-100 dark:border-slate-700/80">
                 <span className="text-[11px] font-bold text-slate-700 dark:text-slate-300 block font-mono">
                   {isEn
-                    ? `Confirmed Pathologies (${confirmedPathologies.length}):`
-                    : `Tổn thương đã xác nhận (${confirmedPathologies.length}):`}
+                    ? `Reviewed Findings (${confirmedPathologies.length}):`
+                    : `Phát hiện đã rà soát (${confirmedPathologies.length}):`}
                 </span>
 
                 {confirmedPathologies.length === 0 ? (
                   <p className="text-xs text-emerald-800 dark:text-emerald-300 font-medium italic bg-emerald-50 dark:bg-emerald-950/40 p-2.5 rounded-xl border border-emerald-200 dark:border-emerald-700/60">
-                    {isEn ? 'No pathological lesions detected on this radiograph.' : 'Không phát hiện bất thường trên phim.'}
+                    {isEn ? 'No reviewed candidate findings are present for this radiograph.' : 'Không có phát hiện gợi ý đã rà soát trên phim.'}
                   </p>
                 ) : (
                   <div className="space-y-1.5">
@@ -131,7 +131,7 @@ export const TreatmentRecommendationScreen: React.FC = React.memo(() => {
               <div className="flex items-center space-x-2 border-b border-slate-100 dark:border-slate-700/80 pb-3">
                 <Stethoscope className="w-5 h-5 text-teal-600 dark:text-teal-400" />
                 <h3 className="font-bold text-base text-slate-900 dark:text-slate-100">
-                  {isEn ? 'Clinical Treatment Recommendations' : 'Chỉ Dẫn & Gợi Ý Điều Trị Nha Khoa'}
+                  {isEn ? 'Educational Reference Guidance' : 'Hướng dẫn Tham khảo Giáo dục'}
                 </h3>
               </div>
 
@@ -139,8 +139,8 @@ export const TreatmentRecommendationScreen: React.FC = React.memo(() => {
                 <div className="space-y-4">
                   <p className="text-xs text-slate-500 dark:text-slate-400">
                     {isEn
-                      ? 'Actionable treatment guidance based on confirmed radiographic structures:'
-                      : 'Hướng dẫn xử trí nha khoa dựa trên các cấu trúc & tổn thương đã xác nhận trên phim:'}
+                      ? 'Reference guidance linked to the reviewed finding classes:'
+                      : 'Hướng dẫn tham khảo gắn với các nhóm phát hiện đã rà soát:'}
                   </p>
 
                   <div className="space-y-3 max-h-[440px] overflow-y-auto pr-1 custom-scrollbar">
@@ -173,7 +173,7 @@ export const TreatmentRecommendationScreen: React.FC = React.memo(() => {
                         <div className="pt-1 space-y-1">
                           <span className="text-xs font-bold text-teal-800 dark:text-teal-400 flex items-center space-x-1">
                             <Sparkles className="w-3.5 h-3.5 text-teal-600 dark:text-teal-400" />
-                            <span>{isEn ? 'Treatment Guidance:' : 'Gợi ý điều trị:'}</span>
+                            <span>{isEn ? 'Reference Guidance:' : 'Hướng dẫn tham khảo:'}</span>
                           </span>
                           <p className="text-xs text-slate-800 dark:text-slate-200 leading-relaxed font-medium pl-3 bg-white dark:bg-slate-800 p-2.5 rounded-xl border border-slate-200 dark:border-slate-700">
                             {item.treatment}
@@ -187,12 +187,12 @@ export const TreatmentRecommendationScreen: React.FC = React.memo(() => {
                 <div className="p-6 bg-emerald-50 dark:bg-emerald-950/40 rounded-2xl border border-emerald-200 dark:border-emerald-700/60 text-emerald-900 dark:text-emerald-200 space-y-2">
                   <div className="flex items-center space-x-2 font-bold text-sm text-emerald-800 dark:text-emerald-300">
                     <CheckCircle2 className="w-5 h-5 text-emerald-600 dark:text-emerald-400" />
-                    <span>{isEn ? 'Normal Anatomical Radiograph' : 'Phim Bình Thường (Không Có Bất Thường)'}</span>
+                    <span>{isEn ? 'No Reviewed Candidate Findings' : 'Không có Phát hiện Gợi ý đã Rà soát'}</span>
                   </div>
                   <p className="text-xs text-emerald-700 dark:text-emerald-300 leading-relaxed">
                     {isEn
-                      ? 'No pathological findings detected. Routine oral prophylaxis and follow-up recommended.'
-                      : 'Không ghi nhận bất thường trên phim cận chóp. Đề nghị chăm sóc vệ sinh răng miệng định kỳ.'}
+                      ? 'No reviewed candidate findings are present. This does not establish a normal radiograph; interpret independently.'
+                      : 'Không có phát hiện gợi ý đã rà soát. Kết quả này không xác lập phim bình thường; cần diễn giải độc lập.'}
                   </p>
                 </div>
               )}
@@ -200,13 +200,13 @@ export const TreatmentRecommendationScreen: React.FC = React.memo(() => {
               {/* Notes Input — Identical to Luồng A */}
               <div className="pt-2 border-t border-slate-100 dark:border-slate-700/80 space-y-2">
                 <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300">
-                  {isEn ? 'Clinical & Diagnostic Notes:' : 'Ghi chú chẩn đoán lâm sàng:'}
+                  {isEn ? 'Reviewer Notes:' : 'Ghi chú của người rà soát:'}
                 </label>
                 <textarea
                   rows={3}
                   value={userNotes}
                   onChange={(e) => setUserNotes(e.target.value)}
-                  placeholder={isEn ? 'Enter clinical notes or patient instructions...' : 'Nhập ghi chú lâm sàng hoặc chỉ định cho bệnh nhân...'}
+                  placeholder={isEn ? 'Enter reviewer notes...' : 'Nhập ghi chú rà soát...'}
                   className="w-full p-3 rounded-xl bg-slate-50 dark:bg-slate-900/80 border border-slate-200 dark:border-slate-700 text-xs text-slate-800 dark:text-slate-100 placeholder-slate-400 dark:placeholder-slate-500 focus:outline-none focus:ring-1 focus:ring-teal-500"
                 />
               </div>

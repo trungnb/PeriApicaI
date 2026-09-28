@@ -388,7 +388,7 @@ export const PathologyAnalysisScreen: React.FC = React.memo(() => {
                   <div className="flex items-center space-x-2">
                     <Layers className="w-5 h-5 text-teal-600 dark:text-teal-400" />
                     <h3 className="font-bold text-base text-slate-900 dark:text-slate-100">
-                      {isEn ? `Confirmed Anomalies (${confirmedPathologies.length})` : `Danh Sách Cấu Trúc & Bất Thường (${confirmedPathologies.length})`}
+                      {isEn ? `Reviewed Findings (${confirmedPathologies.length})` : `Phát hiện đã rà soát (${confirmedPathologies.length})`}
                     </h3>
                   </div>
                 </div>
@@ -397,12 +397,12 @@ export const PathologyAnalysisScreen: React.FC = React.memo(() => {
                   <div className="p-6 bg-emerald-50 dark:bg-emerald-950/40 rounded-2xl border border-emerald-200 dark:border-emerald-700/60 text-emerald-900 dark:text-emerald-200 space-y-2">
                     <div className="flex items-center space-x-2 font-bold text-sm text-emerald-800 dark:text-emerald-300">
                       <CheckCircle2 className="w-5 h-5 text-emerald-600 dark:text-emerald-400" />
-                      <span>{isEn ? 'No Anomalies Detected' : 'Không Phát Hiện Bất Thường'}</span>
+                      <span>{isEn ? 'No Candidate Findings Identified' : 'Không ghi nhận phát hiện gợi ý'}</span>
                     </div>
                     <p className="text-xs text-emerald-700 dark:text-emerald-300 leading-relaxed">
                       {isEn
-                        ? 'The radiograph does not exhibit signs of periapical radiolucency, bone loss, or carious lesions.'
-                        : 'Không ghi nhận dấu hiệu thấu quang quanh chóp, tiêu xương ổ răng hay sâu răng trên phim.'}
+                        ? 'The model did not identify candidate regions for the supported finding classes. Review the radiograph independently.'
+                        : 'Mô hình không ghi nhận vùng gợi ý thuộc các nhóm phát hiện được hỗ trợ. Cần tự đánh giá phim độc lập.'}
                     </p>
                   </div>
                 )}
