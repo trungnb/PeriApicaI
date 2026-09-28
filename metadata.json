@@ -1,7 +1,7 @@
 {
-  "name": "Remix PeriApical-v2",
+  "name": "PeriApicaI",
   "version": "2.9.1",
-  "description": "An AI-powered training and diagnostic platform for dental periapical radiography: technical error detection, remediation guidance, and pathology segmentation.",
+  "description": "Experimental AI-assisted research and education prototype for periapical radiograph technical-quality review and candidate pathology localisation.",
   "requestFramePermissions": [
     "camera"
   ],

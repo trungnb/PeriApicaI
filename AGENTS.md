@@ -4,17 +4,18 @@ Follow the shared coding core:
 `/Users/trungnguyen/.ai-agent/CORE.md`
 
 ## Project Overview
-PeriApicaI is an experimental AI web application (React 19, TypeScript, Vite, Express) for dental periapical lesion segmentation and educational CBCT analysis.
+PeriApicaI is an experimental React/TypeScript/Express prototype for AI-assisted review of dental periapical radiographs. It has two independent workflows: technical-quality assessment and candidate pathology localisation. It is not clinically validated and is not a medical device.
 
-## Engineering Protocols
-- Follow the global Ponytail laziness ladder (prefer minimal changes; YAGNI).
-- Follow Caveman communication register (high density, zero fluff).
-- Experimental prototype: not approved for clinical diagnostic use.
+## Project-specific rules
+- Prefer minimal changes and reuse existing components/utilities.
+- Preserve the technical-quality and pathology workflows as independent modes.
+- Keep clinical claims bounded to research/education use; do not imply validated diagnosis or treatment.
+- Preserve server-side validation, provenance, human-review state, and credential isolation.
 
-## Project Verification Gate
-Before declaring completion on any change, verify:
+## Verification gate
+Before declaring completion:
 ```bash
-npm run lint   # tsc --noEmit
-npm run build  # Vite + Esbuild bundle check
+npm run lint
+npm run build
 npm test -- --silent
 ```
