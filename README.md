@@ -17,6 +17,21 @@ PeriApicaI supports two independent workflows: **Technical Quality Assessment** 
 - **Human review & audit:** stores review states, assessment lineage, and admin audit/export records.
 - **Bilingual responsive UI:** Vietnamese/English, desktop/tablet/mobile, light/dark themes.
 
+## Development story
+
+```mermaid
+flowchart LR
+    A["Technical-review prototype"]
+    --> B["Add candidate pathology localisation"]
+    --> C["Separate workflows<br/>+ structured schemas"]
+    --> D["Validity gate<br/>+ model provenance"]
+    --> E["Human review<br/>+ evaluation states"]
+    --> F["Regression + security hardening"]
+    --> G["Current experimental prototype<br/>not clinically validated"]
+```
+
+This diagram summarizes documented design evolution, not clinical validation. Detailed release history remains in [version_logs.md](version_logs.md); the operational flow below describes how the current application is used.
+
 ## Prototype workflow
 
 1. Select radiographic technique, receptor type, and target tooth.
