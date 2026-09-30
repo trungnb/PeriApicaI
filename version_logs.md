@@ -155,11 +155,11 @@ The milestones below preserve application versions and approximate month/year la
 
 They are historical documentation, not independently verified release tags and not evidence of clinical validation.
 
-The earliest recoverable documented milestone is **v1.0.0, April 2026**. Gaps between recorded application versions are intentionally left unfilled.
+The project started in early August 2026; the earliest recoverable documented milestone is **v1.0.0, early August 2026**. Gaps between recorded application versions are intentionally left unfilled.
 
 ---
 
-## v1.0.0 — Technical assessment and image viewer (April 2026)
+## v1.0.0 — Technical assessment and image viewer (early August 2026)
 
 - Initial documented application focused on Technical Quality assessment.
 - Historical documentation described 12 positioning/exposure-error categories, including cone-cut, elongation, foreshortening, overlap, motion blur, and exposure faults.
@@ -170,7 +170,7 @@ The historical 12-category description is preserved only as history. Current Tec
 
 ---
 
-## v1.5.0 — CAD metrics and bilingual presentation (May 2026)
+## v1.5.0 — CAD metrics and bilingual presentation (early August 2026)
 
 - Historical documentation introduced four automated measurement concepts:
   - periapical bone-gap measurement
@@ -183,7 +183,7 @@ These historical quantitative concepts do not establish calibrated measurement a
 
 ---
 
-## v2.0.0 — Pathology spatial grounding (June 2026)
+## v2.0.0 — Pathology spatial grounding (early August 2026)
 
 - Added a Pathology-oriented workflow with normalized polygon coordinates on a 0–1000 scale.
 - Historical Pathology taxonomy included eight broader categories involving radiolucency, bone loss, restorations, endodontics, caries, eruption status, prosthetics, and calculus.
@@ -205,7 +205,7 @@ Historical labels must not be interpreted as the current schema or as confirmed 
 
 ---
 
-## v2.2.0 — Streaming, cloud persistence, and BYOK (July 2026)
+## v2.2.0 — Streaming, cloud persistence, and BYOK (early August 2026)
 
 - Introduced server-sent streaming for longer-running Gemini operations.
 - Added Firebase Firestore persistence for reports, audit information, and Pathology verification state.
